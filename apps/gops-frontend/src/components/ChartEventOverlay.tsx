@@ -16,6 +16,7 @@ type ChartEventOverlayProps = {
   response: ChartEventsResponse | null;
   earningsVisible: boolean;
   upcomingStyle?: CSSProperties;
+  openRequest?: { eventId: string; revision: number } | null;
 };
 
 type SelectedChartEvent = {
@@ -45,17 +46,48 @@ export function ChartEventOverlay({
   markers,
   response,
   earningsVisible,
-  upcomingStyle
+  upcomingStyle,
+  openRequest
 }: ChartEventOverlayProps) {
   const [selected, setSelected] = useState<SelectedChartEvent | null>(null);
   const [positionRevision, setPositionRevision] = useState(0);
   const popoverRef = useRef<HTMLElement | null>(null);
+  const handledOpenRevisionRef = useRef<number | null>(null);
   const selectedStillVisible = Boolean(selected?.upcoming && earningsVisible && response?.upcomingEarnings)
     || markers.some((marker) => marker.id === selected?.event.id);
 
   useEffect(() => {
     setSelected(null);
+    handledOpenRevisionRef.current = null;
   }, [response?.symbol]);
+
+  useEffect(() => {
+    if (!openRequest || handledOpenRevisionRef.current === openRequest.revision) return;
+    const marker = markers.find((item) => item.id === openRequest.eventId);
+    if (marker) {
+      setSelected({
+        event: marker.event,
+        anchorX: marker.x,
+        anchorTop: marker.top
+      });
+      handledOpenRevisionRef.current = openRequest.revision;
+      return;
+    }
+    const upcoming = response?.upcomingEarnings;
+    const container = containerRef.current;
+    const upcomingEvent = upcoming && response
+      ? upcomingAsEarningsEvent(response.symbol, upcoming)
+      : null;
+    if (upcomingEvent?.id === openRequest.eventId && container && earningsVisible) {
+      setSelected({
+        event: upcomingEvent,
+        anchorX: Math.max(40, container.clientWidth - 110),
+        anchorTop: Math.max(44, container.clientHeight - 28),
+        upcoming: upcoming ?? undefined
+      });
+      handledOpenRevisionRef.current = openRequest.revision;
+    }
+  }, [containerRef, earningsVisible, markers, openRequest, response]);
 
   useEffect(() => {
     if (selected && !selectedStillVisible) {

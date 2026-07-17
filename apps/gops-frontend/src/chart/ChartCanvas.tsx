@@ -355,12 +355,13 @@ function interpretationFinalDrawingBatch(
   const drawings = scene.chart.drawings.flatMap((drawing) => {
     const descriptor = descriptorById.get(drawing.id);
     if (!descriptor) return [];
-    const opacity = interpretationLineOpacity * (spotlight && !spotlight.has(drawing.id) ? 0.65 : 1);
+    const targeted = Boolean(spotlight?.has(drawing.id));
+    const opacity = interpretationStrokeOpacity(Boolean(spotlight), targeted);
     const colorToken: ThemeColorToken = descriptor.tone === "support"
-      ? "evidenceSupport"
+      ? "up"
       : descriptor.tone === "resistance"
-        ? "evidenceResistance"
-        : descriptor.tone === "pattern" ? "evidencePattern" : "evidenceTrend";
+        ? "down"
+        : descriptor.tone === "pattern" ? "pointPurple" : "signal";
     return [{
       ...drawing,
       id: `${interpretationUnderlayIdPrefix}${drawing.id}`,
@@ -373,7 +374,7 @@ function interpretationFinalDrawingBatch(
         fillOpacity: 0,
         labelPlacement: "none" as const,
         lineDash: [],
-        lineWidth: interpretationLineWidth(descriptor.category),
+        lineWidth: interpretationFocusedLineWidth(descriptor.category, targeted),
         opacity
       }
     }];
@@ -835,11 +836,11 @@ function drawAnalysisTraceLines(
       ? analysisTraceLevelPrice(candidate, overlay.pivots)
       : null;
     const levelY = levelPrice === null ? points[0]?.y : transform.priceToY(levelPrice);
-    const focusMultiplier = overlay.focused && !focusedCandidateIds.has(candidate.id) ? 0.65 : 1;
+    const targeted = overlay.focused && focusedCandidateIds.has(candidate.id);
     context.save();
     context.strokeStyle = color;
-    context.globalAlpha = interpretationLineOpacity * focusMultiplier;
-    context.lineWidth = interpretationLineWidth(candidate.category);
+    context.globalAlpha = interpretationStrokeOpacity(overlay.focused, targeted);
+    context.lineWidth = interpretationFocusedLineWidth(candidate.category, targeted);
     context.setLineDash([]);
     if (typeof levelY === "number" && Number.isFinite(levelY) && candidate.category === "levels") {
       line(context, scene.plot.left, levelY, scene.plot.right, levelY);
@@ -879,6 +880,18 @@ function interpretationLineWidth(category: AnalysisTraceOverlayCandidate["catego
   if (category === "pattern") return 5.5;
   if (category === "levels") return 4.5;
   return 4;
+}
+
+function interpretationFocusedLineWidth(
+  category: AnalysisTraceOverlayCandidate["category"],
+  targeted: boolean
+): number {
+  return interpretationLineWidth(category) + (targeted ? 1 : 0);
+}
+
+function interpretationStrokeOpacity(focused: boolean, targeted: boolean): number {
+  if (!focused) return interpretationLineOpacity;
+  return targeted ? 1 : interpretationLineOpacity * 0.65;
 }
 
 function drawAnalysisTraceMarkers(
@@ -935,10 +948,10 @@ function drawAnalysisTraceMarkers(
 
 function traceCandidateColor(candidate: AnalysisTraceOverlayCandidate): string {
   if (candidate.category === "levels") {
-    return candidate.role === "resistance" ? colors.evidenceResistance : colors.evidenceSupport;
+    return candidate.role === "resistance" ? colors.down : colors.up;
   }
-  if (candidate.category === "pattern") return colors.evidencePattern;
-  return colors.evidenceTrend;
+  if (candidate.category === "pattern") return colors.pointPurple;
+  return colors.signal;
 }
 
 function drawSpotlightCandle(context: CanvasRenderingContext2D, scene: ChartScene, timestamp: string) {

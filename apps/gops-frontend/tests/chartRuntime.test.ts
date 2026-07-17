@@ -4523,6 +4523,12 @@ assert.match(chartPanelSource, /chart-drawing-dock-scroller/);
 assert.match(chartPanelSource, /chart-add-dropdown-anchor/);
 assert.match(chartPanelSource, /chart-current-price|currentPriceMarker/);
 assert.match(chartEventOverlaySource, /data-chart-event-id=\{marker\.id\}/);
+assert.match(chartPanelSource, /detail\?\.chartDocumentId !== document\.id/);
+assert.match(chartPanelSource, /chartCommentaryReferenceOpenEventName/);
+assert.match(chartPanelSource, /chartCommentaryIndicatorToggleEventName/);
+assert.match(chartPanelSource, /applyViewport\(\{ visibleCount: current\.visibleCount, rightOffset: centeredRightOffset \}, "external"\)/);
+assert.match(chartEventOverlaySource, /markers\.find\(\(item\) => item\.id === openRequest\.eventId\)/);
+assert.doesNotMatch(chartPanelSource, /querySelector\([^)]*chart-commentary/);
 assert.ok(
   chartPanelSource.indexOf("syncChartEventMarkerPositions(chartWrapRef.current, nextEventMarkers)")
     < chartPanelSource.indexOf("setChartEventMarkers(nextEventMarkers)")
@@ -4620,13 +4626,17 @@ assert.match(chartCanvasSource, /className="chart-canvas chart-canvas-layer char
 assert.match(chartCanvasSource, /scheduleOverlayDrawRef\.current\(\)/);
 assert.match(chartCanvasSource, /const drawingBatch = drawingRenderBatch\(scene, scene\.chart\.drawings, false, spotlight\)/);
 assert.match(chartCanvasSource, /function interpretationFinalDrawingBatch/);
-assert.match(chartCanvasSource, /lineWidth: interpretationLineWidth\(descriptor\.category\)/);
+assert.match(chartCanvasSource, /lineWidth: interpretationFocusedLineWidth\(descriptor\.category, targeted\)/);
 assert.match(chartCanvasSource, /fillOpacity: 0/);
 assert.match(chartCanvasSource, /labelPlacement: "none"/);
 assert.match(chartCanvasSource, /function interpretationLineWidth[\s\S]*pattern"\) return 5\.5[\s\S]*levels"\) return 4\.5[\s\S]*return 4/);
 assert.match(chartCanvasSource, /const interpretationLineOpacity = 0\.4/);
-assert.match(chartCanvasSource, /const opacity = interpretationLineOpacity \* \(spotlight/);
-assert.match(chartCanvasSource, /context\.globalAlpha = interpretationLineOpacity \* focusMultiplier/);
+assert.match(chartCanvasSource, /function interpretationFocusedLineWidth[\s\S]*interpretationLineWidth\(category\) \+ \(targeted \? 1 : 0\)/);
+assert.match(chartCanvasSource, /function interpretationStrokeOpacity[\s\S]*if \(!focused\) return interpretationLineOpacity;[\s\S]*return targeted \? 1 : interpretationLineOpacity \* 0\.65/);
+assert.match(chartCanvasSource, /const opacity = interpretationStrokeOpacity\(Boolean\(spotlight\), targeted\)/);
+assert.match(chartCanvasSource, /context\.globalAlpha = interpretationStrokeOpacity\(overlay\.focused, targeted\)/);
+assert.match(chartCanvasSource, /descriptor\.tone === "support"[\s\S]*\? "up"[\s\S]*descriptor\.tone === "resistance"[\s\S]*\? "down"[\s\S]*descriptor\.tone === "pattern" \? "pointPurple" : "signal"/);
+assert.match(chartCanvasSource, /candidate\.role === "resistance" \? colors\.down : colors\.up[\s\S]*candidate\.category === "pattern"\) return colors\.pointPurple;[\s\S]*return colors\.signal/);
 assert.match(chartCanvasSource, /context\.setLineDash\(\[\]\)/);
 assert.ok(chartCanvasLayerSource.indexOf("drawGrid(context, scene)") < chartCanvasLayerSource.indexOf("drawAnalysisTraceLines"));
 assert.ok(chartCanvasLayerSource.indexOf("drawAnalysisTraceLines") < chartCanvasLayerSource.indexOf("drawDrawingFills"));
@@ -4692,8 +4702,8 @@ assert.match(
 );
 assert.match(
   chartCanvasSource,
-  /const color = traceCandidateColor\(candidate\);[\s\S]*context\.globalAlpha = interpretationLineOpacity \* focusMultiplier/,
-  "all interpretation candidates keep their category color and share one base opacity"
+  /const color = traceCandidateColor\(candidate\);[\s\S]*context\.globalAlpha = interpretationStrokeOpacity\(overlay\.focused, targeted\)/,
+  "interpretation candidates keep their category color while focused targets become fully opaque"
 );
 assert.doesNotMatch(chartCanvasSource, /const baseAlpha = disposition === "rejected"/);
 assert.match(

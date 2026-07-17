@@ -69,6 +69,12 @@ import {
   type AnalysisAssetsResponse
 } from "../chart/analysisAssetsApi";
 import { projectChartTradeSetup } from "../chart/chartTradeSetup";
+import {
+  chartCommentaryIndicatorToggleEventName,
+  chartCommentaryReferenceOpenEventName,
+  type ChartCommentaryIndicatorToggleRequest,
+  type ChartCommentaryReferenceOpenRequest
+} from "../chart/chartCommentaryReferences";
 import { buildPatternBadgeLayout, type PatternBadgeLayout } from "../chart/patternBadge";
 import { createChartPriceSelection, type ChartPriceSelection, type ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
 import { clearChartTradeSetupSnapshot, setChartTradeSetupSnapshot } from "../chart/chartTradeSetupStore";
@@ -98,6 +104,7 @@ import {
   latestChartEventRefreshRange,
   mergeChartEventsResponses,
   missingChartEventRanges,
+  marketDateForTimestamp,
   syncChartEventMarkerPositions,
   type ChartEventCoverage,
   type ChartEventMarker,
@@ -488,6 +495,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [chartEventMarkers, setChartEventMarkers] = useState<ChartEventMarker[]>([]);
   const [chartTradeMarkers, setChartTradeMarkers] = useState<ChartTradeMarker[]>([]);
   const [chartEventUpcomingStyle, setChartEventUpcomingStyle] = useState<CSSProperties>();
+  const [commentaryEventOpenRequest, setCommentaryEventOpenRequest] = useState<{ eventId: string; revision: number } | null>(null);
   const effectiveSpotlightDrawingIds = useMemo(() => [...new Set([
     ...spotlightDrawingIds,
     ...proposalPriceSourceSpotlightIds
@@ -642,6 +650,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const chartTradeMarkerKeyRef = useRef("");
   const chartEventUpcomingStyleKeyRef = useRef("");
   const chartEventsRef = useRef<ChartEventsResponse | null>(null);
+  const pendingCommentaryCandleRef = useRef<{ timestamp: string; candleKey?: string } | null>(null);
   const chartEventCoverageRef = useRef<ChartEventCoverage | null>(null);
   const dragAnchorRef = useRef<DragAnchor | null>(null);
   const paneResizeRef = useRef<PaneResizeAnchor | null>(null);
@@ -1965,6 +1974,66 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [dispatchDocumentCommand]);
 
   useEffect(() => {
+    const moveToCandleIndex = (index: number) => {
+      const current = chartRef.current;
+      const centeredRightOffset = Math.max(0, current.candles.length - 1 - index - Math.floor(current.visibleCount / 2));
+      applyViewport({ visibleCount: current.visibleCount, rightOffset: centeredRightOffset }, "external");
+    };
+    const handleIndicatorToggle = (event: Event) => {
+      const detail = (event as CustomEvent<ChartCommentaryIndicatorToggleRequest>).detail;
+      if (detail?.chartDocumentId !== document.id) return;
+      const current = chartRef.current;
+      const visible = !Boolean(current.layers[detail.layer]);
+      dispatchDocumentCommand("chart.layer.visibility.set", { layer: detail.layer, visible });
+    };
+    const handleReferenceOpen = (event: Event) => {
+      const detail = (event as CustomEvent<ChartCommentaryReferenceOpenRequest>).detail;
+      if (detail?.chartDocumentId !== document.id || !detail.reference) return;
+      const reference = detail.reference;
+      const current = chartRef.current;
+      if (reference.type === "earnings" && reference.eventId.endsWith(":upcoming")) {
+        if (current.layers["events:earnings"] === false) {
+          dispatchDocumentCommand("chart.layer.visibility.set", { layer: "events:earnings", visible: true });
+        }
+        setCommentaryEventOpenRequest((previous) => ({
+          eventId: reference.eventId,
+          revision: (previous?.revision ?? 0) + 1
+        }));
+        return;
+      }
+      const index = commentaryReferenceCandleIndex(reference, current.candles, current.interval);
+      if (index < 0) return;
+      moveToCandleIndex(index);
+      if (reference.type === "candle") {
+        pendingCommentaryCandleRef.current = {
+          timestamp: reference.timestamp,
+          ...(reference.candleKey ? { candleKey: reference.candleKey } : {})
+        };
+        const unit = commentarySemanticCandle(sceneRef.current, reference.timestamp, reference.candleKey, current.interval);
+        if (unit) {
+          setSelectedSemanticNode(snapshotFromSemanticUnit(unit));
+          pendingCommentaryCandleRef.current = null;
+        }
+        return;
+      }
+      const layer: ChartLayerKey = reference.type === "news" ? "events:news" : "events:earnings";
+      if (current.layers[layer] === false) {
+        dispatchDocumentCommand("chart.layer.visibility.set", { layer, visible: true });
+      }
+      setCommentaryEventOpenRequest((previous) => ({
+        eventId: reference.eventId,
+        revision: (previous?.revision ?? 0) + 1
+      }));
+    };
+    window.addEventListener(chartCommentaryIndicatorToggleEventName, handleIndicatorToggle);
+    window.addEventListener(chartCommentaryReferenceOpenEventName, handleReferenceOpen);
+    return () => {
+      window.removeEventListener(chartCommentaryIndicatorToggleEventName, handleIndicatorToggle);
+      window.removeEventListener(chartCommentaryReferenceOpenEventName, handleReferenceOpen);
+    };
+  }, [applyViewport, dispatchDocumentCommand, document.id]);
+
+  useEffect(() => {
     proposalAutoFrameKeyRef.current = "";
   }, [
     chart.interval,
@@ -1975,6 +2044,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chartTradeSetupSnapshot?.setup.drawingIds.plan,
     document.id
   ]);
+
+  useEffect(() => {
+    pendingCommentaryCandleRef.current = null;
+    setCommentaryEventOpenRequest(null);
+  }, [chart.interval, chart.symbol, document.id]);
 
   useEffect(() => {
     const proposalDrawing = chartTradeSetupSnapshot
@@ -2024,6 +2098,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
+    const pendingCommentaryCandle = pendingCommentaryCandleRef.current;
+    if (pendingCommentaryCandle) {
+      const unit = commentarySemanticCandle(
+        scene,
+        pendingCommentaryCandle.timestamp,
+        pendingCommentaryCandle.candleKey,
+        scene.chart.interval
+      );
+      if (unit) {
+        setSelectedSemanticNode(snapshotFromSemanticUnit(unit));
+        pendingCommentaryCandleRef.current = null;
+      }
+    }
     const planDrawingId = chartTradeSetupSnapshot?.setup.drawingIds.plan;
     const planDrawing = planDrawingId
       ? scene.chart.drawings.find((drawing) => drawing.id === planDrawingId)
@@ -2939,6 +3026,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           response={chartEvents}
           earningsVisible={earningsEventsVisible}
           upcomingStyle={chartEventUpcomingStyle}
+          openRequest={commentaryEventOpenRequest}
         />
         <ChartTradeOverlay markers={chartTradeMarkers} />
         {tradePlanOverlay && (
@@ -4576,6 +4664,42 @@ function formatHoverTimestamp(value: string): string {
     hour: "2-digit",
     minute: "2-digit"
   }).format(date);
+}
+
+function commentaryReferenceCandleIndex(
+  reference: ChartCommentaryReferenceOpenRequest["reference"],
+  candles: CandleDto[],
+  interval: ChartInterval
+): number {
+  if (!isCommentaryAssetInterval(interval)) return -1;
+  if (reference.type === "candle") {
+    const expected = reference.candleKey ?? candleKeyForTimestamp(reference.timestamp, interval);
+    return candles.findIndex((candle) => candleKeyForTimestamp(candle.timestamp, interval) === expected);
+  }
+  const marketDate = reference.type === "news"
+    ? reference.marketDate
+    : marketDateForTimestamp(reference.eventAt);
+  return candles.findIndex((candle) => marketDateForTimestamp(candle.timestamp) === marketDate);
+}
+
+function commentarySemanticCandle(
+  scene: ChartScene | null,
+  timestamp: string,
+  candleKey: string | undefined,
+  interval: ChartInterval
+): Extract<SemanticRenderUnit, { kind: "candle" }> | null {
+  if (!scene || !isCommentaryAssetInterval(interval)) return null;
+  const expected = candleKey ?? candleKeyForTimestamp(timestamp, interval);
+  return scene.semantic.units.find((unit): unit is Extract<SemanticRenderUnit, { kind: "candle" }> => (
+    unit.kind === "candle"
+    && unit.depth === 0
+    && candleKeyForTimestamp(unit.timestamp, interval) === expected
+  )) ?? null;
+}
+
+function isCommentaryAssetInterval(interval: ChartInterval): interval is AnalysisAssetInterval {
+  return interval === "1m" || interval === "5m" || interval === "10m" || interval === "1h"
+    || interval === "4h" || interval === "1D" || interval === "1W";
 }
 
 function bidAskCandlesForSession(candles: CandleDto[], sessionDate: string): CandleDto[] {

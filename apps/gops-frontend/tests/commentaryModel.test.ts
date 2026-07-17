@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { buildChartCommentaryModel, buildChartCommentaryViewModel } from "../src/chart/commentaryModel";
-import { chartCommentaryHoldingDisplay } from "../src/chart/commentaryHoldings";
 import type { ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
 import type { ChartTradeSetup } from "../src/chart/chartTradeSetup";
 
@@ -33,7 +32,7 @@ assert.match(steps[0].body, /지지선 1개와 저항선 0개/);
 assert.equal(steps[0].metricCards?.[0]?.items.find((item) => item.label === "가격")?.value, "98");
 assert.equal(steps[1].body, "적격 대각 추세 없음");
 assert.equal(steps[2].body, "적격 패턴 없음");
-const view = buildChartCommentaryViewModel(asset, plan, 101, { averagePrice: 90, quantity: 18 });
+const view = buildChartCommentaryViewModel(asset, plan, 101);
 assert.deepEqual(view.keyPrices.map((item) => item.id), ["entry", "target", "invalidation"]);
 assert.equal(view.keyPrices[0]?.distancePercent?.toFixed(2), "-0.99");
 assert.equal(view.scenario?.status, "조건부 매수 검토");
@@ -46,25 +45,16 @@ assert.deepEqual(view.keyPrices.map((item) => item.sourceLabel), ["패턴 상단
 assert.match(view.summary.join(" "), /현재가 101\.00/);
 assert.match(view.summary.join(" "), /98\.00/);
 assert.match(view.summary.join(" "), /95\.00 패턴 하단을 손절 기준/);
-assert.match(view.summary.join(" "), /평균 매입가 90\.00 대비 현재가는 \+12\.22%/);
-assert.equal(view.summary.length, 4);
-assert.deepEqual(buildChartCommentaryViewModel(asset, plan, 101, { averagePrice: 90 }), view, "same facts always produce the same commentary");
+assert.doesNotMatch(view.summary.join(" "), /평균 매입가|보유 수량|포트폴리오/);
+assert.equal(view.summary.length, 3);
+assert.deepEqual(buildChartCommentaryViewModel(asset, plan, 101), view, "same facts always produce the same commentary");
 
-const withoutHolding = buildChartCommentaryViewModel(asset, null, null, null);
+const withoutHolding = buildChartCommentaryViewModel(asset, null, null);
 assert.equal(withoutHolding.scenario, null);
 assert.deepEqual(withoutHolding.keyPrices, []);
 assert.doesNotMatch(withoutHolding.summary.join(" "), /현재가|평균 매입가|진입 기준/);
 assert.match(withoutHolding.summary.join(" "), /현재 적격 제안 없음/);
 assert.equal(withoutHolding.summary.length, 2);
-
-assert.deepEqual(chartCommentaryHoldingDisplay({ symbol: "AAPL", averagePrice: 148.42, quantity: 18 }, false), {
-  status: "보유", averagePrice: 148.42, quantity: 18
-});
-assert.deepEqual(chartCommentaryHoldingDisplay(null, false), { status: "미보유", averagePrice: null, quantity: null });
-assert.deepEqual(chartCommentaryHoldingDisplay(null, false, "로그인이 필요합니다", 401), { status: "계좌 미연결", averagePrice: null, quantity: null });
-assert.deepEqual(chartCommentaryHoldingDisplay({ symbol: "AAPL", averagePrice: 148.42, quantity: 18 }, false, "조회 실패", 503), {
-  status: "확인 불가", averagePrice: null, quantity: null
-});
 
 const sellView = buildChartCommentaryViewModel(asset, {
   ...plan,
@@ -75,7 +65,7 @@ const sellView = buildChartCommentaryViewModel(asset, {
   targetPrice: 110,
   stopPrice: 122,
   rewardRiskRatio: 2
-}, 118, null);
+}, 118);
 assert.equal(sellView.scenario?.status, "조건부 매도 검토");
 assert.equal(sellView.scenario?.confirmation, "매도 118.00 · 패턴 상단");
 assert.deepEqual(sellView.keyPrices.map((item) => item.label), ["매도", "예상 하단", "재검토"]);

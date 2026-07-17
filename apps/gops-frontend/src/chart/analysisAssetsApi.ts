@@ -201,6 +201,60 @@ export type GeometryTradePlan = {
   reasons: string[];
 };
 
+export type ChartAssetCommentaryBlockKind =
+  | "overview"
+  | "drawing_guide"
+  | "indicator_context"
+  | "event_context"
+  | "watch_next";
+
+export type ChartAssetCommentaryIndicatorLayer =
+  | "volume-profile"
+  | "volume"
+  | "rsi:14"
+  | "macd:12:26:9"
+  | "bollinger:20:2"
+  | "sma:20"
+  | "sma:60"
+  | "sma:120"
+  | "ema:20";
+
+export type ChartAssetCommentaryReference =
+  | { id: string; type: "drawing"; drawingIds: string[] }
+  | { id: string; type: "candle"; timestamp: string; candleKey?: string }
+  | { id: string; type: "news"; eventId: string; marketDate: string }
+  | { id: string; type: "earnings"; eventId: string; eventAt: string };
+
+export type ChartAssetCommentary = {
+  version: "chart-commentary.v1";
+  status: "ready";
+  generatedAt: string;
+  model: string;
+  promptVersion: string;
+  sourceIdentity: {
+    geometryInputDigest: string;
+    candlesAsOf: string;
+    indicatorsAsOf: string;
+    newsAsOf?: string;
+    earningsAsOf?: string;
+    contextDigest: string;
+  };
+  blocks: Array<{
+    id: string;
+    kind: ChartAssetCommentaryBlockKind;
+    text: string;
+    referenceIds: string[];
+  }>;
+  indicatorRecommendations: Array<{
+    layer: ChartAssetCommentaryIndicatorLayer;
+    label: string;
+    reason: string;
+    referenceIds: string[];
+  }>;
+  references: ChartAssetCommentaryReference[];
+  limitations: string[];
+};
+
 export type ChartAnalysisAsset = {
   assetVersion: "geometry";
   algorithmVersion: string;
@@ -254,6 +308,7 @@ export type ChartAnalysisAsset = {
       price?: number | null;
     };
   };
+  commentary?: ChartAssetCommentary;
 };
 
 export type AnalysisAssetsResponse = {
@@ -391,7 +446,90 @@ function normalizeAsset(value: unknown, interval: AnalysisAssetInterval): ChartA
     || drawing.interval !== interval
     || drawing.sourceInterval !== interval
   ))) return null;
-  return source;
+  const commentary = normalizeCommentary(source.commentary, {
+    inputDigest: source.inputDigest,
+    asOf: source.asOf,
+    drawingIds: new Set(source.geometry.drawings.map((drawing) => drawing.id))
+  });
+  return commentary ? { ...source, commentary } : { ...source, commentary: undefined };
+}
+
+function normalizeCommentary(value: unknown, asset: {
+  inputDigest: string;
+  asOf: string;
+  drawingIds: Set<string>;
+}): ChartAssetCommentary | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const source = value as Partial<ChartAssetCommentary>;
+  const identity = source.sourceIdentity;
+  if (
+    source.version !== "chart-commentary.v1"
+    || source.status !== "ready"
+    || typeof source.generatedAt !== "string"
+    || typeof source.model !== "string" || source.model.length === 0
+    || source.promptVersion !== "chart-commentary.ko.v1"
+    || !identity
+    || identity.geometryInputDigest !== asset.inputDigest
+    || identity.candlesAsOf !== asset.asOf
+    || identity.indicatorsAsOf !== asset.asOf
+    || typeof identity.contextDigest !== "string"
+    || (identity.newsAsOf !== undefined && typeof identity.newsAsOf !== "string")
+    || (identity.earningsAsOf !== undefined && typeof identity.earningsAsOf !== "string")
+    || !Array.isArray(source.blocks)
+    || !Array.isArray(source.indicatorRecommendations)
+    || !Array.isArray(source.references)
+    || !Array.isArray(source.limitations)
+  ) return undefined;
+  if (source.blocks.length !== 5 || source.indicatorRecommendations.length > 3) return undefined;
+  if (source.references.some((reference) => !validCommentaryReference(reference))) return undefined;
+  const referenceIds = new Set(source.references.map((reference) => reference.id));
+  if (referenceIds.size !== source.references.length) return undefined;
+  if (source.references.some((reference) => (
+    reference.type === "drawing" && reference.drawingIds.some((id) => !asset.drawingIds.has(id))
+  ))) return undefined;
+  const expectedKinds: ChartAssetCommentaryBlockKind[] = [
+    "overview", "drawing_guide", "indicator_context", "event_context", "watch_next"
+  ];
+  if (source.blocks.some((block) => (
+    !block || typeof block.id !== "string" || typeof block.text !== "string"
+    || !["overview", "drawing_guide", "indicator_context", "event_context", "watch_next"].includes(block.kind)
+    || !Array.isArray(block.referenceIds) || block.referenceIds.some((id) => !referenceIds.has(id))
+  ))) return undefined;
+  if (source.blocks.some((block, index) => block.kind !== expectedKinds[index])) return undefined;
+  if (source.indicatorRecommendations.some((item) => (
+    !item || typeof item.label !== "string" || typeof item.reason !== "string"
+    || !commentaryIndicatorLayers.has(item.layer)
+    || !Array.isArray(item.referenceIds) || item.referenceIds.some((id) => !referenceIds.has(id))
+  ))) return undefined;
+  if (source.limitations.some((item) => typeof item !== "string")) return undefined;
+  return source as ChartAssetCommentary;
+}
+
+const commentaryIndicatorLayers = new Set<ChartAssetCommentaryIndicatorLayer>([
+  "volume-profile", "volume", "rsi:14", "macd:12:26:9", "bollinger:20:2",
+  "sma:20", "sma:60", "sma:120", "ema:20"
+]);
+
+function validCommentaryReference(value: unknown): value is ChartAssetCommentaryReference {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const reference = value as Partial<ChartAssetCommentaryReference> & Record<string, unknown>;
+  if (typeof reference.id !== "string") return false;
+  if (reference.type === "drawing") {
+    return Array.isArray(reference.drawingIds)
+      && reference.drawingIds.length > 0
+      && reference.drawingIds.every((id) => typeof id === "string");
+  }
+  if (reference.type === "candle") {
+    return typeof reference.timestamp === "string"
+      && (reference.candleKey === undefined || typeof reference.candleKey === "string");
+  }
+  if (reference.type === "news") {
+    return typeof reference.eventId === "string" && typeof reference.marketDate === "string";
+  }
+  if (reference.type === "earnings") {
+    return typeof reference.eventId === "string" && typeof reference.eventAt === "string";
+  }
+  return false;
 }
 
 function asRecord(value: unknown): Record<string, any> {

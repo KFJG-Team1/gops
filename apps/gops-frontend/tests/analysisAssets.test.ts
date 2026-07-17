@@ -90,6 +90,45 @@ assert.deepEqual(filteredPatternGroups.map((group) => ({
 const normalized = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": asset, "1M": asset } }, "AAPL");
 assert.equal(normalized.assets["1D"]?.assetVersion, "geometry");
 assert.equal("1M" in normalized.assets, false);
+const commentaryAsset = {
+  ...asset,
+  commentary: {
+    version: "chart-commentary.v1", status: "ready", generatedAt: now, model: "fixture-model",
+    promptVersion: "chart-commentary.ko.v1",
+    sourceIdentity: {
+      geometryInputDigest: asset.inputDigest, candlesAsOf: asset.asOf, indicatorsAsOf: asset.asOf,
+      contextDigest: "sha256:context"
+    },
+    blocks: ["overview", "drawing_guide", "indicator_context", "event_context", "watch_next"].map((kind, index) => ({
+      id: `block-${index}`, kind, text: "저장된 사실 기반 해설", referenceIds: ["drawing:pattern"]
+    })),
+    indicatorRecommendations: [{
+      layer: "rsi:14", label: "상대강도지수", reason: "가격 강도 확인", referenceIds: ["drawing:pattern"]
+    }],
+    references: [{ id: "drawing:pattern", type: "drawing", drawingIds: [upper.id, lower.id] }],
+    limitations: []
+  }
+};
+const normalizedCommentary = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": commentaryAsset } }, "AAPL").assets["1D"];
+assert.equal(normalizedCommentary?.commentary?.promptVersion, "chart-commentary.ko.v1");
+const malformedCommentary = { ...commentaryAsset, commentary: { ...commentaryAsset.commentary, references: [] } };
+assert.equal(normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": malformedCommentary } }, "AAPL").assets["1D"]?.commentary, undefined);
+const mismatchedCommentaryDigest = {
+  ...commentaryAsset,
+  commentary: {
+    ...commentaryAsset.commentary,
+    sourceIdentity: { ...commentaryAsset.commentary.sourceIdentity, geometryInputDigest: "sha256:other" }
+  }
+};
+assert.equal(normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": mismatchedCommentaryDigest } }, "AAPL").assets["1D"]?.commentary, undefined);
+const danglingCommentaryDrawing = {
+  ...commentaryAsset,
+  commentary: {
+    ...commentaryAsset.commentary,
+    references: [{ id: "drawing:pattern", type: "drawing", drawingIds: ["missing-drawing"] }]
+  }
+};
+assert.equal(normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": danglingCommentaryDrawing } }, "AAPL").assets["1D"]?.commentary, undefined);
 const mixedInterval = { ...asset, geometry: { ...asset.geometry, drawings: [{ ...upper, interval: "1W" }] } };
 assert.equal(normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": mixedInterval } }, "AAPL").assets["1D"], null);
 const resolved = resolveAnalysisAssetForCandles(asset, candles);
@@ -268,7 +307,10 @@ assert.match(commentarySource, /수치 근거 자세히/);
 assert.match(commentarySource, /candidateIds/);
 assert.match(commentarySource, /evidenceRefs/);
 assert.match(commentarySource, /chart-commentary-metric-card/);
-assert.match(commentarySource, /실계좌 보유 현황/);
+assert.match(commentarySource, /asset\.commentary\?\.status === "ready"/);
+assert.match(commentarySource, /dispatchChartCommentaryIndicatorToggle/);
+assert.match(commentarySource, /dispatchChartCommentaryReferenceOpen/);
+assert.doesNotMatch(commentarySource, /usePortfolioHoldingsData|HoldingSummary|실계좌 보유 현황|평균 매입가/);
 assert.match(commentarySource, /ConversationView/);
 assert.match(semanticCatalogSource, /하락 채널 상단 돌파/);
 const patternPanelSource = readFileSync(fileURLToPath(new URL("../src/components/ChartPatternListPanel.tsx", import.meta.url)), "utf-8");

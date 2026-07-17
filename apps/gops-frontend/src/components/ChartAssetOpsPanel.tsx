@@ -294,6 +294,11 @@ export function ChartAssetOpsPanel({
             <p>저장 {currentDiagnostics.storedDrawingCount} · 현재 차트 적용 {currentDiagnostics.appliedDrawingCount} · 제외 {currentDiagnostics.rejectedDrawingCount}</p>
             <p>판정 {currentDiagnostics.state} · {currentDiagnostics.freshness.state}{currentDiagnostics.outdated ? ` (${currentDiagnostics.freshness.lagBars}봉 전)` : ""}</p>
             {currentAsset && <p>algorithm {currentAsset.algorithmVersion} · as-of {currentAsset.asOf}</p>}
+            {currentAsset?.commentary?.status === "ready" && <p>
+              해설 ready · {currentAsset.commentary.promptVersion}
+              {currentAsset.commentary.sourceIdentity.newsAsOf ? ` · news ${formatAnalysisAssetAsOf(currentAsset.commentary.sourceIdentity.newsAsOf)}` : " · news 없음"}
+              {currentAsset.commentary.sourceIdentity.earningsAsOf ? ` · earnings ${formatAnalysisAssetAsOf(currentAsset.commentary.sourceIdentity.earningsAsOf)}` : " · earnings 없음"}
+            </p>}
             {currentAsset && <p>해석 {analysisTraceDataMode(currentAsset)}{currentTraceCounts ? ` · 후보 레벨 ${currentTraceCounts.levels} / 추세 ${currentTraceCounts.trends} / 패턴 ${currentTraceCounts.patterns}` : " · 후보선 없는 구자산"}</p>}
             {currentAsset && <p>coverage {currentAsset.coverage.state} · {currentAsset.coverage.actualBars}/{currentAsset.coverage.targetBars}봉</p>}
             {currentAsset && <p>SMA60 {formatNumber(currentAsset.indicators.sma60)} · SMA120 {formatNumber(currentAsset.indicators.sma120)} · 교차 {crossLabel(currentAsset.indicators.cross.direction, currentAsset.indicators.cross.status)}</p>}

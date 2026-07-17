@@ -602,6 +602,7 @@ export function PanelContentRenderer({
           interval={normalizeChartInterval(activeChartDocument?.timeframe)}
           candles={activeChartCandles}
           drawingIds={activeChartDrawingIds}
+          chartLayers={activeChartDocument?.layers}
           commentaryState={content.props?.commentaryState}
           onCommentaryStateChange={(state) => onUpdatePanelProps(content.id, {
             commentaryState: state,

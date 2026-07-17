@@ -62,8 +62,10 @@ assert.ok(layout);
 assert.equal(layout.labels.length, 3);
 assert.ok(layout.boxRight - layout.boxLeft >= 144);
 assert.deepEqual(layout.labels.map((label) => label.role).sort(), ["basis", "risk", "target"]);
-assert.ok(layout.labels.some((label) => label.text === "진입 $100.00 · 저항선"));
-assert.ok(layout.labels.some((label) => label.text === "목표 $100.10 · 다음 저항선"));
+assert.ok(layout.labels.some((label) => label.text === "진입 $100.00"));
+assert.ok(layout.labels.some((label) => label.text === "목표 $100.10"));
+assert.ok(layout.labels.every((label) => !/지지선|저항선/.test(label.text)));
+assert.ok(layout.labels.every((label) => !/지지선|저항선/.test(label.ariaLabel)));
 assert.deepEqual(layout.labels.find((label) => label.role === "target")?.sourceDrawingIds, ["level-target"]);
 assert.ok(layout.labels.every((label) => label.left > layout.boxRight), "labels stay in a lane to the right of the Canvas box");
 assert.ok(layout.labels.every((label) => label.connector.startX === layout.boxRight));
@@ -104,6 +106,7 @@ const sellLayout = buildTradePlanOverlayLayout(
   }
 );
 assert.ok(sellLayout);
-assert.ok(sellLayout.labels.some((label) => label.text === "매도 $100.00 · 지지선"));
-assert.ok(sellLayout.labels.some((label) => label.text === "예상 하단 $99.90 · 다음 지지선"));
-assert.ok(sellLayout.labels.some((label) => label.text === "재검토 $100.10 · 저항선"));
+assert.ok(sellLayout.labels.some((label) => label.text === "매도 $100.00"));
+assert.ok(sellLayout.labels.some((label) => label.text === "예상 하단 $99.90"));
+assert.ok(sellLayout.labels.some((label) => label.text === "재검토 $100.10"));
+assert.ok(sellLayout.labels.every((label) => !/지지선|저항선/.test(label.text)));

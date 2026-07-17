@@ -7,17 +7,26 @@ import {
   type ChartCommentaryPending,
   type ChartCommentaryState
 } from "../agent/chartCommentaryHistory";
-import { fetchAnalysisAssets, subscribeAnalysisAssetsInvalidation, type AnalysisAssetInterval, type ChartAnalysisAsset } from "../chart/analysisAssetsApi";
+import {
+  fetchAnalysisAssets,
+  subscribeAnalysisAssetsInvalidation,
+  type AnalysisAssetInterval,
+  type ChartAnalysisAsset,
+  type ChartAssetCommentary,
+  type ChartAssetCommentaryReference
+} from "../chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import { buildChartCommentaryViewModel, type ChartCommentaryScenario } from "../chart/commentaryModel";
 import { dispatchChartAnalysisLayerToggle } from "../chart/analysisLayerController";
-import { chartCommentaryHoldingDisplay } from "../chart/commentaryHoldings";
+import {
+  dispatchChartCommentaryIndicatorToggle,
+  dispatchChartCommentaryReferenceOpen
+} from "../chart/chartCommentaryReferences";
+import { marketDateForTimestamp } from "../chart/chartEvents";
 import { projectChartTradeSetup } from "../chart/chartTradeSetup";
 import { getActiveTradePlan, subscribeActiveTradePlans, type ActiveTradePlan } from "../chart/tradePlanStore";
 import type { CandleDto, ChartInterval } from "../chart/types";
 import { GlossaryText } from "../glossary/GlossaryText";
-import { usePortfolioHoldingsData } from "./PortfolioHoldingsPanel";
-import type { PortfolioPosition } from "./portfolioHoldingsApi";
 
 type ChartCommentaryPanelProps = {
   chartDocumentId?: string;
@@ -26,6 +35,7 @@ type ChartCommentaryPanelProps = {
   interval: ChartInterval;
   candles: CandleDto[];
   drawingIds: string[];
+  chartLayers?: Partial<Record<string, boolean>>;
   commentaryState?: unknown;
   onCommentaryStateChange?: (state: ChartCommentaryState) => void;
   chartOptions?: Array<{ chartDocumentId: string; symbol: string; interval: string }>;
@@ -41,6 +51,7 @@ export function ChartCommentaryPanel({
   interval,
   candles,
   drawingIds,
+  chartLayers = {},
   commentaryState: rawCommentaryState,
   onCommentaryStateChange,
   chartOptions = [],
@@ -60,13 +71,6 @@ export function ChartCommentaryPanel({
     () => chartDocumentId ? getActiveTradePlan(chartDocumentId) : null,
     () => null
   );
-  const holdings = usePortfolioHoldingsData(undefined, "kis");
-  const holding = useMemo(
-    () => holdings.positions.find((position) => position.symbol.trim().toUpperCase() === normalizedSymbol) ?? null,
-    [holdings.positions, normalizedSymbol]
-  );
-  const verifiedHolding = holdings.loading || holdings.error ? null : holding;
-
   useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
     if (!invalidatedSymbol || invalidatedSymbol === normalizedSymbol) {
       setAssets(null);
@@ -149,10 +153,7 @@ export function ChartCommentaryPanel({
           drawingIds={drawingIds}
           asset={asset}
           availableAssets={assets?.assets}
-          holding={verifiedHolding}
-          holdingsLoading={holdings.loading}
-          holdingsError={holdings.error}
-          holdingsErrorStatus={holdings.errorStatus}
+          chartLayers={chartLayers}
         />}
     </article>
   );
@@ -160,7 +161,7 @@ export function ChartCommentaryPanel({
 
 function CurrentCommentary({
   chartDocumentId, sourceAvailable, symbol, interval, candles, drawingIds, asset, availableAssets,
-  holding, holdingsLoading, holdingsError, holdingsErrorStatus
+  chartLayers
 }: {
   chartDocumentId?: string;
   sourceAvailable: boolean;
@@ -170,10 +171,7 @@ function CurrentCommentary({
   drawingIds: string[];
   asset: ChartAnalysisAsset | null;
   availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>;
-  holding: PortfolioPosition | null;
-  holdingsLoading: boolean;
-  holdingsError?: string;
-  holdingsErrorStatus?: number;
+  chartLayers: Partial<Record<string, boolean>>;
 }) {
   const [pinnedStepId, setPinnedStepId] = useState<string | null>(null);
   const drawingIdsKey = drawingIds.join("\u0000");
@@ -188,8 +186,8 @@ function CurrentCommentary({
     return candle?.close ?? null;
   }, [candles]);
   const viewModel = useMemo(() => diagnostics
-    ? buildChartCommentaryViewModel(diagnostics.resolvedAsset, setup, currentPrice, holding)
-    : null, [currentPrice, diagnostics, holding, setup]);
+    ? buildChartCommentaryViewModel(diagnostics.resolvedAsset, setup, currentPrice)
+    : null, [currentPrice, diagnostics, setup]);
   useEffect(() => {
     setPinnedStepId(null);
   }, [asset?.algorithmVersion, asset?.asOf, asset?.inputDigest, chartDocumentId, interval, symbol]);
@@ -222,17 +220,20 @@ function CurrentCommentary({
   };
   return (
     <article className="chart-commentary-panel">
-      <HoldingSummary
-        holding={holding}
-        loading={holdingsLoading}
-        error={holdingsError}
-        errorStatus={holdingsErrorStatus}
-      />
       {emptyText || !diagnostics || !viewModel || !asset
         ? <Empty text={emptyText ?? "차트 해설을 불러오지 못했습니다"} />
         : <>
       <section className="chart-commentary-summary" aria-label="종합 해설">
-        {viewModel.summary.map((sentence) => <p key={sentence}><GlossaryText text={sentence} /></p>)}
+        {asset.commentary?.status === "ready"
+          ? <StoredCommentary
+            commentary={asset.commentary}
+            chartDocumentId={chartDocumentId}
+            symbol={symbol}
+            interval={interval}
+            candles={candles}
+            chartLayers={chartLayers}
+          />
+          : viewModel.summary.map((sentence) => <p key={sentence}><GlossaryText text={sentence} /></p>)}
       </section>
       {viewModel.keyPrices.length > 0 && <section className="chart-commentary-key-prices" aria-label="주요 가격">
         <div className="chart-commentary-price-table" role="table">
@@ -301,6 +302,148 @@ function CurrentCommentary({
   );
 }
 
+function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candles, chartLayers }: {
+  commentary: ChartAssetCommentary;
+  chartDocumentId?: string;
+  symbol: string;
+  interval: ChartInterval;
+  candles: CandleDto[];
+  chartLayers: Partial<Record<string, boolean>>;
+}) {
+  const references = useMemo(
+    () => new Map(commentary.references.map((reference) => [reference.id, reference])),
+    [commentary.references]
+  );
+  const recommendationsByBlock = commentary.blocks.some((block) => block.kind === "indicator_context")
+    ? commentary.indicatorRecommendations
+    : [];
+  return <div className="chart-commentary-generated" data-prompt-version={commentary.promptVersion}>
+    {commentary.blocks.map((block) => <section key={block.id} className={`chart-commentary-generated-block is-${block.kind}`}>
+      <p><GlossaryText text={block.text} /></p>
+      {(block.referenceIds.length > 0 || (block.kind === "indicator_context" && recommendationsByBlock.length > 0)) && (
+        <div className="chart-commentary-reference-tags" aria-label={`${commentaryBlockLabel(block.kind)} 참조`}>
+          {block.referenceIds.flatMap((referenceId) => {
+            const reference = references.get(referenceId);
+            return reference ? [<CommentaryReferenceTag
+              key={reference.id}
+              reference={reference}
+              chartDocumentId={chartDocumentId}
+              symbol={symbol}
+              interval={interval}
+              candles={candles}
+            />] : [];
+          })}
+          {block.kind === "indicator_context" && recommendationsByBlock.map((recommendation) => {
+            const reasonId = `commentary-indicator-${recommendation.layer.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+            return <span key={recommendation.layer} className="chart-commentary-indicator-tag">
+              <button
+                type="button"
+                className="chart-commentary-reference-tag is-indicator"
+                aria-pressed={Boolean(chartLayers[recommendation.layer])}
+                aria-label={`${recommendation.label} 차트 레이어 전환`}
+                aria-describedby={reasonId}
+                disabled={!chartDocumentId}
+                onClick={() => chartDocumentId && dispatchChartCommentaryIndicatorToggle({
+                  chartDocumentId,
+                  layer: recommendation.layer
+                })}
+              >{recommendation.label}</button>
+              <span id={reasonId} className="chart-commentary-indicator-reason" role="tooltip">
+                <GlossaryText text={recommendation.reason} />
+              </span>
+            </span>;
+          })}
+        </div>
+      )}
+    </section>)}
+    {commentary.limitations.length > 0 && <aside className="chart-commentary-generated-limitations" aria-label="해설 데이터 한계">
+      {commentary.limitations.map((limitation) => <span key={limitation}><GlossaryText text={limitation} /></span>)}
+    </aside>}
+  </div>;
+}
+
+function CommentaryReferenceTag({ reference, chartDocumentId, symbol, interval, candles }: {
+  reference: ChartAssetCommentaryReference;
+  chartDocumentId?: string;
+  symbol: string;
+  interval: ChartInterval;
+  candles: CandleDto[];
+}) {
+  if (reference.type === "drawing") {
+    const focus = (mode: FocusMode) => chartDocumentId && dispatchFocus(
+      chartDocumentId,
+      symbol,
+      interval,
+      reference.drawingIds,
+      mode
+    );
+    return <button
+      type="button"
+      className="chart-commentary-reference-tag is-drawing"
+      disabled={!chartDocumentId}
+      onMouseEnter={() => focus("spotlight")}
+      onMouseLeave={() => focus("clear")}
+      onFocus={() => focus("spotlight")}
+      onBlur={() => focus("clear")}
+    >{drawingReferenceLabel(reference.id)}</button>;
+  }
+  const available = commentaryReferenceAvailable(reference, candles, interval);
+  return <button
+    type="button"
+    className={`chart-commentary-reference-tag is-${reference.type}`}
+    disabled={!chartDocumentId || !available}
+    aria-label={`${commentaryReferenceLabel(reference)} 차트에서 열기`}
+    title={!available ? "현재 로드된 차트 범위에서 이 참조 시점을 열 수 없습니다." : undefined}
+    onClick={() => chartDocumentId && available && dispatchChartCommentaryReferenceOpen({
+      chartDocumentId,
+      reference
+    })}
+  >{commentaryReferenceLabel(reference)}</button>;
+}
+
+function commentaryReferenceAvailable(
+  reference: Exclude<ChartAssetCommentaryReference, { type: "drawing" }>,
+  candles: CandleDto[],
+  interval: ChartInterval
+): boolean {
+  if (!isAnalysisAssetIntervalValue(interval)) return false;
+  if (reference.type === "candle") {
+    const expected = reference.candleKey ?? candleKeyForTimestamp(reference.timestamp, interval);
+    return Boolean(expected && candles.some((candle) => candleKeyForTimestamp(candle.timestamp, interval) === expected));
+  }
+  if (reference.type === "earnings" && reference.eventId.endsWith(":upcoming")) return true;
+  const marketDate = reference.type === "news" ? reference.marketDate : marketDateForTimestamp(reference.eventAt);
+  return candles.some((candle) => marketDateForTimestamp(candle.timestamp) === marketDate);
+}
+
+function commentaryBlockLabel(kind: ChartAssetCommentary["blocks"][number]["kind"]): string {
+  if (kind === "overview") return "전체 구조";
+  if (kind === "drawing_guide") return "작도 읽기";
+  if (kind === "indicator_context") return "보조지표";
+  if (kind === "event_context") return "뉴스·실적";
+  return "다음 확인 조건";
+}
+
+function drawingReferenceLabel(id: string): string {
+  if (id.endsWith(":levels")) return "지지·저항 작도";
+  if (id.endsWith(":trend")) return "추세 작도";
+  if (id.endsWith(":pattern")) return "패턴 작도";
+  return "관련 작도";
+}
+
+function commentaryReferenceLabel(reference: Exclude<ChartAssetCommentaryReference, { type: "drawing" }>): string {
+  if (reference.type === "news") return `뉴스 ${reference.marketDate}`;
+  if (reference.type === "earnings") return `실적 ${formatReferenceDate(reference.eventAt)}`;
+  return `주요 봉 ${formatReferenceDate(reference.timestamp)}`;
+}
+
+function formatReferenceDate(value: string): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })
+    : value;
+}
+
 function CommentaryScenarioButton({ scenario, chartDocumentId, symbol, interval, onRestore }: {
   scenario: ChartCommentaryScenario;
   chartDocumentId?: string;
@@ -347,25 +490,6 @@ function CommentaryScenarioButton({ scenario, chartDocumentId, symbol, interval,
     <span className="chart-commentary-scenario-line">{scenario.confirmation} · {scenario.labels.target} {formatPrice(scenario.targetPrice)} · {scenario.targetSourceLabel} · {scenario.labels.risk} {formatPrice(scenario.invalidationPrice)} · {scenario.riskSourceLabel}</span>
     <span className="chart-commentary-scenario-line">손익비 1 : {scenario.rewardRiskRatio.toFixed(2)} · 유효기간 {scenario.projectionBars}개 봉</span>
   </button>;
-}
-
-function HoldingSummary({ holding, loading, error, errorStatus }: {
-  holding: PortfolioPosition | null;
-  loading: boolean;
-  error?: string;
-  errorStatus?: number;
-}) {
-  const display = chartCommentaryHoldingDisplay(holding, loading, error, errorStatus);
-  return <section className="chart-commentary-holding" aria-label="실계좌 보유 현황">
-    <table>
-      <thead><tr><th>보유 상태</th><th>평균 매입가</th><th>보유 수량</th></tr></thead>
-      <tbody><tr>
-        <td>{display.status}</td>
-        <td>{display.averagePrice != null ? `$${formatPrice(display.averagePrice)}` : "—"}</td>
-        <td>{display.quantity != null ? `${formatQuantity(display.quantity)}주` : "—"}</td>
-      </tr></tbody>
-    </table>
-  </section>;
 }
 
 function ConversationView({ turns, pending, ...answerProps }: {
@@ -511,10 +635,6 @@ function Empty({ text }: { text: string }) {
 
 function formatPrice(value: number): string {
   return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function formatQuantity(value: number): string {
-  return value.toLocaleString("ko-KR", { maximumFractionDigits: 6 });
 }
 
 type FocusMode = "select" | "spotlight" | "clear";

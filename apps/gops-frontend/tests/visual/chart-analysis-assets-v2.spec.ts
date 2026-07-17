@@ -72,8 +72,15 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(proposalToggle).toHaveAttribute("data-state", "off");
   await expect(page.getByText(/상승 삼각형 돌파 확인/).first()).toBeVisible();
   const commentaryPanel = page.locator(".chart-commentary-panel");
-  await expect(commentaryPanel.getByRole("row", { name: "보유 $148.42 18주" })).toBeVisible();
   await expect(commentaryPanel.getByLabel("종합 해설")).toBeVisible();
+  await expect(commentaryPanel.locator(".chart-commentary-generated")).toHaveAttribute("data-prompt-version", "chart-commentary.ko.v1");
+  const indicatorRecommendation = commentaryPanel.getByRole("button", { name: "상대강도지수 차트 레이어 전환" });
+  await expect(indicatorRecommendation).toHaveAttribute("aria-pressed", "false");
+  await indicatorRecommendation.click();
+  await expect(indicatorRecommendation).toHaveAttribute("aria-pressed", "true");
+  await indicatorRecommendation.click();
+  await expect(indicatorRecommendation).toHaveAttribute("aria-pressed", "false");
+  await page.locator(".chart-commentary-source").hover();
   await expect(commentaryPanel.locator(".chart-commentary-price-head").getByRole("columnheader")).toHaveText(["제안", "가격", "현재가 대비"]);
   await expect(commentaryPanel.locator(".chart-commentary-price-table > button > span:first-child")).toHaveText(["진입", "목표", "손절"]);
   await expect(page.getByRole("button", { name: "연결", exact: true })).toHaveCount(0);
@@ -140,6 +147,11 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(patternStep).toHaveAttribute("aria-pressed", "true");
   await patternStep.press("Enter");
   await expect(patternStep).toHaveAttribute("aria-pressed", "false");
+
+  const candleReference = commentaryPanel.getByRole("button", { name: /주요 봉 .* 차트에서 열기/ }).first();
+  await expect(candleReference).toBeEnabled();
+  await candleReference.click();
+  await expect(chart.getByRole("button", { name: "선택 항목에 질문하기" })).toBeVisible();
 });
 
 test("interpretation alone keeps broad final underlays and shortlisted candidates", async ({ page }) => {
@@ -168,7 +180,7 @@ test("final analysis strokes sit above their interpretation underlays", async ({
   await expect(chart).toHaveScreenshot("chart-assets-interpretation-with-final-strokes.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
 });
 
-test("commentary focus preserves the focused interpretation stroke and dims the rest", async ({ page }) => {
+  test("commentary focus makes the target interpretation stroke fully opaque and dims the rest", async ({ page }) => {
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
@@ -391,9 +403,9 @@ test("price axis and proposal labels share order selection while scenario contro
 
   await scenario.hover();
   await expect(labels).toHaveCount(3);
-  await expect(chart.getByRole("button", { name: "진입 가격 178.00, 패턴 상단 기준 주문창에 적용" })).toContainText("진입 $178.00 · 패턴 상단");
-  await expect(chart.getByRole("button", { name: "목표 가격 198.00, 패턴 폭 기준 주문창에 적용" })).toContainText("목표 $198.00 · 패턴 폭");
-  await expect(chart.getByRole("button", { name: "손절 가격 164.00, 패턴 하단 기준 주문창에 적용" })).toContainText("손절 $164.00 · 패턴 하단");
+  await expect(chart.getByRole("button", { name: "진입 가격 178.00 주문창에 적용" })).toHaveText("진입 $178.00");
+  await expect(chart.getByRole("button", { name: "목표 가격 198.00 주문창에 적용" })).toHaveText("목표 $198.00");
+  await expect(chart.getByRole("button", { name: "손절 가격 164.00 주문창에 적용" })).toHaveText("손절 $164.00");
   await expect(chart).toHaveScreenshot("chart-proposal-hover-labels.png", { maxDiffPixelRatio: 0.015 });
 
   await chart.locator(".chart-analysis-layer-controls").hover();
@@ -418,7 +430,7 @@ test("price axis and proposal labels share order selection while scenario contro
   await page.mouse.up();
   await expect(labels).toHaveCount(3);
   await assertLabelsRightOfBox();
-  const targetLabel = chart.getByRole("button", { name: "목표 가격 198.00, 패턴 폭 기준 주문창에 적용" });
+  const targetLabel = chart.getByRole("button", { name: "목표 가격 198.00 주문창에 적용" });
   const patternToggle = chart.getByRole("button", { name: "패턴 분석 레이어 끄기" });
   await patternToggle.click();
   await expect(chart.locator(".chart-primary-pattern-badge")).toHaveCount(0);
@@ -798,7 +810,31 @@ function assetResponse(): Record<string, unknown> {
         rewardRiskRatio: null, minimumRewardRisk: 2, projectionBars: 10, reasons: ["breakout_not_confirmed"]
       } } : {})
     },
-    indicators: { sma60: 170, sma120: 165, cross: { status: "none", direction: null } }
+    indicators: { sma60: 170, sma120: 165, cross: { status: "none", direction: null } },
+    commentary: {
+      version: "chart-commentary.v1", status: "ready", generatedAt: asOf, model: "fixture-model",
+      promptVersion: "chart-commentary.ko.v1",
+      sourceIdentity: {
+        geometryInputDigest: "sha256:fixture", candlesAsOf: asOf, indicatorsAsOf: asOf,
+        contextDigest: "sha256:fixture-context"
+      },
+      blocks: [
+        { id: "overview", kind: "overview", text: "상승 삼각형 돌파 확인 구조를 중심으로 완료 봉과 최종 작도를 함께 읽습니다.", referenceIds: ["drawing:pattern"] },
+        { id: "drawing", kind: "drawing_guide", text: "패턴 상단은 돌파 기준, 하단은 구조가 유지되는지 확인하는 반대 경계입니다.", referenceIds: ["drawing:pattern"] },
+        { id: "indicator", kind: "indicator_context", text: "가격 움직임의 강도는 상대강도지수를 함께 보면 구조의 속도를 구분하는 데 도움이 됩니다.", referenceIds: ["candle:latest"] },
+        { id: "events", kind: "event_context", text: "이 해설은 저장된 이벤트 맥락만 사용하며 뉴스가 가격의 원인이라고 단정하지 않습니다.", referenceIds: [] },
+        { id: "watch", kind: "watch_next", text: "다음 완료 봉이 패턴 경계 안팎에서 어떻게 마감하는지를 이어서 확인합니다.", referenceIds: ["candle:latest"] }
+      ],
+      indicatorRecommendations: [{
+        layer: "rsi:14", label: "상대강도지수", reason: "패턴 경계 부근에서 가격 움직임의 강도를 함께 확인합니다.",
+        referenceIds: ["candle:latest"]
+      }],
+      references: [
+        { id: "drawing:pattern", type: "drawing", drawingIds: [upper.id, lower.id] },
+        { id: "candle:latest", type: "candle", timestamp: asOf, candleKey: asOf.slice(0, 10) }
+      ],
+      limitations: ["저장된 최신 뉴스 요약이 없습니다."]
+    }
   };
   const nearbyAsset = nearbyIntervalFallback ? {
     ...asset,

@@ -27,11 +27,6 @@ export type ChartCommentaryStep = {
   focusPrice?: number;
 };
 
-export type ChartCommentaryHolding = {
-  averagePrice?: number | null;
-  quantity?: number | null;
-};
-
 export type ChartCommentaryKeyPrice = {
   id: "entry" | "target" | "invalidation";
   label: string;
@@ -121,8 +116,7 @@ export function buildChartCommentaryModel(
 export function buildChartCommentaryViewModel(
   asset: ChartAnalysisAsset,
   setup: ChartTradeSetup | null,
-  currentPrice: number | null,
-  holding: ChartCommentaryHolding | null
+  currentPrice: number | null
 ): ChartCommentaryViewModel {
   const evidence = buildChartCommentaryModel(asset, setup);
   const support = nearestLevel(asset.geometry.supports, currentPrice);
@@ -146,7 +140,7 @@ export function buildChartCommentaryViewModel(
   ])] : [];
 
   return {
-    summary: commentarySummary(asset, setup, currentPrice, support, resistance, holding),
+    summary: commentarySummary(asset, setup, currentPrice, support, resistance),
     keyPrices,
     scenario: setup ? {
       action: setup.action,
@@ -170,8 +164,7 @@ function commentarySummary(
   setup: ChartTradeSetup | null,
   currentPrice: number | null,
   support: GeometryLevel | null,
-  resistance: GeometryLevel | null,
-  holding: ChartCommentaryHolding | null
+  resistance: GeometryLevel | null
 ): string[] {
   const primaryPattern = asset.geometry.primaryPattern ?? asset.geometry.primaryTriangle;
   const primaryTrend = asset.geometry.primaryTrend ?? asset.geometry.trends?.[0] ?? null;
@@ -197,9 +190,6 @@ function commentarySummary(
       : `${formatPrice(setup.entryPrice)} ${setup.priceSources.entry.label}을 ${labels.basis} 기준으로 보고, ${formatPrice(setup.stopPrice)} ${setup.priceSources.stop.label}을 손절 기준으로 봅니다.`);
   } else {
     sentences.push("현재 적격 제안 없음 — 세 가격을 모두 설명할 최종 작도가 부족합니다.");
-  }
-  if (holding?.averagePrice != null && currentPrice != null) {
-    sentences.push(`실계좌 평균 매입가 ${formatPrice(holding.averagePrice)} 대비 현재가는 ${formatSignedPercent(currentPrice, holding.averagePrice)} 구간입니다.`);
   }
   if (sentences.length < 2) {
     sentences.push(currentPrice != null
@@ -342,9 +332,4 @@ function formatMetricValue(value: unknown): string {
 
 function formatPrice(value: number): string {
   return value.toFixed(2);
-}
-
-function formatSignedPercent(value: number, base: number): string {
-  const percent = ((value - base) / Math.max(0.0000001, Math.abs(base))) * 100;
-  return `${percent >= 0 ? "+" : ""}${percent.toFixed(2)}%`;
 }

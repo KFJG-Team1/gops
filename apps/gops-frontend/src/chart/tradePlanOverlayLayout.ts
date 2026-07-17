@@ -22,7 +22,6 @@ export type TradePlanOverlayLabelLayout = {
   top: number;
   width: number;
   tone: "up" | "down" | "basis";
-  sourceLabel: string | null;
   sourceDrawingIds: string[];
   connector: { startX: number; startY: number; bendX: number; endX: number; endY: number };
 };
@@ -104,11 +103,10 @@ export function buildTradePlanOverlayLayout(
     labels: raw.map((item, index) => {
       const formattedPrice = formatPriceAxisValue(item.price, 2);
       const centerY = centers[index];
-      const sourceText = item.source?.label ? ` · ${item.source.label}` : "";
       return {
         role: item.role,
-        text: `${item.label} $${formattedPrice}${sourceText}`,
-        ariaLabel: `${item.label} 가격 ${formattedPrice}${item.source?.label ? `, ${item.source.label} 기준` : ""} 주문창에 적용`,
+        text: `${item.label} $${formattedPrice}`,
+        ariaLabel: `${item.label} 가격 ${formattedPrice} 주문창에 적용`,
         price: item.price,
         formattedPrice,
         desiredY: item.desiredY,
@@ -117,7 +115,6 @@ export function buildTradePlanOverlayLayout(
         top: centerY - labelHeight / 2,
         width,
         tone: item.tone,
-        sourceLabel: item.source?.label ?? null,
         sourceDrawingIds: item.source?.drawingIds ?? [],
         connector: {
           startX: geometry.right,
