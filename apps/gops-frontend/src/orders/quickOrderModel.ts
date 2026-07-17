@@ -37,6 +37,13 @@ export function quoteIsUsable(quote: QuickOrderQuote | null): boolean {
   return true;
 }
 
+export function normalizeSimulatorQuickOrderQuote(payload: unknown): QuickOrderQuote | null {
+  if (!payload || typeof payload !== "object") return null;
+  const source = payload as { bid?: unknown; ask?: unknown };
+  if (!validPrice(source.bid) || !validPrice(source.ask) || source.bid > source.ask) return null;
+  return { bidPrice: source.bid, askPrice: source.ask };
+}
+
 export function baseQuickOrderIntents(quote: QuickOrderQuote | null): QuickOrderIntent[] {
   if (!quote || !validPrice(quote.bidPrice) || !validPrice(quote.askPrice)) {
     return [];
