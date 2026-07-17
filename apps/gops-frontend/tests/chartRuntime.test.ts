@@ -615,7 +615,7 @@ const dailyEventScene = buildFrontendChartScene(frontendChartState({
 const dailyEventMarkers = chartEventMarkersForScene(dailyEventScene, chartEventsFixture, { earnings: true, news: true });
 assert.equal(dailyEventMarkers.length, 2);
 assert.equal(dailyEventMarkers[0].label, "E");
-assert.equal(dailyEventMarkers[1].label, "N 3");
+assert.equal(dailyEventMarkers[1].label, "N");
 const dailyEventCandle = dailyEventScene.semantic.units.find((unit) => (
   unit.kind === "candle"
   && unit.depth === 0

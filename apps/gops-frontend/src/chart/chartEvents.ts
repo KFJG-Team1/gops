@@ -234,7 +234,7 @@ export function chartEventMarkersForScene(
         type: "news",
         marketDate: event.date,
         baseX,
-        label: `N ${event.articleCount}`,
+        label: "N",
         impactDirection: event.impactDirection,
         event
       });

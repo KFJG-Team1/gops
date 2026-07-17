@@ -146,7 +146,9 @@ export function ChartEventOverlay({
               style={{ left: marker.x, top: marker.top }}
               data-chart-event-id={marker.id}
               data-chart-event-trigger="true"
-              aria-label={marker.type === "earnings" ? `${marker.marketDate} 실적 이벤트` : `${marker.marketDate} 뉴스 ${marker.label.slice(2)}건`}
+              aria-label={marker.event.type === "earnings"
+                ? `${marker.marketDate} 실적 이벤트`
+                : `${marker.marketDate} 뉴스 ${marker.event.articleCount}건`}
               aria-expanded={selected?.event.id === marker.id}
               aria-controls={popoverId}
               onPointerDown={(event) => event.stopPropagation()}
