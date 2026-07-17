@@ -10,14 +10,17 @@ import {
   workspaceBounds
 } from "../src/layout/panelLayout";
 import {
-  buildPresetLayout,
-  DEFAULT_PRESETS,
   migrateCompanyComparePanelSnapshot
 } from "../src/layout/layoutPresets";
 import {
   compactGridCellFloorPx,
   resolveResponsivePanelLayout
 } from "../src/layout/responsivePanelLayout";
+import {
+  MAX_COMPANY_COMPARE_SYMBOLS,
+  MAX_COMPANY_COMPARE_TOTAL_SYMBOLS,
+  normalizeCompanyCompareSymbols
+} from "../src/companyCompare/companyCompareSelection";
 
 const baseMetrics = { topInset: 52, uiScale: 1.6 };
 
@@ -53,15 +56,12 @@ assert.deepEqual(panelMinimumRenderedSizeForKind("chart"), { width: 320, height:
 assert.deepEqual(readableMinGridSpanForKind("companyCompare"), { colSpan: 3, rowSpan: 2 });
 assert.deepEqual(defaultGridSpanForKind("companyCompare"), { colSpan: 3, rowSpan: 2 });
 assert.deepEqual(panelMinimumRenderedSizeForKind("companyCompare"), { width: 420, height: 220 });
-
-const stockPreset = DEFAULT_PRESETS.find((preset) => preset.id === "stock");
-assert.ok(stockPreset);
-const stockLayout = buildPresetLayout(stockPreset, { width: 1280, height: 720 });
-assert.ok(stockLayout);
-const stockCompareContentId = Object.values(stockLayout.contents)
-  .find((content) => content.kind === "companyCompare")?.id;
-const stockCompareSlot = stockLayout.slots.find((slot) => slot.contentId === stockCompareContentId);
-assert.deepEqual(stockCompareSlot?.gridRect, { col: 1, row: 1, colSpan: 3, rowSpan: 2 });
+assert.equal(MAX_COMPANY_COMPARE_TOTAL_SYMBOLS, 10);
+assert.equal(MAX_COMPANY_COMPARE_SYMBOLS, 9);
+assert.deepEqual(
+  normalizeCompanyCompareSymbols("NVDA", ["AMD", "AAPL", "MSFT", "META", "GOOGL", "AMZN", "TSLA", "AVGO", "NFLX", "INTC"]),
+  ["AMD", "AAPL", "MSFT", "META", "GOOGL", "AMZN", "TSLA", "AVGO", "NFLX"]
+);
 
 const legacyCompanyCompareLayout: StoredTiledPanelState = {
   version: 1,

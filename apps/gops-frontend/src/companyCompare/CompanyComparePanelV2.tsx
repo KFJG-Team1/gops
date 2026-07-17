@@ -10,26 +10,18 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
-  type DragEvent,
-  type KeyboardEvent,
-  type MouseEvent
+  type KeyboardEvent
 } from "react";
-import {
-  agentReferenceKey,
-  compareAxisReference,
-  compareContextReference,
-  compareMetricReference,
-  type AgentReference
-} from "../agent/agentReferences";
 import type { ChartSymbolDto } from "../chart/types";
-import { ContextualAgentAskButton } from "../components/ContextualAgentAskButton";
 import { SymbolSearch } from "../components/SymbolSearch";
 import { GlossaryText } from "../glossary/GlossaryText";
 import { fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyFinancialSeriesPoint } from "../market/sp500Universe.seed";
 import {
+  MAX_COMPANY_COMPARE_TOTAL_SYMBOLS,
   MAX_COMPANY_COMPARE_SYMBOLS,
   normalizeCompanyCompareSymbols,
   normalizeCompanySymbol
@@ -50,11 +42,6 @@ type CompanyComparePanelProps = {
   baseSymbol: string;
   compareSymbols: string[];
   symbols: ChartSymbolDto[];
-  sourcePanelId?: string;
-  selectedAgentReferenceKeys?: string[];
-  emphasizedAgentReferenceKeys?: string[];
-  onAgentReferenceSelect?: (reference: AgentReference) => void;
-  onAgentAsk?: () => void;
   onCompareSymbolsChange: (symbols: string[]) => void;
 };
 
@@ -89,14 +76,19 @@ type QualitativeMatrixRow = {
   values: Record<string, string>;
 };
 
-type ReferenceOptions = {
-  selectedKeys: string[];
-  emphasizedKeys: string[];
-  onSelect?: (reference: AgentReference) => void;
-};
-
 const REQUEST_DEBOUNCE_MS = 400;
-const COMPANY_COLORS = ["#33adff", "#ff7a3d", "#b890ff"] as const;
+const COMPANY_COLORS = [
+  "#33adff",
+  "#ff7a3d",
+  "#7bd88f",
+  "#b890ff",
+  "#ff5f6d",
+  "#42d7d0",
+  "#f2c94c",
+  "#ff8bd1",
+  "#9aa5b1",
+  "#c99a6b"
+] as const;
 const AXES: AxisMeta[] = [
   { id: "growth_style", index: "01", tab: "성장성", eyebrow: "GROWTH", title: "성장성" },
   { id: "profit_structure", index: "02", tab: "수익성", eyebrow: "PROFITABILITY", title: "수익성" },
@@ -124,11 +116,6 @@ export function CompanyComparePanel({
   baseSymbol,
   compareSymbols,
   symbols,
-  sourcePanelId,
-  selectedAgentReferenceKeys = [],
-  emphasizedAgentReferenceKeys = [],
-  onAgentReferenceSelect,
-  onAgentAsk,
   onCompareSymbolsChange
 }: CompanyComparePanelProps) {
   const normalizedBase = normalizeCompanySymbol(baseSymbol);
@@ -141,7 +128,7 @@ export function CompanyComparePanel({
     [normalizedBase, normalizedCompares]
   );
   const compareKey = normalizedCompares.join(",");
-  const [activeAxisId, setActiveAxisId] = useState<CompanyCompareSectionId>("profit_structure");
+  const [activeAxisId, setActiveAxisId] = useState<CompanyCompareSectionId>("growth_style");
   const [response, setResponse] = useState<CompanyCompareResponse | null>(null);
   const [candidates, setCandidates] = useState<CompanyCompareCandidate[]>([]);
   const [quantitativeLoading, setQuantitativeLoading] = useState(false);
@@ -151,12 +138,6 @@ export function CompanyComparePanel({
   const [financialSeriesLoading, setFinancialSeriesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [narrativeFailed, setNarrativeFailed] = useState(false);
-
-  const referenceOptions: ReferenceOptions = {
-    selectedKeys: selectedAgentReferenceKeys,
-    emphasizedKeys: emphasizedAgentReferenceKeys,
-    onSelect: onAgentReferenceSelect
-  };
 
   useEffect(() => {
     if (!normalizedBase) {
@@ -290,14 +271,7 @@ export function CompanyComparePanel({
   const removeCompare = (symbol: string) => {
     onCompareSymbolsChange(normalizedCompares.filter((value) => value !== normalizeCompanySymbol(symbol)));
   };
-  const activeAxis = AXES.find((axis) => axis.id === activeAxisId) ?? AXES[1];
-  const contextReference = compareContextReference({
-    baseSymbol: normalizedBase,
-    compareSymbols: normalizedCompares,
-    summary: response?.narrative.summary
-      ?? `${comparedSymbols.join(", ")}의 정량 지표와 공시·관계·뉴스 근거 비교`
-  }, sourcePanelId);
-  const contextState = referenceStateClass(contextReference, referenceOptions);
+  const activeAxis = AXES.find((axis) => axis.id === activeAxisId) ?? AXES[0];
 
   return (
     <section className="compare-cockpit compare-cockpit-v2" aria-label="기업 성향 비교">
@@ -306,11 +280,7 @@ export function CompanyComparePanel({
           <BarChart3 size={18} aria-hidden="true" />
           <span>GOPS</span>
         </div>
-        <div
-          className={`compare-cockpit-symbols compare-reference-surface ${contextState}`}
-          aria-label={`${comparedSymbols.join(" 대 ")} 비교를 Agent에 참조`}
-          {...referenceSurfaceProps(contextReference, referenceOptions)}
-        >
+        <div className="compare-cockpit-symbols" aria-label={`${comparedSymbols.join(" 대 ")} 비교 기업`}>
           {comparedSymbols.map((symbol, index) => (
             <span className="compare-cockpit-symbol-chip" key={symbol}>
               <i style={{ "--company-color": companyColor(index) } as CSSProperties} aria-hidden="true" />
@@ -320,17 +290,13 @@ export function CompanyComparePanel({
                   type="button"
                   aria-label={`${symbol} 비교 삭제`}
                   title={`${symbol} 비교 삭제`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    removeCompare(symbol);
-                  }}
+                  onClick={() => removeCompare(symbol)}
                 >
                   <X size={12} />
                 </button>
               )}
             </span>
           ))}
-          {comparedSymbols.length > 1 && <em>비교 전체 참조</em>}
         </div>
         <div className="compare-cockpit-add">
           {normalizedCompares.length < MAX_COMPANY_COMPARE_SYMBOLS ? (
@@ -348,7 +314,9 @@ export function CompanyComparePanel({
               onSelectSymbol={addCompare}
             />
           ) : (
-            <span className="compare-cockpit-limit" role="status">최대 2개 기업까지 비교할 수 있습니다</span>
+            <span className="compare-cockpit-limit" role="status">
+              최대 {MAX_COMPANY_COMPARE_TOTAL_SYMBOLS}개 기업까지 비교할 수 있습니다
+            </span>
           )}
         </div>
       </header>
@@ -367,7 +335,7 @@ export function CompanyComparePanel({
               onClick={() => setActiveAxisId(axis.id)}
               onKeyDown={(event) => handleAxisKeyDown(event, index, setActiveAxisId)}
             >
-              {axis.index} {axis.tab}
+              {axis.tab}
             </button>
           );
         })}
@@ -402,9 +370,6 @@ export function CompanyComparePanel({
           narrativeFailed={narrativeFailed}
           financialSeriesBySymbol={financialSeriesBySymbol}
           financialSeriesLoading={financialSeriesLoading}
-          sourcePanelId={sourcePanelId}
-          referenceOptions={referenceOptions}
-          onAgentAsk={onAgentAsk}
         />
       )}
     </section>
@@ -418,10 +383,7 @@ function CockpitAxisContent({
   narrativeLoading,
   narrativeFailed,
   financialSeriesBySymbol,
-  financialSeriesLoading,
-  sourcePanelId,
-  referenceOptions,
-  onAgentAsk
+  financialSeriesLoading
 }: {
   axis: AxisMeta;
   response: CompanyCompareResponse;
@@ -430,9 +392,6 @@ function CockpitAxisContent({
   narrativeFailed: boolean;
   financialSeriesBySymbol: FinancialSeriesBySymbol;
   financialSeriesLoading: boolean;
-  sourcePanelId?: string;
-  referenceOptions: ReferenceOptions;
-  onAgentAsk?: () => void;
 }) {
   const quantitative = QUANTITATIVE_AXIS_IDS.has(axis.id);
   const metrics = quantitative ? selectMetrics(response, axis.id) : [];
@@ -450,18 +409,6 @@ function CockpitAxisContent({
       : narrativeFailed || response.narrative.status === "failed"
         ? "비교 근거는 확인할 수 있지만 모든 기업을 포함한 AI 해석은 현재 사용할 수 없습니다."
         : "현재 확보된 근거를 같은 기준으로 나란히 비교합니다.");
-  const evidenceRefs = narrativeSection?.evidenceRefs
-    ?? qualitativeSection?.evidenceRefs
-    ?? metrics.flatMap((metric) => metric.values.map((value) => value.sourceRef).filter(Boolean) as string[]);
-  const axisReference = compareAxisReference({
-    symbols,
-    sectionId: axis.id,
-    heading: axis.title,
-    analysis: brief,
-    evidenceRefs
-  }, sourcePanelId);
-  const axisState = referenceStateClass(axisReference, referenceOptions);
-
   return (
     <div className="compare-cockpit-content" role="tabpanel" aria-live="polite">
       <header className="compare-cockpit-heading">
@@ -472,21 +419,12 @@ function CockpitAxisContent({
         <span className="compare-cockpit-source-count">{formatSourceCount(metrics, qualitativeSection)}</span>
       </header>
 
-      <section
-        className={`compare-cockpit-brief compare-reference-surface ${axisState}`}
-        aria-label={`${axis.title} AI 근거 요약을 Agent에 참조`}
-        {...referenceSurfaceProps(axisReference, referenceOptions)}
-      >
+      <section className="compare-cockpit-brief" aria-label={`${axis.title} AI 근거 요약`}>
         {narrativeLoading && !narrativeSection ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />}
         <div>
           <span>AI EVIDENCE BRIEF</span>
           <p><GlossaryText text={brief} /></p>
         </div>
-        {referenceOptions.selectedKeys.includes(agentReferenceKey(axisReference)) && onAgentAsk && (
-          <span className="compare-reference-ask" onClick={(event) => event.stopPropagation()}>
-            <ContextualAgentAskButton onAsk={onAgentAsk} />
-          </span>
-        )}
       </section>
 
       {axis.id === "earnings_stability" ? (
@@ -495,8 +433,6 @@ function CockpitAxisContent({
           symbols={symbols}
           loading={financialSeriesLoading}
           fallbackMetrics={metrics}
-          sourcePanelId={sourcePanelId}
-          referenceOptions={referenceOptions}
         />
       ) : axis.id === "relationship" ? (
         <RelationshipPairsView response={response} symbols={symbols} />
@@ -510,10 +446,7 @@ function CockpitAxisContent({
             <QuantitativeMetricRow
               key={metric.id}
               metric={metric}
-              sectionId={axis.id}
               symbols={symbols}
-              sourcePanelId={sourcePanelId}
-              referenceOptions={referenceOptions}
             />
           ))}
           {metrics.length === 0 && (
@@ -527,42 +460,27 @@ function CockpitAxisContent({
 
 function QuantitativeMetricRow({
   metric,
-  sectionId,
-  symbols,
-  sourcePanelId,
-  referenceOptions
+  symbols
 }: {
   metric: CompanyCompareMetric;
-  sectionId: string;
   symbols: string[];
-  sourcePanelId?: string;
-  referenceOptions: ReferenceOptions;
 }) {
   const values = symbols.map((symbol) => metric.values.find((value) => value.symbol === symbol));
   const extent = Math.max(0, ...values.map((value) => Math.abs(value?.value ?? 0)));
-  const reference = compareMetricReference({
-    symbols,
-    sectionId,
-    metric: metric.label,
-    values: values.map((value, index) => value ?? {
-      symbol: symbols[index],
-      value: null,
-      display: "데이터 없음"
-    }),
-    asOf: values.map((value) => value?.asOf ?? "").sort().at(-1) || undefined
-  }, sourcePanelId);
-  const state = referenceStateClass(reference, referenceOptions);
   return (
     <div
-      className={`compare-cockpit-metric-row-v2 compare-reference-surface ${state}`}
+      className="compare-cockpit-metric-row-v2"
       aria-label={`${metric.label}: ${symbols.map((symbol, index) => `${symbol} ${values[index]?.display ?? "데이터 없음"}`).join(", ")}`}
-      {...referenceSurfaceProps(reference, referenceOptions)}
     >
       <div className="compare-cockpit-metric-heading">
         <strong>{metric.label}</strong>
         <span>{metricCaption(metric.id)}</span>
       </div>
-      <div className="compare-cockpit-company-values" style={{ "--company-count": symbols.length } as CSSProperties}>
+      <div
+        className="compare-cockpit-company-values"
+        data-company-count={symbols.length}
+        style={{ "--company-count": symbols.length } as CSSProperties}
+      >
         {symbols.map((symbol, index) => {
           const value = values[index];
           return (
@@ -601,7 +519,10 @@ function QualitativeMatrixView({
         className="compare-cockpit-matrix-v2"
         role="table"
         aria-label={`${symbols.join(", ")} ${axisTitle} 비교`}
-        style={{ "--company-count": symbols.length } as CSSProperties}
+        style={{
+          "--company-count": symbols.length,
+          "--row-count": rows.length
+        } as CSSProperties}
       >
         <div className="compare-cockpit-matrix-row-v2 is-head" role="row">
           <span role="columnheader">비교 항목</span>
@@ -628,16 +549,12 @@ function EarningsStabilityView({
   points,
   symbols,
   loading,
-  fallbackMetrics,
-  sourcePanelId,
-  referenceOptions
+  fallbackMetrics
 }: {
   points: AlignedTrendPoint[];
   symbols: string[];
   loading: boolean;
   fallbackMetrics: CompanyCompareMetric[];
-  sourcePanelId?: string;
-  referenceOptions: ReferenceOptions;
 }) {
   if (loading && points.length === 0) {
     return (
@@ -653,10 +570,7 @@ function EarningsStabilityView({
           <QuantitativeMetricRow
             key={metric.id}
             metric={metric}
-            sectionId="earnings_stability"
             symbols={symbols}
-            sourcePanelId={sourcePanelId}
-            referenceOptions={referenceOptions}
           />
         ))}
         {fallbackMetrics.length === 0 && (
@@ -706,6 +620,27 @@ function TrendLineChart({
 }) {
   const titleId = useId();
   const descriptionId = useId();
+  const chartRef = useRef<SVGSVGElement>(null);
+  const [chartSize, setChartSize] = useState({ width: 720, height: 192 });
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || typeof ResizeObserver === "undefined") return undefined;
+    const updateSize = (width: number, height: number) => {
+      const next = {
+        width: Math.max(1, Math.round(width)),
+        height: Math.max(1, Math.round(height))
+      };
+      setChartSize((current) => (
+        current.width === next.width && current.height === next.height ? current : next
+      ));
+    };
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) updateSize(entry.contentRect.width, entry.contentRect.height);
+    });
+    observer.observe(chart);
+    updateSize(chart.clientWidth, chart.clientHeight);
+    return () => observer.disconnect();
+  }, []);
   const series = symbols.map((symbol) => points.map((point) => point.values[symbol]?.[metric] ?? null));
   const numericValues = series.flat().filter((value): value is number => Number.isFinite(value ?? NaN));
   const minimum = numericValues.length > 0 ? Math.min(...numericValues) : -0.1;
@@ -713,13 +648,14 @@ function TrendLineChart({
   const spread = Math.max(maximum - minimum, 0.08);
   const yMinimum = Math.min(0, minimum - spread * 0.16);
   const yMaximum = maximum + spread * 0.16;
-  const left = 58;
-  const right = 674;
-  const top = 22;
-  const bottom = 154;
+  const left = Math.min(58, Math.max(32, chartSize.width * 0.1));
+  const right = Math.max(left + 40, chartSize.width - Math.min(46, chartSize.width * 0.08));
+  const top = Math.min(22, chartSize.height * 0.15);
+  const bottom = Math.max(top + 20, chartSize.height - Math.min(38, chartSize.height * 0.22));
   const xFor = (index: number) => left + (right - left) * index / Math.max(1, points.length - 1);
   const yFor = (value: number) => bottom - (value - yMinimum) / Math.max(0.01, yMaximum - yMinimum) * (bottom - top);
   const ticks = [yMaximum, (yMaximum + yMinimum) / 2, yMinimum];
+  const periodLabelY = Math.max(bottom + 12, chartSize.height - Math.min(8, chartSize.height * 0.05));
   const description = points.map((point, pointIndex) => (
     `${point.label} ${symbols.map((symbol, symbolIndex) => `${symbol} ${formatPercent(series[symbolIndex][pointIndex])}`).join(", ")}`
   )).join(". ");
@@ -734,8 +670,9 @@ function TrendLineChart({
         </div>
       </header>
       <svg
+        ref={chartRef}
         className="compare-cockpit-trend-chart"
-        viewBox="0 0 720 192"
+        viewBox={`0 0 ${chartSize.width} ${chartSize.height}`}
         role="img"
         aria-labelledby={`${titleId} ${descriptionId}`}
         preserveAspectRatio="xMidYMid meet"
@@ -767,7 +704,7 @@ function TrendLineChart({
           </g>
         ))}
         <g className="compare-cockpit-chart-periods" aria-hidden="true">
-          {points.map((point, index) => <text key={point.id} x={xFor(index)} y="184">{point.label}</text>)}
+          {points.map((point, index) => <text key={point.id} x={xFor(index)} y={periodLabelY}>{point.label}</text>)}
         </g>
       </svg>
     </section>
@@ -776,11 +713,12 @@ function TrendLineChart({
 
 function RelationshipPairsView({ response, symbols }: { response: CompanyCompareResponse; symbols: string[] }) {
   const baseSymbol = symbols[0];
+  const compareSymbols = symbols.slice(1);
   const relationshipSection = response.qualitative.sections.find((section) => section.id === "relationship");
   const businessSection = response.qualitative.sections.find((section) => section.id === "business_model");
   return (
-    <div className="compare-cockpit-pair-grid">
-      {symbols.slice(1).map((compareSymbol, index) => {
+    <div className="compare-cockpit-pair-grid" data-card-count={compareSymbols.length}>
+      {compareSymbols.map((compareSymbol, index) => {
         const relationItem = findRelationshipItem(relationshipSection?.items ?? [], baseSymbol, compareSymbol);
         const baseBusiness = findBusinessItem(businessSection?.items ?? [], baseSymbol);
         const compareBusiness = findBusinessItem(businessSection?.items ?? [], compareSymbol);
@@ -813,33 +751,52 @@ function RelationshipPairsView({ response, symbols }: { response: CompanyCompare
 
 function RecentIssuesView({ response, symbols }: { response: CompanyCompareResponse; symbols: string[] }) {
   const section = response.qualitative.sections.find((item) => item.id === "recent_flow");
+  const entries = symbols.flatMap((symbol, symbolIndex) => (
+    findSymbolItems(section?.items ?? [], symbol).map((item) => ({ item, symbol, symbolIndex }))
+  ));
+  const dateGroups = groupRecentIssuesByDate(entries);
+  if (dateGroups.length === 0) {
+    return <div className="compare-cockpit-no-data">최근 이슈 데이터가 없습니다.</div>;
+  }
   return (
-    <div className="compare-cockpit-issue-columns" style={{ "--company-count": symbols.length } as CSSProperties}>
-      {symbols.map((symbol, symbolIndex) => {
-        const items = findSymbolItems(section?.items ?? [], symbol)
-          .sort((left, right) => (right.observedAt ?? "").localeCompare(left.observedAt ?? ""))
-          .slice(0, 2);
-        return (
-          <section key={symbol}>
-            <header><i style={{ "--company-color": companyColor(symbolIndex) } as CSSProperties} />{symbol}</header>
-            {items.length === 0 && <p className="compare-cockpit-missing">데이터 없음</p>}
-            {items.map((item) => {
-              const source = response.sources.find((entry) => entry.id === item.sourceRef);
-              const url = item.url ?? source?.url ?? null;
-              return (
-                <article key={`${item.sourceRef}-${item.observedAt ?? ""}`}>
-                  <time dateTime={item.observedAt ?? undefined}>{formatObservedDate(item.observedAt)}</time>
-                  <b><GlossaryText text={item.title} /></b>
-                  <p><GlossaryText text={plainText(item.summary)} /></p>
-                  {url
-                    ? <a href={url} target="_blank" rel="noreferrer">{source?.label ?? "원문"}</a>
-                    : <span>{source?.label ?? "저장 뉴스"}</span>}
-                </article>
-              );
-            })}
-          </section>
-        );
-      })}
+    <div className="compare-cockpit-issue-timeline" role="list" aria-label="날짜별 최근 이슈">
+      {dateGroups.map((group) => (
+        <section className="compare-cockpit-issue-day" role="listitem" key={group.dateKey}>
+          <span className="compare-cockpit-issue-timeline-dot" aria-hidden="true" />
+          <div className="compare-cockpit-issue-day-content">
+            <time
+              className="compare-cockpit-issue-date"
+              dateTime={group.dateKey === "undated" ? undefined : group.dateKey}
+            >
+              {formatRecentIssueDate(group.dateKey)}
+            </time>
+            <div className="compare-cockpit-issue-day-items">
+              {group.entries.map(({ item, symbol, symbolIndex }, itemIndex) => {
+                const source = response.sources.find((entry) => entry.id === item.sourceRef);
+                const url = item.url ?? source?.url ?? null;
+                return (
+                  <article
+                    className="compare-cockpit-issue-item"
+                    key={`${item.sourceRef}-${item.observedAt ?? ""}-${symbol}-${itemIndex}`}
+                  >
+                    <header>
+                      <span>
+                        <i style={{ "--company-color": companyColor(symbolIndex) } as CSSProperties} />
+                        {symbol}
+                      </span>
+                      {url
+                        ? <a href={url} target="_blank" rel="noreferrer">{source?.label ?? "원문"}</a>
+                        : <em>{source?.label ?? "저장 뉴스"}</em>}
+                    </header>
+                    <b><GlossaryText text={item.title} /></b>
+                    <p><GlossaryText text={plainText(item.summary)} /></p>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      ))}
     </div>
   );
 }
@@ -890,6 +847,21 @@ function buildQualitativeRows(
 ): QualitativeMatrixRow[] {
   if (section.id === "business_model") {
     const items = Object.fromEntries(symbols.map((symbol) => [symbol, findBusinessItem(section.items, symbol)]));
+    const structured = symbols.some((symbol) => (items[symbol]?.segments?.length ?? 0) > 0);
+    if (structured) {
+      const hasPlatform = symbols.some((symbol) => Boolean(items[symbol]?.platform));
+      const rows = [
+        matrixRow("구조", symbols, (symbol) => plainText(items[symbol]?.structure ?? items[symbol]?.summary)),
+        matrixRow("사업 부문", symbols, (symbol) => listText(
+          (items[symbol]?.segments ?? []).map((segment) => `${segment.name} — ${segment.detail}`)
+        )),
+        matrixRow("수익 방식", symbols, (symbol) => listText(items[symbol]?.revenueModel ?? []))
+      ];
+      if (hasPlatform) {
+        rows.push(matrixRow("플랫폼", symbols, (symbol) => plainText(items[symbol]?.platform)));
+      }
+      return rows;
+    }
     return [
       matrixRow("사업 모델", symbols, (symbol) => plainText(items[symbol]?.summary)),
       matrixRow("핵심 동력", symbols, (symbol) => plainText(items[symbol]?.details[0])),
@@ -1010,41 +982,6 @@ function validateNarrativeCoverage(
   };
 }
 
-function referenceSurfaceProps(reference: AgentReference, options: ReferenceOptions) {
-  if (!options.onSelect) return {};
-  return {
-    role: "button" as const,
-    tabIndex: 0,
-    "aria-pressed": options.selectedKeys.includes(agentReferenceKey(reference)),
-    draggable: true,
-    onClick: (event: MouseEvent<HTMLElement>) => {
-      if ((event.target as Element).closest(".glossary-term, button, a")) return;
-      options.onSelect?.(reference);
-    },
-    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      if ((event.target as Element).closest(".glossary-term")) return;
-      event.preventDefault();
-      options.onSelect?.(reference);
-    },
-    onDragStart: (event: DragEvent<HTMLElement>) => {
-      event.dataTransfer.effectAllowed = "copy";
-      event.dataTransfer.setData("application/x-gops-agent-reference", JSON.stringify(reference));
-      if (!options.selectedKeys.includes(agentReferenceKey(reference))) {
-        options.onSelect?.(reference);
-      }
-    }
-  };
-}
-
-function referenceStateClass(reference: AgentReference, options: ReferenceOptions): string {
-  const key = agentReferenceKey(reference);
-  return [
-    options.selectedKeys.includes(key) ? "is-agent-reference-selected" : "",
-    options.emphasizedKeys.includes(key) ? "is-agent-reference-emphasized" : ""
-  ].filter(Boolean).join(" ");
-}
-
 function handleAxisKeyDown(
   event: KeyboardEvent<HTMLButtonElement>,
   axisIndex: number,
@@ -1118,6 +1055,23 @@ function findSymbolItems(items: CompanyCompareQualitativeItem[], symbol: string)
   return items.filter((item) => splitItemSymbols(item.symbol).includes(symbol));
 }
 
+type RecentIssueEntry = {
+  item: CompanyCompareQualitativeItem;
+  symbol: string;
+  symbolIndex: number;
+};
+
+function groupRecentIssuesByDate(entries: RecentIssueEntry[]) {
+  const groups = new Map<string, RecentIssueEntry[]>();
+  [...entries]
+    .sort((left, right) => (right.item.observedAt ?? "").localeCompare(left.item.observedAt ?? ""))
+    .forEach((entry) => {
+      const dateKey = entry.item.observedAt?.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? "undated";
+      groups.set(dateKey, [...(groups.get(dateKey) ?? []), entry]);
+    });
+  return [...groups].map(([dateKey, groupedEntries]) => ({ dateKey, entries: groupedEntries }));
+}
+
 function splitItemSymbols(value: string | null | undefined): string[] {
   return (value ?? "").split(/[·,×/]/).map(normalizeCompanySymbol).filter(Boolean);
 }
@@ -1134,8 +1088,13 @@ function plainText(value: string | null | undefined): string {
   return value?.replace(/\s+/g, " ").trim() || "데이터 없음";
 }
 
+function listText(lines: string[]): string {
+  const cleaned = lines.map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+  return cleaned.length > 0 ? cleaned.map((line) => `· ${line}`).join("\n") : "데이터 없음";
+}
+
 function companyColor(index: number): string {
-  return COMPANY_COLORS[index] ?? COMPANY_COLORS[COMPANY_COLORS.length - 1];
+  return COMPANY_COLORS[index % COMPANY_COLORS.length];
 }
 
 function barWidth(value: number | null, extent: number): number {
@@ -1184,9 +1143,12 @@ function formatDateRange(values: string[]): string {
   return labels[0] === labels.at(-1) ? labels[0] : `${labels[0]}–${labels.at(-1)}`;
 }
 
-function formatObservedDate(value: string | null | undefined): string {
-  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return match ? `${match[1]}.${match[2]}.${match[3]}` : "날짜 없음";
+function formatRecentIssueDate(value: string): string {
+  if (value === "undated") return "날짜 없음";
+  const timestamp = Date.parse(`${value}T12:00:00Z`);
+  return Number.isFinite(timestamp)
+    ? new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric" }).format(new Date(timestamp))
+    : value;
 }
 
 export default CompanyComparePanel;

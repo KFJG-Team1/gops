@@ -1,7 +1,8 @@
 import type { TiledPanelState } from "../layout/panelLayout";
 
 export const COMPANY_COMPARE_SELECTION_STORAGE_KEY = "gops:company-compare-selections:v1";
-export const MAX_COMPANY_COMPARE_SYMBOLS = 2;
+export const MAX_COMPANY_COMPARE_TOTAL_SYMBOLS = 10;
+export const MAX_COMPANY_COMPARE_SYMBOLS = MAX_COMPANY_COMPARE_TOTAL_SYMBOLS - 1;
 
 export type CompanyCompareSelectionState = Record<string, string[]>;
 

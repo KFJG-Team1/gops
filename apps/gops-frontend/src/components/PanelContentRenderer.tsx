@@ -287,11 +287,6 @@ export function PanelContentRenderer({
           baseSymbol={baseSymbol}
           compareSymbols={compareSymbols}
           symbols={symbols}
-          sourcePanelId={content.id}
-          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
-          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
-          onAgentReferenceSelect={onAgentReferenceSelect}
-          onAgentAsk={onAgentAsk}
           onCompareSymbolsChange={(nextSymbols) => onCompanyCompareSymbolsChange(baseSymbol, nextSymbols)}
         />
       </Suspense>

@@ -10,7 +10,10 @@ import type {
   ChartSymbolDto
 } from "../chart/types";
 import { SymbolSearch } from "./SymbolSearch";
-import { MAX_COMPANY_COMPARE_SYMBOLS } from "../companyCompare/companyCompareSelection";
+import {
+  MAX_COMPANY_COMPARE_SYMBOLS,
+  MAX_COMPANY_COMPARE_TOTAL_SYMBOLS
+} from "../companyCompare/companyCompareSelection";
 import { StockLogo } from "./StockLogo";
 
 type ChartComparisonPanelProps = {
@@ -25,7 +28,18 @@ type ChartComparisonPanelProps = {
 
 const compareRanges: ChartCompareRange[] = ["1D", "1M", "6M", "1Y", "5Y"];
 const defaultChartSize = { width: 1600, height: 300 };
-const fallbackColors = ["#0052ff", "#05b169", "#cf202f", "#f4b000", "#003ecc", "#8c939f"];
+const fallbackColors = [
+  "#33adff",
+  "#ff7a3d",
+  "#7bd88f",
+  "#b890ff",
+  "#ff5f6d",
+  "#42d7d0",
+  "#f2c94c",
+  "#ff8bd1",
+  "#9aa5b1",
+  "#c99a6b"
+];
 const maxCompareSymbols = MAX_COMPANY_COMPARE_SYMBOLS + 1;
 
 export function ChartComparisonPanel({
@@ -188,7 +202,9 @@ export function ChartComparisonPanel({
             />
           )}
           {requestSymbols.length >= maxCompareSymbols && (
-            <p className="chart-compare-limit" role="status">최대 2개 기업까지 비교할 수 있습니다</p>
+            <p className="chart-compare-limit" role="status">
+              최대 {MAX_COMPANY_COMPARE_TOTAL_SYMBOLS}개 기업까지 비교할 수 있습니다
+            </p>
           )}
           <div className="chart-compare-list" aria-label="비교 종목 목록" ref={listRef}>
             {displayItems.map((item, index) => {
