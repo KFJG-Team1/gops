@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
+  buildChartTradeFillInsights,
   chartTradeMarkersForScene,
   normalizeChartTradeFills,
   syncChartTradeMarkerPositions
@@ -204,3 +207,87 @@ syncChartTradeMarkerPositions({
 } as unknown as ParentNode, [{ ...dailyMarkers[0], x: 222.5, top: 145.25 }]);
 assert.deepEqual(movingTradeElement.style, { left: "222.5px", top: "145.25px", visibility: "" });
 assert.equal(staleTradeElement.style.visibility, "hidden");
+
+const insightFills = normalizeChartTradeFills([
+  {
+    order_id: "buy-at-100",
+    status: "filled",
+    symbol: "AAPL",
+    side: "buy",
+    qty: 2,
+    fill_price: 100,
+    filled_at: "2026-07-15T14:30:00.000Z"
+  },
+  {
+    order_id: "buy-at-110",
+    status: "filled",
+    symbol: "AAPL",
+    side: "buy",
+    qty: 2,
+    fill_price: 110,
+    filled_at: "2026-07-15T14:31:00.000Z"
+  },
+  {
+    order_id: "sell-at-120",
+    status: "filled",
+    symbol: "AAPL",
+    side: "sell",
+    qty: 3,
+    fill_price: 120,
+    filled_at: "2026-07-15T14:32:00.000Z"
+  },
+  {
+    order_id: "sell-without-cost-basis",
+    status: "filled",
+    symbol: "MSFT",
+    side: "sell",
+    qty: 1,
+    fill_price: 510,
+    filled_at: "2026-07-15T14:33:00.000Z"
+  }
+]);
+const fillInsights = buildChartTradeFillInsights(insightFills, 120);
+assert.deepEqual(fillInsights.get("buy-at-100"), {
+  kind: "mark_to_market",
+  tone: "gain",
+  amount: 40,
+  percent: 20,
+  basisPrice: 120
+});
+assert.deepEqual(fillInsights.get("buy-at-110"), {
+  kind: "mark_to_market",
+  tone: "gain",
+  amount: 20,
+  percent: 100 / 11,
+  basisPrice: 120
+});
+assert.deepEqual(fillInsights.get("sell-at-120"), {
+  kind: "realized",
+  tone: "gain",
+  amount: 45,
+  percent: 100 / 7,
+  basisPrice: 105
+});
+assert.deepEqual(fillInsights.get("sell-without-cost-basis"), {
+  kind: "unavailable",
+  tone: "unavailable",
+  amount: null,
+  percent: null,
+  basisPrice: null
+});
+assert.equal(buildChartTradeFillInsights(insightFills, null).get("buy-at-100")?.kind, "unavailable");
+
+const tradeOverlaySource = readFileSync(
+  fileURLToPath(new URL("../src/components/ChartTradeOverlay.tsx", import.meta.url)),
+  "utf-8"
+);
+assert.match(tradeOverlaySource, /role="tooltip"/);
+assert.match(tradeOverlaySource, /chart-trade-tooltip-pnl/);
+assert.doesNotMatch(tradeOverlaySource, /title=\{description\}/);
+
+const stylesSource = readFileSync(
+  fileURLToPath(new URL("../src/styles.css", import.meta.url)),
+  "utf-8"
+);
+assert.match(stylesSource, /\.chart-trade-tooltip\s*\{/);
+assert.match(stylesSource, /\.chart-trade-marker\s*\{[\s\S]*?cursor: default;/);
