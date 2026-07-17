@@ -10,6 +10,7 @@ import type {
   ChartSymbolDto
 } from "../chart/types";
 import { SymbolSearch } from "./SymbolSearch";
+import { MAX_COMPANY_COMPARE_SYMBOLS } from "../companyCompare/companyCompareSelection";
 import { StockLogo } from "./StockLogo";
 
 type ChartComparisonPanelProps = {
@@ -25,7 +26,7 @@ type ChartComparisonPanelProps = {
 const compareRanges: ChartCompareRange[] = ["1D", "1M", "6M", "1Y", "5Y"];
 const defaultChartSize = { width: 1600, height: 300 };
 const fallbackColors = ["#0052ff", "#05b169", "#cf202f", "#f4b000", "#003ecc", "#8c939f"];
-const maxCompareSymbols = 6;
+const maxCompareSymbols = MAX_COMPANY_COMPARE_SYMBOLS + 1;
 
 export function ChartComparisonPanel({
   symbol,
@@ -185,6 +186,9 @@ export function ChartComparisonPanel({
               menuPlacement="bottom"
               onSelectSymbol={onAddSymbol}
             />
+          )}
+          {requestSymbols.length >= maxCompareSymbols && (
+            <p className="chart-compare-limit" role="status">최대 2개 기업까지 비교할 수 있습니다</p>
           )}
           <div className="chart-compare-list" aria-label="비교 종목 목록" ref={listRef}>
             {displayItems.map((item, index) => {

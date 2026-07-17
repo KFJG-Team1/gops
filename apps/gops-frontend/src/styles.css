@@ -27690,3 +27690,629 @@ textarea:focus,
     grid-template-columns: 1fr;
   }
 }
+
+/* Company comparison v2 — shared 3-company state and reference surfaces. */
+.compare-cockpit-v2 {
+  overflow: visible;
+  container-type: size;
+}
+
+.compare-cockpit-v2 .compare-cockpit-topbar {
+  grid-template-columns: minmax(130px, 0.7fr) minmax(0, auto) minmax(180px, 0.7fr);
+  gap: 16px;
+}
+
+.compare-cockpit-symbols {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  border-radius: 7px;
+  padding: 5px;
+}
+
+.compare-cockpit-symbols > em {
+  margin-left: 3px;
+  color: #888888;
+  font: var(--type-caption);
+  font-style: normal;
+}
+
+.compare-cockpit-symbol-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  border: 1px solid #3b3b3b;
+  border-radius: 999px;
+  padding: 0 9px;
+  background: #202020;
+  color: #ffffff;
+  font: var(--type-label-md);
+  white-space: nowrap;
+}
+
+.compare-cockpit-symbol-chip > i,
+.compare-cockpit-trend-legend i,
+.compare-cockpit-matrix-row-v2.is-head i,
+.compare-cockpit-company-value > span i,
+.compare-cockpit-pair-card header i,
+.compare-cockpit-issue-columns > section > header i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--company-color);
+}
+
+.compare-cockpit-symbol-chip button {
+  display: inline-grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  margin-right: -5px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: #999999;
+}
+
+.compare-cockpit-symbol-chip button:hover,
+.compare-cockpit-symbol-chip button:focus-visible {
+  background: #333333;
+  color: #ffffff;
+  outline: none;
+}
+
+.compare-cockpit-add {
+  grid-column: 3;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.compare-cockpit-limit,
+.chart-compare-limit {
+  margin: 0;
+  color: #999999;
+  font: var(--type-caption);
+  line-height: 1.35;
+  text-align: right;
+}
+
+.chart-compare-limit {
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.compare-cockpit-v2 .compare-cockpit-content,
+.compare-cockpit-v2 .compare-cockpit-metrics,
+.compare-cockpit-v2 .compare-cockpit-special-view {
+  overflow: visible;
+}
+
+.compare-reference-surface {
+  position: relative;
+  cursor: copy;
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.compare-reference-surface:hover,
+.compare-reference-surface:focus-visible {
+  background: color-mix(in srgb, #33adff 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #33adff 42%, transparent);
+  outline: none;
+}
+
+.compare-reference-surface.is-agent-reference-selected {
+  background: color-mix(in srgb, #33adff 12%, transparent);
+  box-shadow: inset 0 0 0 1px #33adff;
+}
+
+.compare-reference-surface.is-agent-reference-emphasized {
+  background: color-mix(in srgb, #ffbd45 14%, transparent);
+  box-shadow: inset 0 0 0 1px #ffbd45;
+}
+
+.compare-reference-ask {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.compare-cockpit-v2 .compare-cockpit-brief {
+  gap: 12px;
+  margin-top: 4px;
+  padding: 3px 8px 5px;
+}
+
+.compare-cockpit-v2 .compare-cockpit-content {
+  padding: 6px 24px;
+}
+
+.compare-cockpit-v2 .compare-cockpit-heading h2 {
+  margin-top: 2px;
+  font: 400 22px/1.2 var(--font-data-sans);
+}
+
+.compare-cockpit-v2 .compare-cockpit-brief p {
+  margin-top: 3px;
+}
+
+.compare-cockpit-v2 .compare-cockpit-metrics.is-quantitative {
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  align-content: stretch;
+  margin-top: 4px;
+}
+
+.compare-cockpit-metric-row-v2 {
+  display: grid;
+  height: 100%;
+  grid-template-columns: minmax(164px, 0.22fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 24px;
+  min-height: 0;
+  border-bottom: 1px solid #333333;
+  padding: 12px 0;
+}
+
+.compare-cockpit-metric-heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.compare-cockpit-metric-heading > strong {
+  color: #ffffff;
+  font: var(--type-label-md);
+}
+
+.compare-cockpit-metric-heading > span {
+  color: #777777;
+  font: var(--type-caption);
+  line-height: 1.35;
+}
+
+.compare-cockpit-company-values {
+  display: grid;
+  height: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(var(--company-count), minmax(20px, 1fr));
+  gap: 9px;
+  min-width: 0;
+}
+
+.compare-cockpit-company-value {
+  display: grid;
+  grid-template-columns: minmax(62px, 0.12fr) minmax(120px, 1fr) minmax(72px, auto);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.compare-cockpit-company-value > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #f2f2f2;
+  font: var(--type-label-md);
+}
+
+.compare-cockpit-company-value > b {
+  grid-column: 3;
+  grid-row: 1;
+  color: #ffffff;
+  font: var(--type-label-md);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-company-value > div {
+  grid-column: 2;
+  grid-row: 1;
+  height: 10px;
+  background: #333333;
+}
+
+.compare-cockpit-company-value > div > i {
+  display: block;
+  width: var(--compare-bar-width);
+  height: 100%;
+  background: var(--company-color);
+}
+
+.compare-cockpit-matrix-v2 {
+  display: grid;
+  align-content: start;
+  width: 100%;
+}
+
+.compare-cockpit-matrix-row-v2 {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.18fr) repeat(var(--company-count), minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+  border-bottom: 1px solid #333333;
+  padding: 10px 0;
+}
+
+.compare-cockpit-matrix-row-v2.is-head {
+  color: #999999;
+  font: var(--type-caption);
+}
+
+.compare-cockpit-matrix-row-v2.is-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.compare-cockpit-matrix-row-v2 > strong {
+  color: #ffffff;
+  font: var(--type-label-md);
+}
+
+.compare-cockpit-matrix-row-v2 > span[role="cell"] {
+  min-width: 0;
+  color: #ffffff;
+  font: var(--type-body-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-matrix-row-v2 > span[role="cell"]::before {
+  display: none;
+}
+
+.compare-cockpit-pair-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 18px;
+  margin-top: 14px;
+}
+
+.compare-cockpit-pair-card {
+  min-width: 0;
+  border: 1px solid #3a3a3a;
+  border-radius: 9px;
+  padding: 14px;
+  background: #232323;
+}
+
+.compare-cockpit-pair-card > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #3a3a3a;
+  padding-bottom: 11px;
+  color: #ffffff;
+  font: var(--type-label-md);
+}
+
+.compare-cockpit-pair-card > header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.compare-cockpit-pair-card > header > b {
+  color: #999999;
+}
+
+.compare-cockpit-pair-card dl {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.compare-cockpit-pair-card dl > div {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.28fr) minmax(0, 1fr);
+  gap: 12px;
+  border-bottom: 1px solid #333333;
+  padding: 9px 0;
+}
+
+.compare-cockpit-pair-card dl > div:last-child {
+  border-bottom: 0;
+}
+
+.compare-cockpit-pair-card dt {
+  color: #999999;
+  font: var(--type-caption);
+}
+
+.compare-cockpit-pair-card dd {
+  min-width: 0;
+  margin: 0;
+  color: #ffffff;
+  font: var(--type-body-md);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-issue-columns {
+  display: grid;
+  grid-template-columns: repeat(var(--company-count), minmax(0, 1fr));
+  align-content: start;
+  gap: 18px;
+  margin-top: 14px;
+}
+
+.compare-cockpit-issue-columns > section {
+  min-width: 0;
+  border: 1px solid #3a3a3a;
+  border-radius: 9px;
+  background: #232323;
+}
+
+.compare-cockpit-issue-columns > section > header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid #3a3a3a;
+  padding: 11px 12px;
+  color: #ffffff;
+  font: var(--type-label-md);
+}
+
+.compare-cockpit-issue-columns article {
+  display: grid;
+  gap: 5px;
+  border-bottom: 1px solid #333333;
+  padding: 12px;
+}
+
+.compare-cockpit-issue-columns article:last-child {
+  border-bottom: 0;
+}
+
+.compare-cockpit-issue-columns time,
+.compare-cockpit-issue-columns article > span,
+.compare-cockpit-issue-columns article > a {
+  color: #999999;
+  font: var(--type-caption);
+}
+
+.compare-cockpit-issue-columns article > b {
+  color: #ffffff;
+  font: var(--type-label-md);
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-issue-columns article > p,
+.compare-cockpit-missing {
+  margin: 0;
+  color: #ffffff;
+  font: var(--type-body-md);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.compare-cockpit-issue-columns article > a {
+  width: fit-content;
+  color: #33adff;
+  text-decoration: none;
+}
+
+.compare-cockpit-missing {
+  padding: 16px 12px;
+  color: #999999;
+}
+
+.compare-cockpit-v2 .compare-cockpit-candidates small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.agent-box button.agent-reference-chip.compare {
+  background: color-mix(in srgb, #33adff 15%, transparent);
+  color: #bfe5ff;
+}
+
+@container (max-width: 760px) {
+  .compare-cockpit-v2 .compare-cockpit-topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 8px 12px;
+    padding-block: 9px;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-brand {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .compare-cockpit-symbols {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    padding-inline: 0;
+  }
+
+  .compare-cockpit-add {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .compare-cockpit-symbols > em {
+    display: none;
+  }
+
+  .compare-cockpit-metric-row-v2 {
+    grid-template-columns: minmax(118px, 0.28fr) minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .compare-cockpit-pair-grid,
+  .compare-cockpit-issue-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .compare-cockpit-company-value {
+    grid-template-columns: minmax(54px, 0.18fr) minmax(80px, 1fr) minmax(64px, auto);
+    gap: 8px;
+  }
+
+  .compare-cockpit-matrix-row-v2 {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding-block: 13px;
+  }
+
+  .compare-cockpit-matrix-row-v2.is-head > span:not(:first-child) {
+    display: none;
+  }
+
+  .compare-cockpit-matrix-row-v2 > span[role="cell"] {
+    display: grid;
+    grid-template-columns: minmax(58px, auto) minmax(0, 1fr);
+    gap: 10px;
+    border-left: 2px solid #3a3a3a;
+    padding-left: 10px;
+  }
+
+  .compare-cockpit-matrix-row-v2 > span[role="cell"]::before {
+    display: block;
+    color: #999999;
+    content: attr(data-symbol);
+    font: var(--type-caption);
+  }
+}
+
+@container (max-width: 620px) or (max-height: 360px) {
+  .compare-cockpit-v2 {
+    overflow: hidden;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-topbar {
+    min-height: 42px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 6px;
+    padding: 0 8px;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-brand,
+  .compare-cockpit-v2 .compare-cockpit-limit {
+    display: none;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-symbols {
+    grid-column: 1;
+    grid-row: 1;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    gap: 3px;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-symbol-chip {
+    gap: 3px;
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-add {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-tabs button {
+    min-height: 34px;
+    padding: 0 2px;
+    font: 600 10px/1 var(--font-data-sans);
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-content {
+    padding: 3px 8px 4px;
+    overflow: hidden;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-heading {
+    gap: 8px;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-heading > div > span {
+    font-size: 10px;
+    line-height: 1;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-heading h2 {
+    margin-top: 1px;
+    font: 500 15px/1.1 var(--font-data-sans);
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-source-count {
+    padding: 2px 5px;
+    font-size: 10px;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-brief {
+    display: none;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-metrics.is-quantitative {
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    margin-top: 2px;
+    overflow: hidden;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-metric-row-v2 {
+    grid-template-columns: minmax(72px, 0.23fr) minmax(0, 1fr);
+    gap: 6px;
+    padding: 1px 0;
+    overflow: hidden;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-metric-heading {
+    gap: 0;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-metric-heading > strong {
+    font: 500 11px/1.1 var(--font-data-sans);
+    overflow-wrap: anywhere;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-metric-heading > span {
+    display: none;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-company-values {
+    grid-template-rows: repeat(var(--company-count), minmax(0, 1fr));
+    gap: 0;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-company-value {
+    grid-template-columns: minmax(38px, 0.18fr) minmax(48px, 1fr) minmax(44px, auto);
+    gap: 5px;
+    overflow: hidden;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-company-value > span,
+  .compare-cockpit-v2 .compare-cockpit-company-value > b {
+    font: 500 11px/1 var(--font-data-sans);
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-company-value > span {
+    gap: 3px;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-company-value > span i {
+    width: 5px;
+    height: 5px;
+  }
+
+  .compare-cockpit-v2 .compare-cockpit-company-value > div {
+    height: 5px;
+  }
+}

@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import {
   createInitialTiledPanelState,
+  defaultGridSpanForKind,
   gridRectsOverlap,
   panelGridMetrics,
   panelMinimumRenderedSizeForKind,
   readableMinGridSpanForKind,
+  type StoredTiledPanelState,
   workspaceBounds
 } from "../src/layout/panelLayout";
+import {
+  buildPresetLayout,
+  DEFAULT_PRESETS,
+  migrateCompanyComparePanelSnapshot
+} from "../src/layout/layoutPresets";
 import {
   compactGridCellFloorPx,
   resolveResponsivePanelLayout
@@ -43,6 +50,47 @@ assert.deepEqual(panelMinimumRenderedSizeForKind("aiCoach"), { width: 320, heigh
 assert.deepEqual(readableMinGridSpanForKind("priceCondition"), { colSpan: 1, rowSpan: 1 });
 assert.deepEqual(panelMinimumRenderedSizeForKind("priceCondition"), { width: 0, height: 0 });
 assert.deepEqual(panelMinimumRenderedSizeForKind("chart"), { width: 320, height: 220 });
+assert.deepEqual(readableMinGridSpanForKind("companyCompare"), { colSpan: 3, rowSpan: 2 });
+assert.deepEqual(defaultGridSpanForKind("companyCompare"), { colSpan: 3, rowSpan: 2 });
+assert.deepEqual(panelMinimumRenderedSizeForKind("companyCompare"), { width: 420, height: 220 });
+
+const stockPreset = DEFAULT_PRESETS.find((preset) => preset.id === "stock");
+assert.ok(stockPreset);
+const stockLayout = buildPresetLayout(stockPreset, { width: 1280, height: 720 });
+assert.ok(stockLayout);
+const stockCompareContentId = Object.values(stockLayout.contents)
+  .find((content) => content.kind === "companyCompare")?.id;
+const stockCompareSlot = stockLayout.slots.find((slot) => slot.contentId === stockCompareContentId);
+assert.deepEqual(stockCompareSlot?.gridRect, { col: 1, row: 1, colSpan: 3, rowSpan: 2 });
+
+const legacyCompanyCompareLayout: StoredTiledPanelState = {
+  version: 1,
+  nextInstance: 2,
+  contents: {
+    "content-companyCompare-1": {
+      id: "content-companyCompare-1",
+      kind: "companyCompare",
+      title: "기업 성향 비교",
+      instanceIndex: 1
+    }
+  },
+  slots: [{
+    id: "slot-companyCompare-1",
+    contentId: "content-companyCompare-1",
+    gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 4 }
+  }]
+};
+const migratedCompanyCompareLayout = migrateCompanyComparePanelSnapshot(
+  legacyCompanyCompareLayout
+) as StoredTiledPanelState;
+assert.deepEqual(
+  migratedCompanyCompareLayout.slots[0]?.gridRect,
+  { col: 1, row: 1, colSpan: 3, rowSpan: 2 }
+);
+assert.equal(
+  migratedCompanyCompareLayout.contents["content-companyCompare-1"]?.props?.companyCompareLayoutVersion,
+  2
+);
 
 const initial = createInitialTiledPanelState({ width: 854, height: 480 }, {
   symbol: "NVDA",
