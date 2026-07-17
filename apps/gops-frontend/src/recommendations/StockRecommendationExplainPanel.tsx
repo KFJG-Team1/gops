@@ -138,7 +138,7 @@ export function StockRecommendationExplainPanel({
 
       <div className={styles.verdict}>
         <div className={styles.verdictCopy}>
-          <span className={styles.verdictLabel}>{item.decision?.label ?? "매수 관찰"}</span>
+          <span className={styles.verdictLabel} data-action={item.action}>{item.decision?.label ?? "매수 관찰"}</span>
           {v3 && item.decision ? (
             <>
               <h3>{v3.primary.headline}</h3>

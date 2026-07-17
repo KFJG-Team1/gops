@@ -7104,11 +7104,8 @@ h2 {
   --stock-rec-tab-height: max(48px, 14cqh);
   --stock-rec-tab-logo-offset: calc((var(--stock-rec-tab-height) - var(--stock-rec-tab-logo-size)) / 2);
   --stock-rec-logo-ticker-gap: clamp(8px, 1.5cqw, 14px);
-  --stock-rec-diagonal-gap: clamp(56px, 10cqw, 96px);
   --stock-rec-content-top-gap: clamp(38px, calc(7cqh + 10px), 54px);
-  --stock-rec-tab-end: calc(
-    var(--stock-rec-tab-logo-offset) + var(--stock-rec-tab-logo-size) + var(--stock-rec-logo-ticker-gap) + (var(--panel-padding) * 4) + var(--stock-rec-tab-text-width, 4ch) + var(--stock-rec-diagonal-gap)
-  );
+  --stock-rec-tab-end: clamp(176px, 48cqw, 248px);
   --stock-rec-diagonal-width: clamp(32px, 7cqw, 60px);
   position: absolute;
   top: var(--stock-rec-stack-top, 0px);
@@ -7159,7 +7156,7 @@ h2 {
   z-index: 4;
   opacity: 0.82;
   pointer-events: auto;
-  transform: translateX(var(--panel-padding)) scale(0.992);
+  transform: translateX(0) scale(1);
 }
 
 .stock-recommendations-panel .stock-rec-file-stack .stock-rec-row.is-back-2 {
@@ -7167,7 +7164,7 @@ h2 {
   z-index: 3;
   opacity: 0.58;
   pointer-events: none;
-  transform: translateX(calc(var(--panel-padding) * 2)) scale(0.984);
+  transform: translateX(0) scale(1);
 }
 
 .stock-recommendations-panel .stock-rec-file-stack .stock-rec-row.is-back-3 {
@@ -7175,7 +7172,7 @@ h2 {
   z-index: 2;
   opacity: 0.36;
   pointer-events: none;
-  transform: translateX(calc(var(--panel-padding) * 3)) scale(0.976);
+  transform: translateX(0) scale(1);
 }
 
 .stock-recommendations-panel .stock-rec-file-stack .stock-rec-row.is-hidden {
@@ -7183,7 +7180,7 @@ h2 {
   z-index: 1;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(calc(var(--panel-padding) * 4)) scale(0.97);
+  transform: translateX(0) scale(1);
 }
 
 .stock-rec-file-tab-label {
@@ -7276,6 +7273,14 @@ h2 {
 
 .stock-rec-file-stack .stock-rec-reasons {
   gap: calc(var(--panel-padding) / 4);
+}
+
+.stock-rec-file-stack .stock-rec-reasons em {
+  overflow: visible;
+  overflow-wrap: break-word;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: keep-all;
 }
 
 .stock-rec-file-stack .stock-rec-symbol-line + .stock-rec-reasons {

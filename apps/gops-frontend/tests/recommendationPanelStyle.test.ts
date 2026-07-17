@@ -41,6 +41,8 @@ assert.equal(panelSource.includes("시뮬레이션 시각 기준 추천 데이�
 assert.match(reportSource, /판단 근거와 비교 기준/, "direct recommendations show observed values with their baselines");
 assert.match(reportSource, /유의할 점/, "direct recommendations show structured cautions");
 assert.match(reportSource, /verdictLabel/, "the compact action label is rendered above the narrative headline");
+assert.match(reportSource, /data-action=\{item\.action\}/, "the explanation action label exposes its semantic action tone");
+assert.match(reportStyles, /\.verdictLabel\[data-action="buy"\][\s\S]+?color:\s*var\(--coinbase-semantic-up\);/, "the explanation buy label matches the recommendation panel buy tone");
 assert.match(reportSource, /<h3>\{v3\.primary\.headline\}<\/h3>/, "the backend headline is the primary hero copy");
 assert.match(reportSource, /item\.cautions\.map/, "the UI renders only normalized backend cautions");
 assert.match(reportSource, /EvidenceMetricBar/, "observed evidence metrics are rendered as comparison graphics");
@@ -60,6 +62,10 @@ assert.match(reportSource, /눌림 진입/, "direct recommendations expose the f
 assert.match(reportSource, /판단 무효화/, "direct recommendations expose the invalidation price");
 assert.match(reportSource, /15:50 ET/, "direct recommendations expose the forced intraday exit");
 assert.match(panelSource, /actionLabel\(item\.action\)/, "recommendation rows label buy, conditional, watch, and unsuitable states");
+assert.equal(panelSource.includes("text: item.explanation.primary.headline"), false, "recommendation cards do not repeat the full explanation headline");
+assert.match(panelSource, /market_strength:\s*"시장 대비 흐름"/, "recommendation cards derive compact evidence summaries");
+assert.match(workspaceStyles, /--stock-rec-tab-end:\s*clamp\(176px, 48cqw, 248px\);/, "stacked recommendation tabs share one aligned seam");
+assert.match(workspaceStyles, /\.stock-rec-file-stack \.stock-rec-reasons em[\s\S]+?white-space:\s*normal;[\s\S]+?word-break:\s*keep-all;/, "compact recommendation summaries wrap without splitting Korean words");
 assert.equal(reportSource.includes("missingOptionalFactors"), false, "missing optional evidence is not rendered as user-facing risk");
 assert.equal(reportSource.includes("directHero"), false, "the card-style direct recommendation hero is removed");
 assert.equal(reportSource.includes("keyEvidenceCard"), false, "the retired score-only evidence card stays removed");
