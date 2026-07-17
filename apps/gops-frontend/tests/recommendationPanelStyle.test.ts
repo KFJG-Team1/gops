@@ -46,12 +46,15 @@ assert.match(reportSource, /item\.cautions\.map/, "the UI renders only normalize
 assert.match(reportSource, /EvidenceMetricBar/, "observed evidence metrics are rendered as comparison graphics");
 assert.match(reportSource, /EvidenceHelp/, "evidence validity explanations are available from compact help controls");
 assert.equal(reportSource.includes("<p>{evidence.interpretation}</p>"), false, "long validity explanations do not consume the default layout height");
+assert.equal(reportSource.includes("<small>{metric.comparison}</small>"), false, "comparison copy does not consume space below metric graphs");
+assert.match(reportSource, /evidenceComparisonList/, "metric comparison copy is rendered inside the evidence help tooltip");
 assert.match(reportSource, /metric\.valuePositionPct/, "the UI uses backend-provided graph positions");
 assert.match(reportSource, /metric\.referencePositionPct/, "each graph shows its explicit comparison baseline");
 assert.match(reportStyles, /\.evidenceMetricTrack[\s\S]+?border-radius:\s*999px;/, "evidence values use compact benchmark tracks");
 assert.match(reportStyles, /\.sentenceEvidenceList[\s\S]+?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/, "wide evidence layouts use two compact columns");
 assert.match(reportStyles, /\.evidenceHelp:focus-within \.evidenceTooltip/, "keyboard focus reveals the evidence explanation tooltip");
 assert.match(reportStyles, /\.verdictCopy h3[\s\S]+?word-break:\s*keep-all;/, "Korean headline words do not split between syllables");
+assert.match(reportStyles, /\.verdictCopy h3[\s\S]+?max-width:\s*26em;/, "desktop headline has room for a two-line Korean summary");
 assert.match(reportStyles, /\.verdictCopy p[\s\S]+?word-break:\s*keep-all;/, "Korean narrative words do not split between syllables");
 assert.match(reportSource, /눌림 진입/, "direct recommendations expose the fixed pullback entry route");
 assert.match(reportSource, /판단 무효화/, "direct recommendations expose the invalidation price");
