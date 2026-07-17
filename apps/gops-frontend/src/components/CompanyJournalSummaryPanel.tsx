@@ -87,6 +87,12 @@ export type FinancialChartPoint = {
   netDebt?: number | null;
 };
 
+export const COMPANY_JOURNAL_HISTORY_START_YEAR = 2021;
+
+export function companyJournalHistoryYears(currentYear = new Date().getUTCFullYear()): number {
+  return Math.max(1, currentYear - COMPANY_JOURNAL_HISTORY_START_YEAR + 1);
+}
+
 export type CompanyJournalEvidence = {
   financialSeries: FinancialChartPoint[];
   earningsSeries: EarningsChartPoint[];
@@ -249,7 +255,7 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
   );
   const periodEarningsSeries = useMemo(
     () => financialPeriodMode === "annual"
-      ? aggregateEarningsSeriesToAnnual(earningsSeries).slice(-5)
+      ? companyJournalAnnualHistory(aggregateEarningsSeriesToAnnual(earningsSeries))
       : earningsSeries.slice(-12),
     [earningsSeries, financialPeriodMode]
   );
@@ -284,7 +290,7 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
     const controller = new AbortController();
     setFinancialSeries(null);
     fetchCompanyFinancialSeries(normalizedSymbol, controller.signal, {
-      years: financialPeriodMode === "annual" ? 5 : 3,
+      years: companyJournalHistoryYears(),
       period: financialPeriodMode
     })
       .then((series) => setFinancialSeries(series))
@@ -303,7 +309,7 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
     }
     const controller = new AbortController();
     setEarningsSeriesFromApi(null);
-    fetchCompanyEarningsSeries(normalizedSymbol, controller.signal, { years: 3 })
+    fetchCompanyEarningsSeries(normalizedSymbol, controller.signal, { years: companyJournalHistoryYears() })
       .then((series) => setEarningsSeriesFromApi(series))
       .catch(() => {
         if (!controller.signal.aborted) {
@@ -731,8 +737,9 @@ function ProfitabilityDashboard({
   onPeriodSelect: (period: string) => void;
   compactJournal?: boolean;
 }) {
-  const points = series.filter(isRenderableProfitabilityPoint).slice(periodMode === "annual" ? -5 : -12);
-  const tablePoints = points.slice(periodMode === "annual" ? -5 : -8);
+  const renderablePoints = series.filter(isRenderableProfitabilityPoint);
+  const points = periodMode === "annual" ? companyJournalAnnualHistory(renderablePoints) : renderablePoints.slice(-12);
+  const tablePoints = points.slice(periodMode === "annual" ? -companyJournalHistoryYears() : -8);
   const selectedPoint = points.find((point) => financialPointKey(point) === selectedPeriod) ?? points.at(-1);
   return (
     <section className="company-profitability-dashboard" aria-label="수익성과 투자수익률">
@@ -742,7 +749,7 @@ function ProfitabilityDashboard({
           <span>막대 또는 선의 점을 선택하면 기업저널 해석이 같은 기간으로 바뀝니다.</span>
         </div>
         <div className="company-financial-period-controls" role="group" aria-label="재무 표시 기간">
-          <button type="button" aria-pressed={periodMode === "annual"} onClick={() => onPeriodModeChange("annual")}>연간 5년</button>
+          <button type="button" aria-pressed={periodMode === "annual"} onClick={() => onPeriodModeChange("annual")}>2021년~</button>
           <button type="button" aria-pressed={periodMode === "quarterly"} onClick={() => onPeriodModeChange("quarterly")}>분기 12개</button>
         </div>
       </header>}
@@ -963,8 +970,9 @@ function StabilityDashboard({
   onPeriodModeChange: (mode: FinancialPeriodMode) => void;
   compactJournal?: boolean;
 }) {
-  const points = financialSeries.filter(isRenderableStabilityPoint).slice(periodMode === "annual" ? -5 : -12);
-  const tablePoints = points.slice(periodMode === "annual" ? -5 : -8);
+  const renderablePoints = financialSeries.filter(isRenderableStabilityPoint);
+  const points = periodMode === "annual" ? companyJournalAnnualHistory(renderablePoints) : renderablePoints.slice(-12);
+  const tablePoints = points.slice(periodMode === "annual" ? -companyJournalHistoryYears() : -8);
   return (
     <section className="company-stability-dashboard" aria-label="재무 안정성">
       {!compactJournal && <header className="company-valuation-dashboard-header">
@@ -973,7 +981,7 @@ function StabilityDashboard({
           <span>자본·부채 구조와 단기 유동성, 이자 부담을 같은 기간으로 확인합니다.</span>
         </div>
         <div className="company-financial-period-controls" role="group" aria-label="안정성 표시 기간">
-          <button type="button" aria-pressed={periodMode === "annual"} onClick={() => onPeriodModeChange("annual")}>연간 5년</button>
+          <button type="button" aria-pressed={periodMode === "annual"} onClick={() => onPeriodModeChange("annual")}>2021년~</button>
           <button type="button" aria-pressed={periodMode === "quarterly"} onClick={() => onPeriodModeChange("quarterly")}>분기 12개</button>
         </div>
       </header>}
@@ -1271,8 +1279,9 @@ function ValuationPagedPanel({
   valuationPrices: ValuationPricePoint[];
   compactJournal?: boolean;
 }) {
-  const points = financialSeries.filter(isRenderablePerSharePoint).slice(periodMode === "annual" ? -5 : -12);
-  const tablePoints = points.slice(periodMode === "annual" ? -5 : -8);
+  const renderablePoints = financialSeries.filter(isRenderablePerSharePoint);
+  const points = periodMode === "annual" ? companyJournalAnnualHistory(renderablePoints) : renderablePoints.slice(-12);
+  const tablePoints = points.slice(periodMode === "annual" ? -companyJournalHistoryYears() : -8);
   const selectedPoint = points.find((point) => financialPointKey(point) === selectedPeriod) ?? points.at(-1);
   const historicalValuationSeries = buildHistoricalValuationSeries(points, valuationPrices);
   const showEarnings = contentMode !== "valuation";
@@ -1286,7 +1295,7 @@ function ValuationPagedPanel({
             <span>주당지표의 변화와 현재 가격 기준 가치지표를 함께 봅니다.</span>
           </div>
           <div className="company-financial-period-controls" role="group" aria-label="가치지표 표시 기간">
-            <button type="button" aria-pressed={periodMode === "annual"} onClick={() => onPeriodModeChange("annual")}>연간 5년</button>
+            <button type="button" aria-pressed={periodMode === "annual"} onClick={() => onPeriodModeChange("annual")}>2021년~</button>
             <button type="button" aria-pressed={periodMode === "quarterly"} onClick={() => onPeriodModeChange("quarterly")}>분기 12개</button>
           </div>
         </header>
@@ -2124,7 +2133,17 @@ function latestFiniteFinancialValue(
   return null;
 }
 
-function financialPointYear(point: FinancialChartPoint): number | null {
+export function companyJournalAnnualHistory<T extends { period: string; periodEndDate?: string | null }>(points: T[]): T[] {
+  const fromStartYear = points.filter((point) => {
+    const year = financialPointYear(point);
+    return year != null && year >= COMPANY_JOURNAL_HISTORY_START_YEAR;
+  });
+  return fromStartYear.length > 0
+    ? fromStartYear
+    : points.slice(-companyJournalHistoryYears());
+}
+
+function financialPointYear(point: { period: string; periodEndDate?: string | null }): number | null {
   const periodYear = point.period.match(/(?:19|20)\d{2}/)?.[0];
   if (periodYear) return Number(periodYear);
   if (!point.periodEndDate) return null;

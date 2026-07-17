@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { aggregateQuarterlySeriesToAnnual } from "../src/components/CompanyJournalSummaryPanel";
+import {
+  aggregateQuarterlySeriesToAnnual,
+  companyJournalAnnualHistory,
+  companyJournalHistoryYears
+} from "../src/components/CompanyJournalSummaryPanel";
 
 const annual = aggregateQuarterlySeriesToAnnual([
   {
@@ -64,13 +68,29 @@ assert.equal(annual[0]?.debtRatio, 0.6);
 assert.equal(annual[0]?.currentRatio, 3);
 assert.equal(annual[0]?.netDebt, 5);
 
+assert.equal(companyJournalHistoryYears(2026), 6);
+assert.deepEqual(
+  companyJournalAnnualHistory([
+    { period: "2020FY" },
+    { period: "2021FY" },
+    { period: "2022FY" },
+    { period: "2023FY" },
+    { period: "2024FY" },
+    { period: "2025FY" },
+    { period: "2026FY" }
+  ]).map((point) => point.period),
+  ["2021FY", "2022FY", "2023FY", "2024FY", "2025FY", "2026FY"]
+);
+
 const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-body[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
 assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-reading[\s\S]*?overflow: visible/);
-assert.match(styles, /\.company-journal-evidence \.company-valuation-dashboard,[\s\S]*?overflow-y: scroll/);
+assert.match(styles, /\.company-journal-evidence \{[\s\S]*?overflow-y: auto/);
+assert.match(styles, /\.company-journal-evidence \.company-valuation-dashboard,[\s\S]*?overflow: visible/);
 assert.match(styles, /::-webkit-scrollbar-thumb[\s\S]*?background-clip: padding-box/);
-assert.match(styles, /\.workspace-panel-frame \.company-journal-evidence[\s\S]*?scrollbar-width: thin !important/);
+assert.match(styles, /\.workspace-panel-frame \.company-journal-panel :is\([\s\S]*?\.company-journal-evidence[\s\S]*?scrollbar-width: thin !important/);
 assert.match(styles, /::-webkit-scrollbar[\s\S]*?display: block !important/);
 assert.doesNotMatch(styles, /scrollbar-color:[^;]*var\(--coinbase-primary\)/);
+assert.match(styles, /\.company-journal-quote \{[\s\S]*?font-size: clamp\(20px, 1\.3cqw, 25px\)/);
 
 console.log("company journal financial aggregation tests passed");
