@@ -194,6 +194,7 @@ export function ChartComparisonPanel({
             <SymbolSearch
               symbols={availableSymbols}
               className="chart-compare-symbol-search"
+              menuClassName="chart-compare-symbol-menu"
               selectedLabel=""
               placeholder="기업 추가"
               compact

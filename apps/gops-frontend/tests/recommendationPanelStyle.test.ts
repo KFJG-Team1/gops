@@ -43,6 +43,7 @@ assert.match(reportSource, /유의할 점/, "direct recommendations show structu
 assert.match(reportSource, /verdictLabel/, "the compact action label is rendered above the narrative headline");
 assert.match(reportSource, /data-action=\{item\.action\}/, "the explanation action label exposes its semantic action tone");
 assert.match(reportStyles, /\.verdictLabel\[data-action="buy"\][\s\S]+?color:\s*var\(--coinbase-semantic-up\);/, "the explanation buy label matches the recommendation panel buy tone");
+assert.match(workspaceStyles, /\.stock-rec-row\.action-conditional_buy \.stock-rec-action\s*\{\s*color:\s*var\(--color-caution\);\s*\}/, "conditional buy labels use the DESIGN.md caution color");
 assert.match(reportSource, /<h3>\{v3\.primary\.headline\}<\/h3>/, "the backend headline is the primary hero copy");
 assert.match(reportSource, /item\.cautions\.map/, "the UI renders only normalized backend cautions");
 assert.match(reportSource, /EvidenceMetricBar/, "observed evidence metrics are rendered as comparison graphics");
