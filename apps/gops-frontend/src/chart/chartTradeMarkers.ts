@@ -86,12 +86,12 @@ export function chartTradeMarkersForScene(
     })
     .flatMap((group) => group.map((candidate, index): ChartTradeMarker => {
       const candlePrice = candidate.fill.side === "buy"
-        ? candidate.unit.candle.low
-        : candidate.unit.candle.high;
+        ? candidate.unit.candle.high
+        : candidate.unit.candle.low;
       const candleY = priceToY(scene, candlePrice);
       const unboundedTop = candidate.fill.side === "buy"
-        ? candleY + markerGap + index * (markerHeight + markerGap)
-        : candleY - markerHeight - markerGap - index * (markerHeight + markerGap);
+        ? candleY - markerHeight - markerGap - index * (markerHeight + markerGap)
+        : candleY + markerGap + index * (markerHeight + markerGap);
       const top = Math.max(scene.plot.top + 2, Math.min(scene.plot.priceBottom - markerHeight - 2, unboundedTop));
       return {
         id: candidate.fill.id,
