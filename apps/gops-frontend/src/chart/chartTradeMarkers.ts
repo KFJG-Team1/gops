@@ -36,7 +36,8 @@ const marketDateFormatter = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit"
 });
 const markerHeight = 24;
-const markerGap = 4;
+const markerCandleGap = 10;
+const markerStackGap = 4;
 
 export function normalizeChartTradeFills(orders: unknown[]): ChartTradeFill[] {
   return orders
@@ -86,12 +87,12 @@ export function chartTradeMarkersForScene(
     })
     .flatMap((group) => group.map((candidate, index): ChartTradeMarker => {
       const candlePrice = candidate.fill.side === "buy"
-        ? candidate.unit.candle.high
-        : candidate.unit.candle.low;
+        ? candidate.unit.candle.low
+        : candidate.unit.candle.high;
       const candleY = priceToY(scene, candlePrice);
       const unboundedTop = candidate.fill.side === "buy"
-        ? candleY - markerHeight - markerGap - index * (markerHeight + markerGap)
-        : candleY + markerGap + index * (markerHeight + markerGap);
+        ? candleY + markerCandleGap + index * (markerHeight + markerStackGap)
+        : candleY - markerHeight - markerCandleGap - index * (markerHeight + markerStackGap);
       const top = Math.max(scene.plot.top + 2, Math.min(scene.plot.priceBottom - markerHeight - 2, unboundedTop));
       return {
         id: candidate.fill.id,
