@@ -160,9 +160,10 @@ const targetDailyUnit = dailyScene.semantic.units.find((unit) => (
 assert.ok(targetDailyUnit && targetDailyUnit.kind === "candle");
 const targetDailyX = slotCenterToX(dailyScene, targetDailyUnit.slotCenter);
 const expectedMarkerGap = 10;
+const expectedStackGap = 4;
 assert.ok(dailyMarkers.every((marker) => marker.x === targetDailyX));
 assert.equal(dailyMarkers[0].top, priceToY(dailyScene, targetDailyUnit.candle.low) + expectedMarkerGap);
-assert.equal(dailyMarkers[1].top, dailyMarkers[0].top + 24 + expectedMarkerGap);
+assert.equal(dailyMarkers[1].top, dailyMarkers[0].top + 24 + expectedStackGap);
 assert.equal(dailyMarkers[2].top + 24, priceToY(dailyScene, targetDailyUnit.candle.high) - expectedMarkerGap);
 
 const scaledMarkers = chartTradeMarkersForScene(
