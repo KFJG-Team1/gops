@@ -40,7 +40,6 @@ import {
 } from "./orderFlowRender";
 import { formatSemanticTimestamp, type SemanticCandleUnit, type SemanticExpansion, type SemanticRenderUnit, type SemanticTimeGapUnit } from "./semanticTimeline";
 import { readThemeColors, resolveRawPaletteColor, resolveThemeColor, type ThemeColors, type ThemeColorToken } from "../theme/colors";
-import { paperHoldingOverlayLabel } from "./paperHoldingPrice";
 import {
   applyCanvasTypography,
   CANVAS_FONT_FAMILY,
@@ -2589,9 +2588,6 @@ function drawHoldingAveragePriceMarker(context: CanvasRenderingContext2D, scene:
   context.lineWidth = 1;
   context.setLineDash([6, 4]);
   line(context, scene.plot.left, y, horizontalGuideRight(scene), y);
-  context.globalAlpha = 1;
-  context.setLineDash([]);
-  drawDarkAxisPill(context, paperHoldingOverlayLabel(holding), rightAxisPillX(scene), y, "right", colors.pointYellow);
   context.restore();
 }
 

@@ -32,6 +32,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
@@ -58,7 +59,12 @@ import {
 } from "@gops/chart-engine";
 import { chartStateFromDocument } from "../chart/chartDocumentAdapter";
 import { ChartCanvas } from "../chart/ChartCanvas";
-import { findPaperHoldingOverlay, paperHoldingOverlayLabel } from "../chart/paperHoldingPrice";
+import {
+  findPaperHoldingOverlay,
+  formatPaperHoldingQuantity,
+  paperHoldingOverlayLabel,
+  paperHoldingOverlayPriceLabel
+} from "../chart/paperHoldingPrice";
 import { analysisTraceDataMode, buildAnalysisTraceOverlay, type AnalysisTraceOverlay } from "../chart/analysisTraceOverlay";
 import { analysisAssetFreshness, candleKeyForTimestamp, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
@@ -283,6 +289,12 @@ type CurrentPriceMarker = {
   labelTop: number;
   y: number;
 };
+
+type HoldingPriceMarker = {
+  priceText: string;
+  y: number;
+  tooltipPlacement: "above" | "below";
+};
 export type LiveQuote = {
   priceText: string;
   changeText: string;
@@ -458,6 +470,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [selectedSemanticNode, setSelectedSemanticNode] = useState<SemanticSelectionSnapshot | null>(null);
   const [expansionOverlays, setExpansionOverlays] = useState<ExpansionOverlay[]>([]);
   const [currentPriceMarker, setCurrentPriceMarker] = useState<CurrentPriceMarker | null>(null);
+  const [holdingPriceMarker, setHoldingPriceMarker] = useState<HoldingPriceMarker | null>(null);
   const [currentPriceClock, setCurrentPriceClock] = useState(() => simulationAwareNowMs(Date.now()));
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
   const [drawingDraftError, setDrawingDraftError] = useState<string | null>(null);
@@ -633,6 +646,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     chart.panes
   ]);
   const chartPanelRef = useRef<HTMLElement | null>(null);
+  const holdingPriceTooltipId = useId();
   const chartControlTooltip = useImmediateChartTooltip();
   const sceneRef = useRef<ChartScene | null>(null);
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
@@ -2148,6 +2162,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setCurrentPriceMarker((current) => (
       currentPriceMarkerEquals(current, nextPriceMarker) ? current : nextPriceMarker
     ));
+    const nextHoldingPriceMarker = holdingPriceMarkerFromScene(scene);
+    setHoldingPriceMarker((current) => (
+      holdingPriceMarkerEquals(current, nextHoldingPriceMarker) ? current : nextHoldingPriceMarker
+    ));
     const overlays = scene.semantic.expansionRanges.map((range): ExpansionOverlay => ({
       id: range.id,
       label: `${range.childInterval}`,
@@ -3015,9 +3033,32 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
-        {holdingOverlay && (
-          <span className="chart-holding-price-description" role="note">
-            {chart.symbol} {paperHoldingOverlayLabel(holdingOverlay)}
+        {holdingOverlay && holdingPriceMarker && (
+          <span
+            className={`chart-holding-price-marker is-tooltip-${holdingPriceMarker.tooltipPlacement}`}
+            style={{ "--chart-holding-price-y": `${holdingPriceMarker.y}px` } as CSSProperties}
+            role="img"
+            tabIndex={0}
+            aria-label={`${chart.symbol} ${paperHoldingOverlayLabel(holdingOverlay)}`}
+            aria-describedby={holdingPriceTooltipId}
+          >
+            <span className="chart-holding-price-pill" aria-hidden="true">
+              {holdingPriceMarker.priceText}
+            </span>
+            <span id={holdingPriceTooltipId} className="chart-holding-price-tooltip" role="tooltip">
+              <span className="chart-holding-price-tooltip-heading">
+                <strong>{chart.symbol}</strong>
+                <span>보유 포지션</span>
+              </span>
+              <span className="chart-holding-price-tooltip-row">
+                <span>평균 매입가</span>
+                <strong>{paperHoldingOverlayPriceLabel(holdingOverlay)}</strong>
+              </span>
+              <span className="chart-holding-price-tooltip-row">
+                <span>보유 수량</span>
+                <strong>{formatPaperHoldingQuantity(holdingOverlay.quantity)}</strong>
+              </span>
+            </span>
           </span>
         )}
         <ChartEventOverlay
@@ -4404,6 +4445,31 @@ function currentPriceMarkerFromScene(scene: ChartScene): CurrentPriceMarker | nu
     labelTop,
     y
   };
+}
+
+function holdingPriceMarkerFromScene(scene: ChartScene): HoldingPriceMarker | null {
+  const holding = scene.chart.holdingOverlay;
+  if (!holding || holding.symbol !== scene.chart.symbol.trim().toUpperCase()) {
+    return null;
+  }
+  const y = priceToY(scene, holding.averagePrice);
+  if (y < scene.plot.top - 1 || y > scene.plot.priceBottom + 1) {
+    return null;
+  }
+  return {
+    priceText: paperHoldingOverlayPriceLabel(holding),
+    y,
+    tooltipPlacement: y - scene.plot.top < 104 ? "below" : "above"
+  };
+}
+
+function holdingPriceMarkerEquals(left: HoldingPriceMarker | null, right: HoldingPriceMarker | null): boolean {
+  if (!left || !right) {
+    return left === right;
+  }
+  return left.priceText === right.priceText
+    && left.tooltipPlacement === right.tooltipPlacement
+    && Math.abs(left.y - right.y) < 0.5;
 }
 
 function currentPriceMarkerEquals(left: CurrentPriceMarker | null, right: CurrentPriceMarker | null): boolean {
