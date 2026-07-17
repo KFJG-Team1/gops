@@ -142,4 +142,4 @@ assert.match(chartFeatureStyles, /\.chart-holding-price-marker:hover \.chart-hol
 assert.match(chartFeatureStyles, /\.chart-holding-price-marker:focus-visible \.chart-holding-price-tooltip/);
 assert.match(chartFeatureStyles, /left: var\(--chart-holding-axis-left\)/);
 assert.match(chartFeatureStyles, /width: var\(--chart-holding-axis-width\)/);
-assert.doesNotMatch(chartFeatureStyles, /\.chart-holding-price-marker\s*\{[^}]*right:\s*4px/s);
+assert.doesNotMatch(chartFeatureStyles, /\.chart-holding-price-marker\s*\{[^}]*\n\s*right:\s*4px/s);

@@ -62,8 +62,11 @@ import { ChartCanvas } from "../chart/ChartCanvas";
 import {
   findPaperHoldingOverlay,
   formatPaperHoldingQuantity,
+  paperHoldingPriceMarkerForScene,
   paperHoldingOverlayLabel,
-  paperHoldingOverlayPriceLabel
+  paperHoldingOverlayPriceLabel,
+  syncPaperHoldingPriceMarkerPosition,
+  type PaperHoldingPriceMarker
 } from "../chart/paperHoldingPrice";
 import { analysisTraceDataMode, buildAnalysisTraceOverlay, type AnalysisTraceOverlay } from "../chart/analysisTraceOverlay";
 import { analysisAssetFreshness, candleKeyForTimestamp, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
@@ -290,11 +293,6 @@ type CurrentPriceMarker = {
   y: number;
 };
 
-type HoldingPriceMarker = {
-  priceText: string;
-  y: number;
-  tooltipPlacement: "above" | "below";
-};
 export type LiveQuote = {
   priceText: string;
   changeText: string;
@@ -470,7 +468,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [selectedSemanticNode, setSelectedSemanticNode] = useState<SemanticSelectionSnapshot | null>(null);
   const [expansionOverlays, setExpansionOverlays] = useState<ExpansionOverlay[]>([]);
   const [currentPriceMarker, setCurrentPriceMarker] = useState<CurrentPriceMarker | null>(null);
-  const [holdingPriceMarker, setHoldingPriceMarker] = useState<HoldingPriceMarker | null>(null);
+  const [holdingPriceMarker, setHoldingPriceMarker] = useState<PaperHoldingPriceMarker | null>(null);
   const [currentPriceClock, setCurrentPriceClock] = useState(() => simulationAwareNowMs(Date.now()));
   const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
   const [drawingDraftError, setDrawingDraftError] = useState<string | null>(null);
@@ -647,6 +645,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
   const chartPanelRef = useRef<HTMLElement | null>(null);
   const holdingPriceTooltipId = useId();
+  const holdingPriceMarkerRef = useRef<HTMLSpanElement | null>(null);
   const chartControlTooltip = useImmediateChartTooltip();
   const sceneRef = useRef<ChartScene | null>(null);
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
@@ -714,6 +713,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       sceneRef.current,
       chartWrapRef.current
     );
+    syncPaperHoldingPriceMarkerPosition(holdingPriceMarkerRef.current, holdingPriceMarker);
   });
 
   useEffect(() => {
@@ -2162,7 +2162,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setCurrentPriceMarker((current) => (
       currentPriceMarkerEquals(current, nextPriceMarker) ? current : nextPriceMarker
     ));
-    const nextHoldingPriceMarker = holdingPriceMarkerFromScene(scene);
+    const markerCoordinateSpace = chartWrapRef.current
+      ? { width: chartWrapRef.current.clientWidth, height: chartWrapRef.current.clientHeight }
+      : scene;
+    const nextHoldingPriceMarker = paperHoldingPriceMarkerForScene(scene, markerCoordinateSpace);
+    syncPaperHoldingPriceMarkerPosition(holdingPriceMarkerRef.current, nextHoldingPriceMarker);
     setHoldingPriceMarker((current) => (
       holdingPriceMarkerEquals(current, nextHoldingPriceMarker) ? current : nextHoldingPriceMarker
     ));
@@ -2185,9 +2189,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       overlayKeyRef.current = key;
       setExpansionOverlays(overlays);
     }
-    const markerCoordinateSpace = chartWrapRef.current
-      ? { width: chartWrapRef.current.clientWidth, height: chartWrapRef.current.clientHeight }
-      : scene;
     const markerScaleX = scene.width > 0 ? markerCoordinateSpace.width / scene.width : 1;
     const markerScaleY = scene.height > 0 ? markerCoordinateSpace.height / scene.height : 1;
     const nextEventMarkers = chartEventMarkersForScene(
@@ -3035,8 +3036,13 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         />
         {holdingOverlay && holdingPriceMarker && (
           <span
+            ref={holdingPriceMarkerRef}
             className={`chart-holding-price-marker is-tooltip-${holdingPriceMarker.tooltipPlacement}`}
-            style={{ "--chart-holding-price-y": `${holdingPriceMarker.y}px` } as CSSProperties}
+            style={{
+              "--chart-holding-price-y": `${holdingPriceMarker.y}px`,
+              "--chart-holding-axis-left": `${holdingPriceMarker.axisLeft}px`,
+              "--chart-holding-axis-width": `${holdingPriceMarker.axisWidth}px`
+            } as CSSProperties}
             role="img"
             tabIndex={0}
             aria-label={`${chart.symbol} ${paperHoldingOverlayLabel(holdingOverlay)}`}
@@ -4447,29 +4453,15 @@ function currentPriceMarkerFromScene(scene: ChartScene): CurrentPriceMarker | nu
   };
 }
 
-function holdingPriceMarkerFromScene(scene: ChartScene): HoldingPriceMarker | null {
-  const holding = scene.chart.holdingOverlay;
-  if (!holding || holding.symbol !== scene.chart.symbol.trim().toUpperCase()) {
-    return null;
-  }
-  const y = priceToY(scene, holding.averagePrice);
-  if (y < scene.plot.top - 1 || y > scene.plot.priceBottom + 1) {
-    return null;
-  }
-  return {
-    priceText: paperHoldingOverlayPriceLabel(holding),
-    y,
-    tooltipPlacement: y - scene.plot.top < 104 ? "below" : "above"
-  };
-}
-
-function holdingPriceMarkerEquals(left: HoldingPriceMarker | null, right: HoldingPriceMarker | null): boolean {
+function holdingPriceMarkerEquals(left: PaperHoldingPriceMarker | null, right: PaperHoldingPriceMarker | null): boolean {
   if (!left || !right) {
     return left === right;
   }
   return left.priceText === right.priceText
     && left.tooltipPlacement === right.tooltipPlacement
-    && Math.abs(left.y - right.y) < 0.5;
+    && Math.abs(left.y - right.y) < 0.5
+    && Math.abs(left.axisLeft - right.axisLeft) < 0.5
+    && Math.abs(left.axisWidth - right.axisWidth) < 0.5;
 }
 
 function currentPriceMarkerEquals(left: CurrentPriceMarker | null, right: CurrentPriceMarker | null): boolean {
