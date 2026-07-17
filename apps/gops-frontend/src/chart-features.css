@@ -152,54 +152,42 @@
   position: absolute;
   z-index: 7;
   top: var(--chart-holding-price-y);
-  right: 4px;
+  left: var(--chart-holding-axis-left);
   display: inline-flex;
+  box-sizing: border-box;
+  width: var(--chart-holding-axis-width);
+  height: 22px;
   align-items: center;
-  color: var(--color-point-yellow);
-  font: var(--type-caption);
-  font-variant-numeric: tabular-nums;
   transform: translateY(-50%);
+  cursor: help;
   pointer-events: auto;
 }
 
-.chart-holding-price-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  border: 1px solid color-mix(in srgb, var(--color-point-yellow) 72%, var(--color-border));
-  border-radius: 5px;
-  padding: 2px 6px;
-  background: color-mix(in srgb, var(--color-surface-strong) 94%, transparent);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-background) 52%, transparent);
-  font-weight: 760;
-  line-height: 1;
-  white-space: nowrap;
-}
-
 .chart-holding-price-marker:hover,
+.chart-holding-price-marker:focus,
 .chart-holding-price-marker:focus-visible {
   z-index: 18;
   outline: none;
 }
 
-.chart-holding-price-marker:focus-visible .chart-holding-price-pill {
-  outline: 2px solid color-mix(in srgb, var(--color-point-yellow) 52%, transparent);
-  outline-offset: 2px;
-}
-
 .chart-holding-price-tooltip {
   position: absolute;
   z-index: 2;
-  right: 0;
+  right: 4px;
   display: grid;
-  width: 210px;
-  gap: 9px;
+  width: 220px;
+  gap: 10px;
   border: 1px solid color-mix(in srgb, var(--color-point-yellow) 34%, var(--color-border));
-  border-radius: 10px;
-  padding: 11px 12px;
-  background: color-mix(in srgb, var(--color-surface) 96%, var(--coinbase-surface-dark));
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--color-surface) 94%, var(--coinbase-surface-dark));
   color: var(--color-text);
-  box-shadow: 0 16px 40px color-mix(in srgb, var(--color-background) 82%, transparent);
+  box-shadow:
+    0 16px 42px color-mix(in srgb, var(--color-background) 82%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 7%, transparent);
+  font: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease, transform 140ms ease, visibility 0s linear 140ms;
@@ -217,6 +205,7 @@
 }
 
 .chart-holding-price-marker:hover .chart-holding-price-tooltip,
+.chart-holding-price-marker:focus .chart-holding-price-tooltip,
 .chart-holding-price-marker:focus-visible .chart-holding-price-tooltip {
   opacity: 1;
   transform: translateY(0);
@@ -233,32 +222,33 @@
 }
 
 .chart-holding-price-tooltip-heading {
-  padding-bottom: 8px;
+  padding-bottom: 9px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-text) 9%, var(--color-border));
 }
 
 .chart-holding-price-tooltip-heading strong {
   color: var(--color-text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 850;
+  letter-spacing: -.01em;
 }
 
 .chart-holding-price-tooltip-heading span {
   color: var(--color-point-yellow);
   font-size: 9px;
-  font-weight: 800;
-  letter-spacing: .06em;
+  font-weight: 850;
+  letter-spacing: .08em;
 }
 
 .chart-holding-price-tooltip-row {
   color: var(--color-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .chart-holding-price-tooltip-row strong {
-  color: var(--color-text-medium);
-  font-size: 10px;
-  font-weight: 760;
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 780;
   white-space: nowrap;
 }
 

@@ -1,5 +1,19 @@
 import type { PaperPosition } from "../orders/paperTradingClient";
+import { priceToY, type ChartScene } from "./scene";
 import type { ChartHoldingOverlay } from "./types";
+
+export type PaperHoldingPriceMarker = {
+  priceText: string;
+  y: number;
+  axisLeft: number;
+  axisWidth: number;
+  tooltipPlacement: "above" | "below";
+};
+
+type ChartCoordinateSpace = {
+  width: number;
+  height: number;
+};
 
 const holdingPriceFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -42,4 +56,55 @@ export function paperHoldingOverlayLabel(holding: ChartHoldingOverlay): string {
 
 export function paperHoldingOverlayPriceLabel(holding: ChartHoldingOverlay): string {
   return holdingPriceFormatter.format(holding.averagePrice);
+}
+
+export function paperHoldingPriceMarkerForScene(
+  scene: ChartScene,
+  coordinateSpace: ChartCoordinateSpace = scene
+): PaperHoldingPriceMarker | null {
+  const holding = scene.chart.holdingOverlay;
+  if (!holding || holding.symbol !== scene.chart.symbol.trim().toUpperCase()) {
+    return null;
+  }
+  const sceneY = priceToY(scene, holding.averagePrice);
+  if (sceneY < scene.plot.top - 1 || sceneY > scene.plot.priceBottom + 1) {
+    return null;
+  }
+
+  const scaleX = coordinateScale(coordinateSpace.width, scene.width);
+  const scaleY = coordinateScale(coordinateSpace.height, scene.height);
+  const y = sceneY * scaleY;
+  const plotTop = scene.plot.top * scaleY;
+  const priceBottom = scene.plot.priceBottom * scaleY;
+  const spaceAbove = y - plotTop;
+  const spaceBelow = priceBottom - y;
+
+  return {
+    priceText: paperHoldingOverlayPriceLabel(holding),
+    y,
+    axisLeft: scene.plot.right * scaleX,
+    axisWidth: Math.max(0, (scene.width - scene.plot.right) * scaleX),
+    tooltipPlacement: spaceBelow >= 142 || spaceBelow >= spaceAbove ? "below" : "above"
+  };
+}
+
+export function syncPaperHoldingPriceMarkerPosition(
+  element: HTMLElement | null,
+  marker: PaperHoldingPriceMarker | null
+): void {
+  if (!element) return;
+  if (!marker) {
+    element.style.display = "none";
+    return;
+  }
+  element.style.display = "";
+  element.style.setProperty("--chart-holding-price-y", `${marker.y}px`);
+  element.style.setProperty("--chart-holding-axis-left", `${marker.axisLeft}px`);
+  element.style.setProperty("--chart-holding-axis-width", `${marker.axisWidth}px`);
+}
+
+function coordinateScale(localSize: number, sceneSize: number): number {
+  return Number.isFinite(localSize) && localSize > 0 && Number.isFinite(sceneSize) && sceneSize > 0
+    ? localSize / sceneSize
+    : 1;
 }
