@@ -57,18 +57,25 @@ const overlaySource = readFileSync(
   "utf-8"
 );
 assert.match(overlaySource, /chart-event-popover-badge/);
-assert.match(overlaySource, /chart-event-context-strip/);
-assert.match(overlaySource, /chart-event-highlight/);
-assert.match(overlaySource, /chart-event-detail-list/);
-assert.match(overlaySource, /chart-event-section-label/);
+assert.match(overlaySource, /chart-event-popover-help/);
+assert.match(overlaySource, /chart-event-meta-grid/);
+assert.match(overlaySource, /chart-event-metric-group/);
+assert.match(overlaySource, /chart-event-metric-row/);
+assert.match(overlaySource, /chart-event-disclosure/);
+assert.match(overlaySource, /onDisclosureToggle/);
 assert.match(overlaySource, /chart-event-source-footer/);
 assert.doesNotMatch(overlaySource, /chart-event-metrics/);
+assert.doesNotMatch(overlaySource, /chart-event-context-strip/);
+assert.doesNotMatch(overlaySource, /chart-event-highlight/);
+assert.doesNotMatch(overlaySource, /chart-event-section-label/);
 
 const stylesSource = readFileSync(
   fileURLToPath(new URL("../src/styles.css", import.meta.url)),
   "utf-8"
 );
 assert.match(stylesSource, /\.chart-event-popover-badge\s*\{[\s\S]*clip-path: polygon/);
-assert.match(stylesSource, /\.chart-event-highlight\s*\{[\s\S]*font-variant-numeric: tabular-nums/);
-assert.match(stylesSource, /\.chart-event-detail-list\s*\{[\s\S]*grid-template-columns/);
-assert.match(stylesSource, /\.chart-event-source-footer\s*\{[\s\S]*border-top/);
+assert.match(stylesSource, /\.chart-event-popover::after\s*\{[\s\S]*width: 6px/);
+assert.match(stylesSource, /\.chart-event-meta-grid\s*\{[\s\S]*grid-template-columns/);
+assert.match(stylesSource, /\.chart-event-metric-row\s*\{[\s\S]*grid-template-columns/);
+assert.match(stylesSource, /\.chart-event-metric-row\.is-accent/);
+assert.match(stylesSource, /\.chart-event-disclosure > summary\s*\{[\s\S]*border:/);
