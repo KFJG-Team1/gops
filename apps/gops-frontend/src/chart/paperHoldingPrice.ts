@@ -39,3 +39,7 @@ export function formatPaperHoldingQuantity(quantity: number): string {
 export function paperHoldingOverlayLabel(holding: ChartHoldingOverlay): string {
   return `평균 매입가 ${holdingPriceFormatter.format(holding.averagePrice)} · ${formatPaperHoldingQuantity(holding.quantity)}`;
 }
+
+export function paperHoldingOverlayPriceLabel(holding: ChartHoldingOverlay): string {
+  return holdingPriceFormatter.format(holding.averagePrice);
+}
