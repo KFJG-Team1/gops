@@ -147,6 +147,15 @@ const commentaryV2Asset = {
 const normalizedCommentaryV2 = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": commentaryV2Asset } }, "AAPL").assets["1D"];
 assert.equal(normalizedCommentaryV2?.commentary?.promptVersion, "chart-commentary.ko.v2");
 assert.equal(normalizedCommentaryV2?.commentary?.version, "chart-commentary.v2");
+const sharedIndicatorEvidence = structuredClone(commentaryV2Asset);
+sharedIndicatorEvidence.commentary.paragraphs[1]!.segments[2]!.link = {
+  kind: "indicator", layer: "rsi:14", referenceIds: ["candle:latest"]
+};
+sharedIndicatorEvidence.commentary.indicatorRecommendations[0]!.referenceIds = ["candle:latest"];
+assert.equal(
+  normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": sharedIndicatorEvidence } }, "AAPL").assets["1D"]?.commentary?.version,
+  "chart-commentary.v2"
+);
 const mismatchedIndicatorLink = {
   ...commentaryV2Asset,
   commentary: { ...commentaryV2Asset.commentary, indicatorRecommendations: [] }

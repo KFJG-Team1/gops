@@ -548,7 +548,7 @@ function normalizeCommentary(value: unknown, asset: {
   const referenceById = new Map(references.map((reference) => [reference.id, reference]));
   const paragraphIds = new Set<string>();
   const segmentIds = new Set<string>();
-  const linkedReferenceIds = new Set<string>();
+  const directlyLinkedReferenceIds = new Set<string>();
   const linkedIndicatorLayers = new Set<ChartAssetCommentaryIndicatorLayer>();
   let linkCount = 0;
   for (const paragraph of source.paragraphs) {
@@ -568,7 +568,7 @@ function normalizeCommentary(value: unknown, asset: {
       segmentIds.add(segment.id);
       if (segment.link === undefined) continue;
       linkCount += 1;
-      if (!validCommentaryLink(segment.link, referenceById, linkedReferenceIds, linkedIndicatorLayers)) return undefined;
+      if (!validCommentaryLink(segment.link, referenceById, directlyLinkedReferenceIds, linkedIndicatorLayers)) return undefined;
     }
   }
   if (linkCount > 8) return undefined;
@@ -591,27 +591,31 @@ const commentaryIndicatorLayers = new Set<ChartAssetCommentaryIndicatorLayer>([
 function validCommentaryLink(
   value: unknown,
   references: Map<string, ChartAssetCommentaryReference>,
-  linkedReferenceIds: Set<string>,
+  directlyLinkedReferenceIds: Set<string>,
   linkedIndicatorLayers: Set<ChartAssetCommentaryIndicatorLayer>
 ): value is ChartAssetCommentaryLink {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const link = value as Partial<ChartAssetCommentaryLink> & Record<string, unknown>;
   if (link.kind === "drawing" || link.kind === "indicator") {
     if (!Array.isArray(link.referenceIds) || link.referenceIds.length < 1 || link.referenceIds.length > 3) return false;
-    if (link.referenceIds.some((id) => typeof id !== "string" || linkedReferenceIds.has(id) || !references.has(id))) return false;
+    if (link.referenceIds.some((id, index) => (
+      typeof id !== "string" || link.referenceIds?.indexOf(id) !== index || !references.has(id)
+    ))) return false;
     if (link.kind === "drawing" && link.referenceIds.some((id) => references.get(id)?.type !== "drawing")) return false;
     if (link.kind === "indicator") {
       if (!commentaryIndicatorLayers.has(link.layer as ChartAssetCommentaryIndicatorLayer)) return false;
       if (linkedIndicatorLayers.has(link.layer as ChartAssetCommentaryIndicatorLayer)) return false;
       linkedIndicatorLayers.add(link.layer as ChartAssetCommentaryIndicatorLayer);
+    } else {
+      if (link.referenceIds.some((id) => directlyLinkedReferenceIds.has(id))) return false;
+      link.referenceIds.forEach((id) => directlyLinkedReferenceIds.add(id));
     }
-    link.referenceIds.forEach((id) => linkedReferenceIds.add(id));
     return true;
   }
   if (link.kind !== "candle" && link.kind !== "news" && link.kind !== "earnings") return false;
-  if (typeof link.referenceId !== "string" || linkedReferenceIds.has(link.referenceId)) return false;
+  if (typeof link.referenceId !== "string" || directlyLinkedReferenceIds.has(link.referenceId)) return false;
   if (references.get(link.referenceId)?.type !== link.kind) return false;
-  linkedReferenceIds.add(link.referenceId);
+  directlyLinkedReferenceIds.add(link.referenceId);
   return true;
 }
 
