@@ -163,11 +163,12 @@ const geopoliticalToastStyle = stylesSource.slice(
 assert.equal((geopoliticalToastStyle.match(/border-color: transparent;/g) ?? []).length, 2);
 assert.match(stylesSource, /\.workspace-notification-row\.is-geopolitical-risk/);
 assert.match(paperClientSource, /\/api\/paper\/symbols\/search/);
-assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*executionMode\)/);
+assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*effectiveExecutionMode\)/);
 assert.match(quickOrderSource, /latestSimulatorStatus/);
 assert.match(quickOrderSource, /fetchSimulatorQuote/);
 assert.match(quickOrderSource, /effectiveExecutionMode/);
 assert.match(quickOrderSource, /simulatorStatusEvent/);
+assert.match(quickOrderSource, /order\.simulation[^]*requestPortfolioRefresh\(\)/);
 assert.doesNotMatch(quickOrderSource, />가상 빠른 주문</);
 assert.doesNotMatch(quickOrderSource, /프리셋 선택/);
 assert.match(quickOrderSource, /executionMode === "paper" \? "회사명 검색" : "종목 검색"/);
