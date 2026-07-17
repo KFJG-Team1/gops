@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildChartTradeFillInsights,
   buildChartTradeMarkerInsights,
+  chartTradeMarkerLayoutKey,
   chartTradeMarkersForScene,
   normalizeChartTradeFills,
   syncChartTradeMarkerPositions
@@ -159,7 +160,14 @@ assert.equal(dailyMarkers.length, 2);
 assert.deepEqual(dailyMarkers.map((marker) => marker.label), ["B", "S"]);
 assert.deepEqual(dailyMarkers[0].fills.map((fill) => fill.id), ["daily-buy-1", "daily-buy-2"]);
 assert.equal(dailyMarkers[0].fill.quantity, 4);
-assert.equal(dailyMarkers[0].fill.price, 100.175);
+assert.ok(Math.abs(dailyMarkers[0].fill.price - 100.175) < 1e-10);
+const initialAggregateLayoutKey = chartTradeMarkerLayoutKey([dailyMarkers[0]]);
+const updatedAggregateLayoutKey = chartTradeMarkerLayoutKey([{
+  ...dailyMarkers[0],
+  fill: { ...dailyMarkers[0].fill, quantity: 5, price: 100.24 },
+  fills: [...dailyMarkers[0].fills, { ...dailyMarkers[0].fills[0], id: "daily-buy-3" }]
+}]);
+assert.notEqual(updatedAggregateLayoutKey, initialAggregateLayoutKey);
 
 const targetDailyUnit = dailyScene.semantic.units.find((unit) => (
   unit.kind === "candle" && unit.depth === 0 && unit.timestamp === "2026-07-15T04:00:00.000Z"
@@ -191,7 +199,7 @@ const intradayScene = buildChartScene(chartState({
 const intradayMarkers = chartTradeMarkersForScene(intradayScene, dailyFills);
 assert.equal(intradayMarkers.length, 1);
 assert.equal(intradayMarkers[0].fill.quantity, 4);
-assert.equal(intradayMarkers[0].fill.price, 100.175);
+assert.ok(Math.abs(intradayMarkers[0].fill.price - 100.175) < 1e-10);
 const intradayTarget = intradayScene.semantic.units.find((unit) => (
   unit.kind === "candle" && unit.timestamp === "2026-07-15T14:30:00.000Z"
 ));

@@ -22,6 +22,7 @@ export type ChartTradeMarker = {
   viewportWidth: number;
   viewportHeight: number;
   fill: ChartTradeFill;
+  fills: ChartTradeFill[];
 };
 
 export type ChartTradeFillInsight = {
@@ -47,7 +48,6 @@ const marketDateFormatter = new Intl.DateTimeFormat("en-CA", {
 });
 const markerHeight = 24;
 const markerCandleGap = 10;
-const markerStackGap = 4;
 
 export function normalizeChartTradeFills(orders: unknown[]): ChartTradeFill[] {
   return orders
@@ -116,6 +116,52 @@ export function buildChartTradeFillInsights(
   return insights;
 }
 
+export function buildChartTradeMarkerInsights(
+  markers: ChartTradeMarker[],
+  fills: ChartTradeFill[],
+  currentPrice: number | null
+): Map<string, ChartTradeFillInsight> {
+  const markerInsights = new Map<string, ChartTradeFillInsight>();
+  const fillInsights = buildChartTradeFillInsights(fills, currentPrice);
+  const hasCurrentPrice = typeof currentPrice === "number" && Number.isFinite(currentPrice) && currentPrice > 0;
+
+  markers.forEach((marker) => {
+    if (marker.side === "buy") {
+      markerInsights.set(marker.id, hasCurrentPrice
+        ? tradeFillInsight(
+            "mark_to_market",
+            (currentPrice - marker.fill.price) * marker.fill.quantity,
+            ((currentPrice - marker.fill.price) / marker.fill.price) * 100,
+            currentPrice
+          )
+        : unavailableTradeFillInsight());
+      return;
+    }
+
+    let realizedAmount = 0;
+    let costBasis = 0;
+    const complete = marker.fills.every((fill) => {
+      const insight = fillInsights.get(fill.id);
+      if (!insight || insight.kind !== "realized" || insight.basisPrice === null || insight.amount === null) {
+        return false;
+      }
+      realizedAmount += insight.amount;
+      costBasis += insight.basisPrice * fill.quantity;
+      return true;
+    });
+    markerInsights.set(marker.id, complete && costBasis > 0
+      ? tradeFillInsight(
+          "realized",
+          realizedAmount,
+          (realizedAmount / costBasis) * 100,
+          costBasis / marker.fill.quantity
+        )
+      : unavailableTradeFillInsight());
+  });
+
+  return markerInsights;
+}
+
 export function chartTradeMarkersForScene(
   scene: ChartScene,
   fills: ChartTradeFill[],
@@ -152,32 +198,45 @@ export function chartTradeMarkersForScene(
       if (byX) return byX;
       return left[0].fill.side === right[0].fill.side ? 0 : left[0].fill.side === "buy" ? -1 : 1;
     })
-    .flatMap((group) => group.map((candidate, index): ChartTradeMarker => {
-      const candlePrice = candidate.fill.side === "buy"
+    .map((group): ChartTradeMarker => {
+      const candidate = group[0];
+      const fillsInMarker = group
+        .map((item) => item.fill)
+        .sort(compareTradeFills);
+      const aggregateFill = aggregateTradeFills(fillsInMarker);
+      const candlePrice = aggregateFill.side === "buy"
         ? candidate.unit.candle.low
         : candidate.unit.candle.high;
       const candleY = priceToY(scene, candlePrice);
-      const unboundedTop = candidate.fill.side === "buy"
-        ? candleY + markerCandleGap + index * (markerHeight + markerStackGap)
-        : candleY - markerHeight - markerCandleGap - index * (markerHeight + markerStackGap);
+      const unboundedTop = aggregateFill.side === "buy"
+        ? candleY + markerCandleGap
+        : candleY - markerHeight - markerCandleGap;
       const top = Math.max(scene.plot.top + 2, Math.min(scene.plot.priceBottom - markerHeight - 2, unboundedTop));
       return {
-        id: candidate.fill.id,
-        side: candidate.fill.side,
-        label: candidate.fill.side === "buy" ? "B" : "S",
+        id: aggregateFill.id,
+        side: aggregateFill.side,
+        label: aggregateFill.side === "buy" ? "B" : "S",
         marketDate: candidate.marketDate,
         x: scaleCoordinate(candidate.baseX, coordinateSpace.width, scene.width),
         top: scaleCoordinate(top, coordinateSpace.height, scene.height),
         viewportWidth: coordinateSpace.width,
         viewportHeight: coordinateSpace.height,
-        fill: candidate.fill
+        fill: aggregateFill,
+        fills: fillsInMarker
       };
-    }));
+    });
 }
 
 export function chartTradeMarkerLayoutKey(markers: ChartTradeMarker[]): string {
   return markers
-    .map((marker) => `${marker.id}:${Math.round(marker.x)}:${Math.round(marker.top)}`)
+    .map((marker) => [
+      marker.id,
+      Math.round(marker.x),
+      Math.round(marker.top),
+      marker.fills.length,
+      marker.fill.quantity,
+      marker.fill.price
+    ].join(":"))
     .join("|");
 }
 
@@ -267,6 +326,22 @@ function scaleCoordinate(value: number, target: number, source: number): number 
   return Number.isFinite(target) && target > 0 && Number.isFinite(source) && source > 0
     ? value / (source / target)
     : value;
+}
+
+function aggregateTradeFills(fills: ChartTradeFill[]): ChartTradeFill {
+  const first = fills[0];
+  const quantity = fills.reduce((total, fill) => total + fill.quantity, 0);
+  const notional = fills.reduce((total, fill) => total + fill.price * fill.quantity, 0);
+  return {
+    ...first,
+    quantity,
+    price: notional / quantity
+  };
+}
+
+function compareTradeFills(left: ChartTradeFill, right: ChartTradeFill): number {
+  const byTime = Date.parse(left.filledAt) - Date.parse(right.filledAt);
+  return byTime || left.id.localeCompare(right.id);
 }
 
 function tradeFillInsight(

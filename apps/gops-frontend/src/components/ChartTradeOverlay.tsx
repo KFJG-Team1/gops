@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
 import {
-  buildChartTradeFillInsights,
+  buildChartTradeMarkerInsights,
   type ChartTradeFill,
   type ChartTradeFillInsight,
   type ChartTradeMarker
@@ -47,8 +47,8 @@ const signedPercent = new Intl.NumberFormat("ko-KR", {
 
 export function ChartTradeOverlay({ markers, fills, referencePrice }: ChartTradeOverlayProps) {
   const insights = useMemo(
-    () => buildChartTradeFillInsights(fills, referencePrice),
-    [fills, referencePrice]
+    () => buildChartTradeMarkerInsights(markers, fills, referencePrice),
+    [fills, markers, referencePrice]
   );
 
   return (
@@ -56,14 +56,16 @@ export function ChartTradeOverlay({ markers, fills, referencePrice }: ChartTrade
       {markers.map((marker) => {
         const insight = insights.get(marker.id) ?? unavailableInsight;
         const sideLabel = marker.side === "buy" ? "매수" : "매도";
+        const grouped = marker.fills.length > 1;
         const statusLabel = tradeStatusLabel(marker.side, insight);
         const tooltipId = `chart-trade-tooltip-${safeDomId(marker.id)}`;
         const description = [
           `${marker.fill.symbol} ${sideLabel}`,
-          `${formatQuantity(marker.fill.quantity)}주`,
-          `체결가 ${usdPrice.format(marker.fill.price)}`,
+          grouped ? `${marker.fills.length}건` : "1건",
+          `${grouped ? "총 수량" : "수량"} ${formatQuantity(marker.fill.quantity)}주`,
+          `${grouped ? "평균 체결가" : "체결가"} ${usdPrice.format(marker.fill.price)}`,
           statusLabel,
-          koreaDateTime.format(new Date(marker.fill.filledAt))
+          formatFillTime(marker.fills)
         ].join(" · ");
         const placement = tradeTooltipPlacement(marker);
         return (
@@ -85,15 +87,23 @@ export function ChartTradeOverlay({ markers, fills, referencePrice }: ChartTrade
             >
               <span className="chart-trade-tooltip-heading">
                 <strong>{marker.fill.symbol}</strong>
-                <span className={`chart-trade-tooltip-side is-${marker.side}`}>{sideLabel}</span>
+                <span className={`chart-trade-tooltip-side is-${marker.side}`}>
+                  {sideLabel}{grouped ? ` · ${marker.fills.length}건` : ""}
+                </span>
               </span>
               <span className={`chart-trade-tooltip-status is-${insight.tone}`}>
                 <span aria-hidden="true" />
                 {statusLabel}
               </span>
               <span className="chart-trade-tooltip-details">
-                <TooltipRow label="체결가" value={usdPrice.format(marker.fill.price)} />
-                <TooltipRow label="수량" value={`${formatQuantity(marker.fill.quantity)}주`} />
+                <TooltipRow
+                  label={grouped ? "평균 체결가" : "체결가"}
+                  value={usdPrice.format(marker.fill.price)}
+                />
+                <TooltipRow
+                  label={grouped ? "총 수량" : "수량"}
+                  value={`${formatQuantity(marker.fill.quantity)}주`}
+                />
                 {insight.kind === "mark_to_market" && insight.basisPrice !== null && (
                   <TooltipRow label="현재가" value={usdPrice.format(insight.basisPrice)} />
                 )}
@@ -107,7 +117,7 @@ export function ChartTradeOverlay({ markers, fills, referencePrice }: ChartTrade
                 />
               </span>
               <span className="chart-trade-tooltip-time">
-                {koreaDateTime.format(new Date(marker.fill.filledAt))} KST
+                {formatFillTime(marker.fills)}
               </span>
             </span>
           </span>
@@ -162,7 +172,7 @@ function tradeTooltipPlacement(marker: ChartTradeMarker): {
   vertical: "above" | "below";
 } {
   const tooltipHalfWidth = 124;
-  const tooltipHeight = 190;
+  const tooltipHeight = marker.fills.length > 1 ? 210 : 190;
   const horizontal = marker.x < tooltipHalfWidth
     ? "left"
     : marker.viewportWidth - marker.x < tooltipHalfWidth
@@ -183,4 +193,20 @@ function formatQuantity(quantity: number): string {
 
 function safeDomId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function formatFillTime(fills: ChartTradeFill[]): string {
+  const first = fills[0];
+  const last = fills.at(-1) ?? first;
+  if (!first || !last) return "";
+  if (fills.length === 1) {
+    return `${koreaDateTime.format(new Date(first.filledAt))} KST`;
+  }
+  return [
+    `${fills.length}건`,
+    koreaDateTime.format(new Date(first.filledAt)),
+    "~",
+    koreaDateTime.format(new Date(last.filledAt)),
+    "KST"
+  ].join(" ");
 }
