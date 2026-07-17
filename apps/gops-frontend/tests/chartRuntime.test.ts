@@ -16,6 +16,7 @@ import "./watchlistAgentCommand.test";
 import "./analysisAssetsCache.test";
 import "./notificationInboxState.test";
 import "./paperHoldingPrice.test";
+import "./chartTradeMarkers.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";
@@ -1465,6 +1466,122 @@ assert.ok(Math.abs(compactPriceTransform.yToPrice(compactPriceTransform.priceToY
 assert.ok(compactPriceDensityScene.scales.priceTicks.every((tick) => (
   tick >= compactPriceDensityScene.scales.minPrice && tick <= compactPriceDensityScene.scales.maxPrice
 )));
+
+const visibleCandleScaleSource = [
+  testCandle("2026-07-09T13:30:00.000Z", 100),
+  testCandle("2026-07-09T13:31:00.000Z", 101)
+] as CandleDto[];
+const visibleCandleScaleBaseline = buildFrontendChartScene(frontendChartState({
+  interval: "1m",
+  candles: visibleCandleScaleSource,
+  visibleCount: visibleCandleScaleSource.length,
+  layers: { candles: true, volume: false }
+}), 800, 360);
+const visibleCandleScaleWithOverlays = buildFrontendChartScene(frontendChartState({
+  interval: "1m",
+  candles: visibleCandleScaleSource.map((candle) => ({
+    ...candle,
+    ma5: 10_000,
+    ma20: 1,
+    ma60: 5_000
+  })),
+  visibleCount: visibleCandleScaleSource.length,
+  layers: {
+    candles: true,
+    volume: false,
+    ma5: true,
+    ma20: true,
+    ma60: true,
+    "sma:120": true,
+    "bollinger:20:2": true
+  },
+  indicatorSeries: {
+    "sma:120": visibleCandleScaleSource.map((candle) => ({ timestamp: candle.timestamp, value: 20_000 })),
+    "bollinger:20:2": visibleCandleScaleSource.map((candle) => ({
+      timestamp: candle.timestamp,
+      upper: 30_000,
+      lower: 0.5
+    }))
+  },
+  holdingOverlay: { symbol: "AAPL", quantity: 10, averagePrice: 1 },
+  streamState: "live",
+  liveTrade: { price: 40_000, timestamp: "2026-07-09T13:31:30.000Z" },
+  drawings: [testDrawing({
+    id: "chart-plan:AAPL:1m:visible-candle-scale:risk",
+    sourceProposalId: "chart-plan:AAPL:1m:visible-candle-scale",
+    type: "riskRewardBox",
+    anchors: [
+      { timestamp: visibleCandleScaleSource[0].timestamp, price: 100, paneId: "price", symbol: "AAPL" },
+      { timestamp: visibleCandleScaleSource[1].timestamp, price: 1, paneId: "price", symbol: "AAPL" },
+      { timestamp: visibleCandleScaleSource[1].timestamp, price: 50_000, paneId: "price", symbol: "AAPL" }
+    ],
+    style: { colorToken: "proposal", zoneSplit: true, labelPlacement: "axis" }
+  })]
+}), 800, 360);
+assert.deepEqual(
+  {
+    minPrice: visibleCandleScaleWithOverlays.scales.minPrice,
+    maxPrice: visibleCandleScaleWithOverlays.scales.maxPrice,
+    priceTicks: visibleCandleScaleWithOverlays.scales.priceTicks
+  },
+  {
+    minPrice: visibleCandleScaleBaseline.scales.minPrice,
+    maxPrice: visibleCandleScaleBaseline.scales.maxPrice,
+    priceTicks: visibleCandleScaleBaseline.scales.priceTicks
+  },
+  "price scale must depend only on visible candle highs and lows"
+);
+
+const engineVisibleCandleScaleDocument = {
+  ...createChartDocument("chart-doc-visible-candle-scale", "AAPL", "1m"),
+  viewport: { visibleCount: 2, rightOffset: 0 }
+};
+const engineVisibleCandleScaleBaseline = buildRenderScene({
+  state: "ready",
+  document: engineVisibleCandleScaleDocument,
+  candles: visibleCandleScaleSource,
+  width: 800,
+  height: 360
+});
+const engineVisibleCandleScaleWithOverlays = buildRenderScene({
+  state: "ready",
+  document: {
+    ...engineVisibleCandleScaleDocument,
+    drawings: [{
+      id: "engine-visible-candle-scale-risk",
+      type: "riskRewardBox",
+      anchors: [
+        { timestamp: visibleCandleScaleSource[0].timestamp, price: 100 },
+        { timestamp: visibleCandleScaleSource[1].timestamp, price: 1 },
+        { timestamp: visibleCandleScaleSource[1].timestamp, price: 50_000 }
+      ],
+      style: { zoneSplit: true },
+      visible: true,
+      createdBy: "user",
+      createdAt: "2026-07-09T13:31:00.000Z",
+      updatedAt: "2026-07-09T13:31:00.000Z"
+    }]
+  },
+  candles: visibleCandleScaleSource.map((candle) => ({
+    ...candle,
+    ma5: 10_000,
+    ma20: 1,
+    ma60: 5_000
+  })),
+  width: 800,
+  height: 360
+});
+assert.deepEqual(
+  {
+    minPrice: engineVisibleCandleScaleWithOverlays.scales.minPrice,
+    maxPrice: engineVisibleCandleScaleWithOverlays.scales.maxPrice
+  },
+  {
+    minPrice: engineVisibleCandleScaleBaseline.scales.minPrice,
+    maxPrice: engineVisibleCandleScaleBaseline.scales.maxPrice
+  },
+  "shared chart scene must ignore moving averages and drawings when autoscaling"
+);
 
 const lowerNiceBoundaryScale = resolvePriceScale([100, 107.27], compactPricePaneHeight);
 const upperNiceBoundaryScale = resolvePriceScale([100, 107.28], compactPricePaneHeight);
