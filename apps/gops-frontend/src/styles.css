@@ -7053,6 +7053,24 @@ h2 {
   font: var(--type-title-lg);
 }
 
+.stock-rec-action {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: #71717a;
+  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-caption);
+  white-space: nowrap;
+}
+
+.stock-rec-row.action-buy .stock-rec-action { color: var(--coinbase-semantic-up); }
+.stock-rec-row.action-conditional_buy .stock-rec-action { color: #a16207; }
+.stock-rec-row.action-not_suitable .stock-rec-action { color: var(--coinbase-semantic-down); }
+
 .stock-recommendations-panel .stock-rec-file-stack .stock-rec-company-name,
 .stock-recommendations-panel .stock-rec-file-stack .stock-rec-reasons em,
 .stock-recommendations-panel .stock-rec-file-stack .stock-rec-sector {

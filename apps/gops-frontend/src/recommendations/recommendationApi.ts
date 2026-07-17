@@ -1,5 +1,4 @@
 import { normalizeSector, normalizeSectorList, sectorLabelKo } from "../market/sectors";
-import { latestSimulatorStatus } from "../simulator/simulatorApi";
 
 export type RiskLevel = "conservative" | "balanced" | "aggressive";
 export type RecommendationStyle = "momentum" | "balanced" | "stable";
@@ -21,6 +20,45 @@ export type RecommendationReason = {
   type: string;
   text: string;
   weight?: number;
+};
+
+export type RecommendationAction = "buy" | "conditional_buy" | "watch" | "not_suitable";
+
+export type RecommendationEntryRoute =
+  | { type: "pullback"; entryLow: number; entryHigh: number }
+  | { type: "breakout"; trigger: number; chaseLimit: number };
+
+export type RecommendationDecision = {
+  version: "recommendation-decision.v1";
+  action: RecommendationAction;
+  label: string;
+  riskLevel: RiskLevel;
+  holdingHorizon: "intraday";
+  entryRoutes: RecommendationEntryRoute[];
+  invalidationPrice?: number | null;
+  targetPriceByRoute: Partial<Record<"pullback" | "breakout", number>>;
+  forceExitAt: string;
+  failedConditions: Array<{ code: string; label: string; actual: unknown; required: unknown }>;
+};
+
+export type RecommendationSizing = {
+  status: "ready" | "unavailable" | "blocked" | "not_applicable";
+  riskBudgetPct: number;
+  riskBudgetAmount?: number;
+  recommendedShares?: number | null;
+  estimatedNotional?: number | null;
+  worstAllowedEntry?: number;
+  riskPerShare?: number;
+  capReasons: string[];
+};
+
+export type RecommendationKeyEvidence = {
+  code: string;
+  label: string;
+  primaryValue: string;
+  secondaryValue: string;
+  assessment: "strong" | "mixed" | "weak";
+  interpretation: string;
 };
 
 export type RecommendationExplanation = {
@@ -59,7 +97,7 @@ export type RecommendationExplanation = {
 
 export type StockRecommendationItem = {
   symbol: string;
-  action: "buy";
+  action: RecommendationAction;
   rank: number;
   score: number;
   confidence: number;
@@ -85,6 +123,10 @@ export type StockRecommendationItem = {
   reasons: RecommendationReason[];
   riskWarnings: string[];
   explanation?: RecommendationExplanation;
+  decision?: RecommendationDecision;
+  sizing?: RecommendationSizing;
+  keyEvidence: RecommendationKeyEvidence[];
+  counterEvidence?: { code: string; label: string; actual: unknown; required: unknown; sentence: string } | null;
   metricsSnapshot: Record<string, unknown>;
 };
 
@@ -95,6 +137,17 @@ export type StockRecommendationPayload = {
   slotStart?: string;
   marketDate?: string;
   generatedAt?: string;
+  scenarioId?: string;
+  evidenceAsOf?: string;
+  targetSessionDate?: string;
+  sourceMode?: "historical_reconstruction" | string;
+  reconstructedAt?: string;
+  recommendationDigest?: string;
+  evidencePoolDigest?: string;
+  personalizationDigest?: string;
+  personalizationMode?: "cutoff_user_context" | string;
+  narrativeMode?: "deterministic_grounded" | string;
+  algorithmVersion?: string;
   stale?: boolean;
   idempotentReplay?: boolean;
   items: StockRecommendationItem[];
@@ -131,10 +184,6 @@ export async function saveInvestmentProfile(profile: InvestmentProfile): Promise
 }
 
 export async function fetchStockRecommendations(sessionMode: RecommendationSessionMode = "regular", signal?: AbortSignal): Promise<StockRecommendationPayload> {
-  const simulatorStatus = latestSimulatorStatus();
-  if (simulatorStatus?.mode === "simulation" && simulatorStatus.recommendations) {
-    return normalizeRecommendationPayload(simulatorStatus.recommendations);
-  }
   const params = new URLSearchParams({ sessionMode });
   return normalizeRecommendationPayload(await apiJson(`/api/recommendations/stocks/latest?${params.toString()}`, { signal }));
 }
@@ -144,10 +193,6 @@ export async function refreshStockRecommendations(
   sessionMode: RecommendationSessionMode = "regular",
   signal?: AbortSignal
 ): Promise<StockRecommendationPayload> {
-  const simulatorStatus = latestSimulatorStatus();
-  if (simulatorStatus?.mode === "simulation" && simulatorStatus.recommendations) {
-    return normalizeRecommendationPayload(simulatorStatus.recommendations);
-  }
   return normalizeRecommendationPayload(await apiJson("/api/recommendations/stocks/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -166,6 +211,17 @@ function normalizeRecommendationPayload(value: unknown): StockRecommendationPayl
     slotStart: asString(source.slotStart),
     marketDate: asString(source.marketDate),
     generatedAt: asString(source.generatedAt),
+    scenarioId: asString(source.scenarioId),
+    evidenceAsOf: asString(source.evidenceAsOf),
+    targetSessionDate: asString(source.targetSessionDate),
+    sourceMode: asString(source.sourceMode),
+    reconstructedAt: asString(source.reconstructedAt),
+    recommendationDigest: asString(source.recommendationDigest),
+    evidencePoolDigest: asString(source.evidencePoolDigest),
+    personalizationDigest: asString(source.personalizationDigest),
+    personalizationMode: asString(source.personalizationMode),
+    narrativeMode: asString(source.narrativeMode),
+    algorithmVersion: asString(source.algorithmVersion),
     stale: source.stale === true || status === "stale",
     idempotentReplay: source.idempotentReplay === true,
     items: Array.isArray(source.items)
@@ -184,9 +240,14 @@ function normalizeRecommendationItem(value: unknown): StockRecommendationItem | 
   }
   const sector = normalizeSector(asString(source.sector));
   const metricsSnapshot = asRecord(source.metricsSnapshot);
+  const declaredAction = normalizeAction(source.action);
+  const normalizedDecision = normalizeDecision(source.decision);
+  const decision = declaredAction && normalizedDecision?.action === declaredAction
+    ? normalizedDecision
+    : undefined;
   return {
     symbol,
-    action: "buy",
+    action: decision?.action ?? "watch",
     rank: asNumber(source.rank) ?? 0,
     score: asNumber(source.score) ?? 0,
     confidence: asNumber(source.confidence) ?? 0,
@@ -214,8 +275,122 @@ function normalizeRecommendationItem(value: unknown): StockRecommendationItem | 
       : [],
     riskWarnings: Array.isArray(source.riskWarnings) ? source.riskWarnings.map((item) => String(item)).filter(Boolean) : [],
     explanation: normalizeExplanation(source.explanation),
+    decision,
+    sizing: decision ? normalizeSizing(source.sizing) : undefined,
+    keyEvidence: decision ? normalizeKeyEvidence(source.keyEvidence) : [],
+    counterEvidence: decision ? normalizeCounterEvidence(source.counterEvidence) : null,
     metricsSnapshot
   };
+}
+
+function normalizeAction(value: unknown): RecommendationAction | undefined {
+  return value === "buy" || value === "conditional_buy" || value === "watch" || value === "not_suitable"
+    ? value
+    : undefined;
+}
+
+function normalizeDecision(value: unknown): RecommendationDecision | undefined {
+  const source = asRecord(value);
+  if (source.version !== "recommendation-decision.v1") return undefined;
+  const action = normalizeAction(source.action);
+  if (!action) return undefined;
+  const riskLevel = asString(source.riskLevel) as RiskLevel | undefined;
+  if (!riskLevel || !["conservative", "balanced", "aggressive"].includes(riskLevel)) return undefined;
+  const entryRoutes: RecommendationEntryRoute[] = [];
+  if (Array.isArray(source.entryRoutes)) {
+    for (const value of source.entryRoutes) {
+      const route = asRecord(value);
+      if (route.type === "pullback") {
+        const entryLow = asNumber(route.entryLow);
+        const entryHigh = asNumber(route.entryHigh);
+        if (entryLow !== undefined && entryHigh !== undefined) entryRoutes.push({ type: "pullback", entryLow, entryHigh });
+      } else if (route.type === "breakout") {
+        const trigger = asNumber(route.trigger);
+        const chaseLimit = asNumber(route.chaseLimit);
+        if (trigger !== undefined && chaseLimit !== undefined) entryRoutes.push({ type: "breakout", trigger, chaseLimit });
+      }
+    }
+  }
+  const targets = asRecord(source.targetPriceByRoute);
+  return {
+    version: "recommendation-decision.v1",
+    action,
+    label: asString(source.label) || actionLabel(action),
+    riskLevel,
+    holdingHorizon: "intraday",
+    entryRoutes,
+    invalidationPrice: asNumber(source.invalidationPrice),
+    targetPriceByRoute: {
+      pullback: asNumber(targets.pullback),
+      breakout: asNumber(targets.breakout)
+    },
+    forceExitAt: asString(source.forceExitAt) || "",
+    failedConditions: Array.isArray(source.failedConditions) ? source.failedConditions.flatMap((value) => {
+      const row = asRecord(value);
+      const code = asString(row.code);
+      const label = asString(row.label);
+      return code && label ? [{ code, label, actual: row.actual, required: row.required }] : [];
+    }) : []
+  };
+}
+
+function normalizeSizing(value: unknown): RecommendationSizing | undefined {
+  const source = asRecord(value);
+  const status = asString(source.status);
+  const riskBudgetPct = asNumber(source.riskBudgetPct);
+  if (!status || !["ready", "unavailable", "blocked", "not_applicable"].includes(status) || riskBudgetPct === undefined) return undefined;
+  return {
+    status: status as RecommendationSizing["status"],
+    riskBudgetPct,
+    riskBudgetAmount: asNumber(source.riskBudgetAmount),
+    recommendedShares: asNumber(source.recommendedShares),
+    estimatedNotional: asNumber(source.estimatedNotional),
+    worstAllowedEntry: asNumber(source.worstAllowedEntry),
+    riskPerShare: asNumber(source.riskPerShare),
+    capReasons: stringArray(source.capReasons)
+  };
+}
+
+function normalizeKeyEvidence(value: unknown): RecommendationKeyEvidence[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((value) => {
+    const row = asRecord(value);
+    const code = asString(row.code);
+    const label = asString(row.label);
+    const primaryValue = asString(row.primaryValue);
+    const assessment = asString(row.assessment);
+    if (!code || !label || !primaryValue || !assessment || !["strong", "mixed", "weak"].includes(assessment)) return [];
+    return [{
+      code,
+      label,
+      primaryValue,
+      secondaryValue: asString(row.secondaryValue) || "",
+      assessment: assessment as RecommendationKeyEvidence["assessment"],
+      interpretation: asString(row.interpretation) || ""
+    }];
+  });
+}
+
+function normalizeCounterEvidence(value: unknown) {
+  const source = asRecord(value);
+  const code = asString(source.code);
+  const label = asString(source.label);
+  return code && label ? {
+    code,
+    label,
+    actual: source.actual,
+    required: source.required,
+    sentence: asString(source.sentence) || "직접 매수 전에 추가 확인이 필요한 조건이 남아 있습니다."
+  } : null;
+}
+
+export function actionLabel(action: RecommendationAction) {
+  return {
+    buy: "매수 추천",
+    conditional_buy: "조건부 매수",
+    watch: "관찰",
+    not_suitable: "추천 제외"
+  }[action];
 }
 
 function normalizeReason(value: unknown): RecommendationReason | null {
