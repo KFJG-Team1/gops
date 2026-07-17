@@ -1421,6 +1421,7 @@
 
 .chart-compare-range-tabs button {
   min-width: 38px;
+  height: 36px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -1428,7 +1429,7 @@
 }
 
 .chart-compare-range-tabs button.active {
-  background: var(--color-surface-strong);
+  background: var(--coinbase-primary);
   color: var(--color-text);
 }
 
@@ -1440,9 +1441,10 @@
 
   .chart-compare-sidebar {
     grid-template-rows: auto auto auto;
-    border-right: 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
-    padding: 12px;
+    border: 1px solid var(--coinbase-hairline-strong);
+    border-radius: var(--app-glass-radius);
+    background: var(--app-panel-glass-background);
+    padding: var(--panel-padding);
   }
 
   .chart-compare-hero {
@@ -1464,7 +1466,7 @@
   }
 
   .chart-compare-main {
-    padding: 12px;
+    padding: var(--panel-padding);
   }
 
   .chart-compare-header {
@@ -2070,6 +2072,7 @@
 
 .chart-compare-range-tabs button {
   min-width: 38px;
+  height: 36px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -2077,7 +2080,7 @@
 }
 
 .chart-compare-range-tabs button.active {
-  background: var(--color-surface-strong);
+  background: var(--coinbase-primary);
   color: var(--color-text);
 }
 
