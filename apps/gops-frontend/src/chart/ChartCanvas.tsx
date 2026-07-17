@@ -2584,7 +2584,7 @@ function drawHoldingAveragePriceMarker(context: CanvasRenderingContext2D, scene:
 
   context.save();
   context.strokeStyle = colors.pointYellow;
-  context.globalAlpha = 0.92;
+  context.globalAlpha = 0.72;
   context.lineWidth = 1;
   context.setLineDash([6, 4]);
   line(context, scene.plot.left, y, horizontalGuideRight(scene), y);
@@ -2595,8 +2595,7 @@ function drawHoldingAveragePriceMarker(context: CanvasRenderingContext2D, scene:
     holding.averagePrice.toFixed(2),
     rightAxisPillX(scene),
     y,
-    "right",
-    "holdingPrice"
+    "right"
   );
   context.restore();
 }
@@ -3117,10 +3116,9 @@ function drawAxisPill(
   x: number,
   y: number,
   align: "center" | "left" | "right",
-  variant: "default" | "currentPrice" | "holdingPrice" = "default"
+  variant: "default" | "currentPrice" = "default"
 ) {
   const isCurrentPrice = variant === "currentPrice";
-  const isHoldingPrice = variant === "holdingPrice";
   applyCanvasTypography(context, "caption", canvasFontFamily);
   const metrics = context.measureText(text);
   const width = metrics.width + 10;
@@ -3128,7 +3126,7 @@ function drawAxisPill(
   const left = align === "right" ? x - width : align === "left" ? x : x - width / 2;
   const top = y - height / 2;
   context.fillStyle = isCurrentPrice ? colors.signal : colors.surfaceStrong;
-  context.strokeStyle = isCurrentPrice ? colors.signal : isHoldingPrice ? colors.pointYellow : colors.border;
+  context.strokeStyle = isCurrentPrice ? colors.signal : colors.border;
   context.lineWidth = 1;
   roundedRect(context, left, top, width, height, 5);
   context.fill();
