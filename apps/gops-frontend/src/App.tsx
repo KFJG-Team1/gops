@@ -81,16 +81,17 @@ import { gridGutter } from "./layout/grid";
 import {
   createInitialTiledPanelState,
   createTiledPanelStateFromSpec,
+  ensurePrimaryChartSelection,
+  ensurePrimaryChartSymbol,
   normalizeFreeformRectsToGridLayout,
   panelLayoutStorageKey,
   restoreTiledPanelStateSnapshot,
   scaleTiledPanelState,
   serializeTiledPanelState,
   setCompanyInformationSymbol,
-  setPrimaryChartSelection,
   setPanelContentProps,
-  setPrimaryChartSymbol,
   setPrimaryChartView,
+  syncPrimaryChartSymbol,
   workspaceBounds,
   type TiledPanelState,
   type ViewportSize,
@@ -219,7 +220,7 @@ function initialPanelState(): TiledPanelState {
           layoutMetrics: responsiveLayout.metrics
         });
         return initialView.mode === "chart"
-          ? setPrimaryChartSymbol(migrated, initialView.symbol, viewport, responsiveLayout.metrics)
+          ? syncPrimaryChartSymbol(migrated, initialView.symbol)
           : migrated;
       }
     }
@@ -634,14 +635,44 @@ export function App() {
     window.addEventListener(simulatorStatusEvent, applySimulationQuotes);
     return () => window.removeEventListener(simulatorStatusEvent, applySimulationQuotes);
   }, []);
+
+  const applyMainViewState = useCallback((nextView: MainView, _options: { closeBottomMenu?: boolean } = {}) => {
+    setSemanticSelection(null);
+    if (nextView.mode === "treemap") {
+      chartPanelHandlesRef.current.clear();
+      setLayoutEditMode(false);
+    }
+    persistMainView(nextView);
+    setMainView(nextView);
+  }, []);
+
+  const navigateMainView = useCallback((nextView: MainView, options: { replace?: boolean; closeBottomMenu?: boolean } = {}) => {
+    if (typeof window !== "undefined" && window.history) {
+      const currentView = resolveAppMainViewFromUrl(window.location.href).view;
+      const nextUrl = createMainViewUrl(window.location.href, nextView);
+      const currentUrl = mainViewUrlPath(window.location.href);
+      if (nextUrl !== currentUrl) {
+        if (options.replace || mainViewsEqual(currentView, nextView)) {
+          window.history.replaceState(window.history.state, "", nextUrl);
+        } else {
+          window.history.pushState(window.history.state, "", nextUrl);
+        }
+      }
+    }
+    applyMainViewState(nextView, { closeBottomMenu: options.closeBottomMenu });
+  }, [applyMainViewState]);
+
   const applyPresetLayout = useCallback((state: TiledPanelState) => {
     setPanelState(state);
     // Applying a preset from the home (treemap) view jumps into the chart workspace,
-    // using the last chart symbol (or MSFT when none is stored).
+    // using the last chart symbol (or MSFT when none is stored) without filling empty cells.
     if (mainView.mode !== "chart") {
-      openSymbolPage(resolvePresetSymbol());
+      const symbol = resolvePresetSymbol();
+      chartPanelHandlesRef.current.clear();
+      setChartRuntime(createInitialChartRuntimeState());
+      navigateMainView({ mode: "chart", symbol });
     }
-  }, [mainView, resolvePresetSymbol]);
+  }, [mainView, navigateMainView, resolvePresetSymbol]);
   const buildPresetLayoutForCurrent = useCallback((preset: LayoutPreset) => (
     buildPresetLayout(preset, viewportSizeRef.current, {
       symbol: mainView.mode === "chart" ? mainView.symbol : resolvePresetSymbol(),
@@ -733,32 +764,6 @@ export function App() {
     emphasizedReferenceKeys.filter((key) => key !== SEMANTIC_SELECTION_REFERENCE_KEY)
   ), [emphasizedReferenceKeys]);
   const emphasizeChartSelection = emphasizedReferenceKeys.includes(SEMANTIC_SELECTION_REFERENCE_KEY);
-
-  const applyMainViewState = useCallback((nextView: MainView, _options: { closeBottomMenu?: boolean } = {}) => {
-    setSemanticSelection(null);
-    if (nextView.mode === "treemap") {
-      chartPanelHandlesRef.current.clear();
-      setLayoutEditMode(false);
-    }
-    persistMainView(nextView);
-    setMainView(nextView);
-  }, []);
-
-  const navigateMainView = useCallback((nextView: MainView, options: { replace?: boolean; closeBottomMenu?: boolean } = {}) => {
-    if (typeof window !== "undefined" && window.history) {
-      const currentView = resolveAppMainViewFromUrl(window.location.href).view;
-      const nextUrl = createMainViewUrl(window.location.href, nextView);
-      const currentUrl = mainViewUrlPath(window.location.href);
-      if (nextUrl !== currentUrl) {
-        if (options.replace || mainViewsEqual(currentView, nextView)) {
-          window.history.replaceState(window.history.state, "", nextUrl);
-        } else {
-          window.history.pushState(window.history.state, "", nextUrl);
-        }
-      }
-    }
-    applyMainViewState(nextView, { closeBottomMenu: options.closeBottomMenu });
-  }, [applyMainViewState]);
 
   useEffect(() => {
     viewportSizeRef.current = viewportSize;
@@ -923,7 +928,7 @@ export function App() {
     const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
     chartPanelHandlesRef.current.clear();
     setChartRuntime(createInitialChartRuntimeState());
-    setPanelState((current) => setPrimaryChartView(setPrimaryChartSymbol(
+    setPanelState((current) => setPrimaryChartView(ensurePrimaryChartSymbol(
       current,
       normalizedSymbol,
       viewportSizeRef.current,
@@ -937,7 +942,7 @@ export function App() {
     const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
     chartPanelHandlesRef.current.clear();
     setChartRuntime(createInitialChartRuntimeState());
-    setPanelState((current) => setPrimaryChartView(setPrimaryChartSelection(
+    setPanelState((current) => setPrimaryChartView(ensurePrimaryChartSelection(
       current,
       normalizedSymbol,
       interval,
@@ -959,7 +964,7 @@ export function App() {
         viewportSizeRef.current,
         panelLayoutMetricsRef.current
       );
-      const next = setPrimaryChartSymbol(
+      const next = ensurePrimaryChartSymbol(
         companyState,
         normalizedSymbol,
         viewportSizeRef.current,

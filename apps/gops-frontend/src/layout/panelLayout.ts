@@ -1220,13 +1220,20 @@ export function firstAvailablePanelGridRect(state: TiledPanelState, kind: PanelC
   return firstAvailableGridRect(state, kind);
 }
 
-export function setPrimaryChartSymbol(
+export function syncPrimaryChartSymbol(
+  state: TiledPanelState,
+  symbol: string
+): TiledPanelState {
+  return syncPrimaryChartSelection(state, symbol, "1D");
+}
+
+export function ensurePrimaryChartSymbol(
   state: TiledPanelState,
   symbol: string,
   viewport: ViewportSize,
   layoutMetrics: WorkspaceLayoutMetrics = {}
 ): TiledPanelState {
-  return setPrimaryChartSelection(state, symbol, "1D", viewport, layoutMetrics);
+  return ensurePrimaryChartSelection(state, symbol, "1D", viewport, layoutMetrics);
 }
 
 const companyInformationPanelKinds = new Set<PanelContentKind>([
@@ -1258,7 +1265,7 @@ export function setCompanyInformationSymbol(
     );
   }
 
-  const withChart = setPrimaryChartSymbol(state, normalizedSymbol, viewport, layoutMetrics);
+  const withChart = ensurePrimaryChartSymbol(state, normalizedSymbol, viewport, layoutMetrics);
   const chartContent = withChart.slots
     .map((slot) => withChart.contents[slot.contentId])
     .find((content) => content?.kind === "chart");
@@ -1277,7 +1284,24 @@ export function setPrimaryChartView(
   return chartContent ? setPanelContentProps(state, chartContent.id, { view }) : state;
 }
 
-export function setPrimaryChartSelection(
+export function syncPrimaryChartSelection(
+  state: TiledPanelState,
+  symbol: string,
+  timeframe: string
+): TiledPanelState {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const normalizedTimeframe = timeframe.trim() || "1D";
+  const chartSlot = state.slots.find((slot) => state.contents[slot.contentId]?.kind === "chart");
+  return chartSlot
+    ? setPanelContentProps(state, chartSlot.contentId, {
+      ...(state.contents[chartSlot.contentId]?.props ?? {}),
+      symbol: normalizedSymbol,
+      timeframe: normalizedTimeframe
+    })
+    : state;
+}
+
+export function ensurePrimaryChartSelection(
   state: TiledPanelState,
   symbol: string,
   timeframe: string,
@@ -1288,11 +1312,7 @@ export function setPrimaryChartSelection(
   const normalizedTimeframe = timeframe.trim() || "1D";
   const chartSlot = state.slots.find((slot) => state.contents[slot.contentId]?.kind === "chart");
   if (chartSlot) {
-    return setPanelContentProps(state, chartSlot.contentId, {
-      ...(state.contents[chartSlot.contentId]?.props ?? {}),
-      symbol: normalizedSymbol,
-      timeframe: normalizedTimeframe
-    });
+    return syncPrimaryChartSelection(state, normalizedSymbol, normalizedTimeframe);
   }
   const preferredChartRects = [
     { col: 1, row: 4, colSpan: 8, rowSpan: 3 },
