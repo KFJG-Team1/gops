@@ -34,8 +34,10 @@ const item = {
     ]
   }],
   cautions: [
+    { code: "chase_limit", label: "추격 진입 기준", severity: "warning", sentence: "돌파 기준과 상한을 비교했습니다." },
+    { code: "chase_limit", label: "중복", severity: "warning", sentence: "중복 문장" },
     { code: "decision_scope", label: "판단 유효 범위", severity: "notice", sentence: "당일까지만 유효합니다." },
-    { code: "decision_scope", label: "중복", severity: "warning", sentence: "중복 문장" },
+    { code: "confidence_scope", label: "신뢰도 해석", severity: "notice", sentence: "신뢰도 설명" },
     { code: "bad_severity", label: "잘못된 값", severity: "critical", sentence: "제외해야 합니다." },
     { code: "missing_sentence", label: "문장 없음", severity: "notice" }
   ]
@@ -52,7 +54,7 @@ assert.deepEqual(normalized.items[0].keyEvidence[0].metrics, [
   { label: "당일 상대강도", value: "+2.10%p", comparison: "중립 0%p", valuePositionPct: 85, referencePositionPct: 50, tone: "positive" }
 ]);
 assert.deepEqual(normalized.items[0].cautions, [
-  { code: "decision_scope", label: "판단 유효 범위", severity: "notice", sentence: "당일까지만 유효합니다." }
+  { code: "chase_limit", label: "추격 진입 기준", severity: "warning", sentence: "돌파 기준과 상한을 비교했습니다." }
 ]);
 
 responsePayload = { status: "ready", items: [{ ...item, cautions: undefined }] };

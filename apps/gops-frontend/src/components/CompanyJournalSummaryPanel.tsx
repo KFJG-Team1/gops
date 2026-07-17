@@ -60,7 +60,7 @@ type EarningsChartPoint = {
   estimatedRevenue?: number | null;
 };
 
-type FinancialChartPoint = {
+export type FinancialChartPoint = {
   period: string;
   periodEndDate?: string | null;
   revenue?: number | null;
@@ -2011,7 +2011,7 @@ function isAnnualFinancialPoint(point: FinancialChartPoint): boolean {
   return /FY|annual|연간/i.test(point.period);
 }
 
-function aggregateQuarterlySeriesToAnnual(series: FinancialChartPoint[]): FinancialChartPoint[] {
+export function aggregateQuarterlySeriesToAnnual(series: FinancialChartPoint[]): FinancialChartPoint[] {
   const grouped = new Map<number, FinancialChartPoint[]>();
   series.forEach((point) => {
     const year = financialPointYear(point);
@@ -2030,6 +2030,22 @@ function aggregateQuarterlySeriesToAnnual(series: FinancialChartPoint[]): Financ
       const operatingIncome = sumFinancialValues(sorted, "operatingIncome");
       const interestExpense = sumFinancialValues(sorted, "interestExpense");
       const absoluteInterestExpense = Number.isFinite(interestExpense ?? NaN) ? Math.abs(interestExpense as number) : null;
+      const pointInTime = {
+        ...latest,
+        totalAssets: latestFiniteFinancialValue(sorted, "totalAssets"),
+        totalLiabilities: latestFiniteFinancialValue(sorted, "totalLiabilities"),
+        totalEquity: latestFiniteFinancialValue(sorted, "totalEquity"),
+        currentAssets: latestFiniteFinancialValue(sorted, "currentAssets"),
+        currentLiabilities: latestFiniteFinancialValue(sorted, "currentLiabilities"),
+        cashAndCashEquivalents: latestFiniteFinancialValue(sorted, "cashAndCashEquivalents"),
+        sharesOutstanding: latestFiniteFinancialValue(sorted, "sharesOutstanding"),
+        debtRatio: latestFiniteFinancialValue(sorted, "debtRatio"),
+        currentLiabilityRatio: latestFiniteFinancialValue(sorted, "currentLiabilityRatio"),
+        noncurrentLiabilityRatio: latestFiniteFinancialValue(sorted, "noncurrentLiabilityRatio"),
+        currentRatio: latestFiniteFinancialValue(sorted, "currentRatio"),
+        totalDebt: latestFiniteFinancialValue(sorted, "totalDebt"),
+        netDebt: latestFiniteFinancialValue(sorted, "netDebt")
+      } satisfies FinancialChartPoint;
       return [{
         period: `${year}FY`,
         periodEndDate: latest.periodEndDate,
@@ -2037,24 +2053,24 @@ function aggregateQuarterlySeriesToAnnual(series: FinancialChartPoint[]): Financ
         operatingIncome,
         netIncome: sumFinancialValues(sorted, "netIncome"),
         eps: sumFinancialValues(sorted, "eps"),
-        totalAssets: latest.totalAssets,
-        totalLiabilities: latest.totalLiabilities,
-        totalEquity: latest.totalEquity,
-        currentAssets: latest.currentAssets,
-        currentLiabilities: latest.currentLiabilities,
-        cashAndCashEquivalents: latest.cashAndCashEquivalents,
+        totalAssets: pointInTime.totalAssets,
+        totalLiabilities: pointInTime.totalLiabilities,
+        totalEquity: pointInTime.totalEquity,
+        currentAssets: pointInTime.currentAssets,
+        currentLiabilities: pointInTime.currentLiabilities,
+        cashAndCashEquivalents: pointInTime.cashAndCashEquivalents,
         interestExpense,
         operatingCashFlow: sumFinancialValues(sorted, "operatingCashFlow"),
         freeCashFlow: sumFinancialValues(sorted, "freeCashFlow"),
-        sharesOutstanding: latest.sharesOutstanding,
-        debtRatio: debtRatioFor(latest),
-        currentLiabilityRatio: currentLiabilityRatioFor(latest),
-        noncurrentLiabilityRatio: noncurrentLiabilityRatioFor(latest),
-        currentRatio: currentRatioFor(latest),
-        totalDebt: latest.totalDebt,
+        sharesOutstanding: pointInTime.sharesOutstanding,
+        debtRatio: debtRatioFor(pointInTime),
+        currentLiabilityRatio: currentLiabilityRatioFor(pointInTime),
+        noncurrentLiabilityRatio: noncurrentLiabilityRatioFor(pointInTime),
+        currentRatio: currentRatioFor(pointInTime),
+        totalDebt: pointInTime.totalDebt,
         interestCoverage: safeDivide(operatingIncome, absoluteInterestExpense),
         financialCostBurdenRatio: safeDivide(absoluteInterestExpense, revenue),
-        netDebt: netDebtFor(latest)
+        netDebt: netDebtFor(pointInTime)
       } satisfies FinancialChartPoint];
     });
   return annual.length ? annual : series;
@@ -2095,6 +2111,17 @@ function sumNullableNumbers(values: Array<number | null | undefined>): number | 
 function sumFinancialValues(points: FinancialChartPoint[], key: keyof FinancialChartPoint): number | null {
   const values = points.map((point) => point[key]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   return values.length ? values.reduce((total, value) => total + value, 0) : null;
+}
+
+function latestFiniteFinancialValue(
+  points: FinancialChartPoint[],
+  key: keyof FinancialChartPoint
+): number | null {
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    const value = points[index]?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
 }
 
 function financialPointYear(point: FinancialChartPoint): number | null {

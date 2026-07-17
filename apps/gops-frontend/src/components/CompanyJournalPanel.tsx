@@ -249,10 +249,18 @@ export function CompanyJournalPanel({
     if (!primaryTarget) return;
     window.requestAnimationFrame(() => {
       const target = evidencePanelRef.current?.querySelector(`[data-journal-mark="${primaryTarget}"]`);
-      const scrollContainer = target?.closest<HTMLElement>(
-        ".company-single-fundamental-section, .company-journal-earnings-evidence"
-      );
-      if (!target || !scrollContainer) return;
+      if (!target) return;
+      const scrollCandidates = [
+        target.closest<HTMLElement>(".company-valuation-dashboard"),
+        target.closest<HTMLElement>(".company-stability-dashboard"),
+        target.closest<HTMLElement>(".company-journal-earnings-evidence"),
+        target.closest<HTMLElement>(".company-single-fundamental-section"),
+        evidencePanelRef.current
+      ].filter((candidate): candidate is HTMLElement => candidate !== null);
+      const scrollContainer = scrollCandidates.find(
+        (candidate) => candidate.scrollHeight > candidate.clientHeight + 1
+      ) ?? scrollCandidates.at(-1);
+      if (!scrollContainer) return;
       const targetBounds = target.getBoundingClientRect();
       const containerBounds = scrollContainer.getBoundingClientRect();
       const targetTop = scrollContainer.scrollTop

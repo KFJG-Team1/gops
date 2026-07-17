@@ -18,7 +18,9 @@ export type AgentReferenceType =
   | "news.dailySummary"
   | "recommendation.stock"
   | "ontology.entity"
-  | "financial.metric";
+  | "financial.metric"
+  | "compare.axis"
+  | "compare.context";
 
 export type AgentReference<TData extends Record<string, unknown> = Record<string, unknown>> = {
   type: AgentReferenceType;
@@ -35,7 +37,7 @@ export function agentReferenceKey(reference: AgentReference): string {
 // which lives outside the explicit agentReferences array but is shown as a reference chip.
 export const SEMANTIC_SELECTION_REFERENCE_KEY = "semantic-selection";
 
-export type AgentReferenceChipKind = "candle" | "news" | "recommendation";
+export type AgentReferenceChipKind = "candle" | "news" | "recommendation" | "compare";
 
 export type AgentReferenceChip = {
   key: string;
@@ -47,12 +49,117 @@ export function agentReferenceChipKind(reference: AgentReference): AgentReferenc
   if (reference.type.startsWith("news")) {
     return "news";
   }
+  if (reference.type.startsWith("compare.") || reference.type === "financial.metric") {
+    return "compare";
+  }
   return reference.type === "recommendation.stock" ? "recommendation" : "candle";
 }
 
 export function agentReferenceTicker(reference: AgentReference): string {
-  const data = reference.data as { symbol?: unknown };
+  const data = reference.data as { symbol?: unknown; symbols?: unknown };
+  if (Array.isArray(data.symbols)) {
+    return data.symbols
+      .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+      .map((value) => value.trim().toUpperCase())
+      .join("×");
+  }
   return typeof data.symbol === "string" ? data.symbol : "";
+}
+
+export function compareMetricReference(
+  input: {
+    symbols: string[];
+    sectionId: string;
+    metric: string;
+    values: Array<{
+      symbol: string;
+      value: number | null;
+      display: string;
+      asOf?: string | null;
+      sourceRef?: string;
+      quality?: string | null;
+    }>;
+    asOf?: string | null;
+  },
+  sourcePanelId?: string
+): AgentReference<Record<string, unknown>> {
+  const symbols = normalizeReferenceSymbols(input.symbols);
+  return {
+    type: "financial.metric",
+    sourcePanelId,
+    displayLabel: `${symbols.join("×")} ${input.metric}`,
+    data: {
+      symbols,
+      sectionId: input.sectionId,
+      metric: input.metric,
+      values: input.values.map((value) => ({ ...value })),
+      asOf: input.asOf ?? undefined,
+      version: "company-compare.v1"
+    }
+  };
+}
+
+export function compareAxisReference(
+  input: {
+    symbols: string[];
+    sectionId: string;
+    heading: string;
+    analysis: string;
+    evidenceRefs: string[];
+  },
+  sourcePanelId?: string
+): AgentReference<Record<string, unknown>> {
+  const symbols = normalizeReferenceSymbols(input.symbols);
+  return {
+    type: "compare.axis",
+    sourcePanelId,
+    displayLabel: `${symbols.join("×")} ${input.heading}`,
+    data: {
+      symbols,
+      sectionId: input.sectionId,
+      heading: input.heading,
+      analysis: input.analysis,
+      evidenceRefs: [...input.evidenceRefs],
+      version: "company-compare.v1"
+    }
+  };
+}
+
+export function compareContextReference(
+  input: {
+    baseSymbol: string;
+    compareSymbols: string[];
+    summary: string;
+  },
+  sourcePanelId?: string
+): AgentReference<Record<string, unknown>> {
+  const baseSymbol = input.baseSymbol.trim().toUpperCase();
+  const compareSymbols = normalizeReferenceSymbols(input.compareSymbols)
+    .filter((symbol) => symbol !== baseSymbol);
+  const symbols = [baseSymbol, ...compareSymbols].filter(Boolean);
+  return {
+    type: "compare.context",
+    sourcePanelId,
+    displayLabel: `${symbols.join("×")} 기업 비교`,
+    data: {
+      baseSymbol,
+      compareSymbols,
+      symbols,
+      summary: input.summary,
+      version: "company-compare.v1"
+    }
+  };
+}
+
+function normalizeReferenceSymbols(values: string[]): string[] {
+  const symbols: string[] = [];
+  for (const value of values) {
+    const symbol = value.trim().toUpperCase();
+    if (symbol && !symbols.includes(symbol)) {
+      symbols.push(symbol);
+    }
+  }
+  return symbols;
 }
 
 export function chartCandleReference(

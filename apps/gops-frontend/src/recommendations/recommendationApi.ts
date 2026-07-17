@@ -435,13 +435,14 @@ function normalizeCounterEvidence(value: unknown) {
 function normalizeCautions(value: unknown): RecommendationCaution[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
+  const hiddenScopeCodes = new Set(["decision_scope", "confidence_scope"]);
   return value.flatMap((value) => {
     const row = asRecord(value);
     const code = asString(row.code);
     const label = asString(row.label);
     const severity = asString(row.severity);
     const sentence = asString(row.sentence);
-    if (!code || !label || !sentence || !severity || !["notice", "warning"].includes(severity) || seen.has(code)) {
+    if (!code || hiddenScopeCodes.has(code) || !label || !sentence || !severity || !["notice", "warning"].includes(severity) || seen.has(code)) {
       return [];
     }
     seen.add(code);

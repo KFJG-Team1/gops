@@ -18,6 +18,7 @@ import "./analysisAssetsCache.test";
 import "./notificationInboxState.test";
 import "./paperHoldingPrice.test";
 import "./chartTradeMarkers.test";
+import "./chartEventPopoverLayout.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";

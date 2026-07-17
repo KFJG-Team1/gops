@@ -89,6 +89,7 @@ import {
 } from "../layout/wildPanel";
 import type { WorkspaceLayoutMode } from "../layout/responsivePanelLayout";
 import { workspaceBottomInset } from "../layout/workspaceMetrics";
+import type { CompanyCompareSelectionState } from "../companyCompare/companyCompareSelection";
 import { type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import type { StockRecommendationSelection } from "../recommendations/StockRecommendationsPanel";
@@ -112,6 +113,8 @@ type PanelWorkspaceProps = {
   marketItems: Sp500UniverseItem[];
   chartRuntime: ChartRuntimeState;
   chartDataResetRevision: number;
+  companyCompareSelections: CompanyCompareSelectionState;
+  onCompanyCompareSymbolsChange: (baseSymbol: string, symbols: string[]) => void;
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
   emphasizeChartSelection: boolean;
@@ -205,6 +208,8 @@ export function PanelWorkspace({
   marketItems,
   chartRuntime,
   chartDataResetRevision,
+  companyCompareSelections,
+  onCompanyCompareSymbolsChange,
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
   emphasizeChartSelection,
@@ -970,6 +975,8 @@ export function PanelWorkspace({
         chartLiveTrade={chartLiveTrade}
         chartDataResetRevision={chartDataResetRevision}
         chartAddActive={chartAddTargetContentId === content.id}
+        companyCompareSelections={companyCompareSelections}
+        onCompanyCompareSymbolsChange={onCompanyCompareSymbolsChange}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         emphasizeChartSelection={emphasizeChartSelection}

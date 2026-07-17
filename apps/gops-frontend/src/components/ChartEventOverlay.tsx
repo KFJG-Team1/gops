@@ -1,7 +1,8 @@
-import { CalendarClock, ExternalLink, Newspaper, X } from "lucide-react";
+import { CalendarClock, ExternalLink, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { type CSSProperties, type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { chartEventPopoverPlacement } from "../chart/chartEventPopoverLayout";
 import type {
   ChartEarningsEvent,
   ChartEventMarker,
@@ -132,6 +133,12 @@ export function ChartEventOverlay({
     };
   }, [selected]);
 
+  useLayoutEffect(() => {
+    if (selected && popoverRef.current) {
+      setPositionRevision((current) => current + 1);
+    }
+  }, [selected]);
+
   const selectedStyle = useMemo(() => {
     void positionRevision;
     const container = containerRef.current;
@@ -141,15 +148,21 @@ export function ChartEventOverlay({
     const scaleY = container.clientHeight > 0 ? rect.height / container.clientHeight : 1;
     const anchorX = rect.left + selected.anchorX * scaleX;
     const anchorTop = rect.top + selected.anchorTop * scaleY;
-    const width = Math.min(360, Math.max(280, window.innerWidth - 24));
-    const left = Math.max(12, Math.min(window.innerWidth - width - 12, anchorX - width / 2));
-    const preferredTop = anchorTop - 10;
-    const top = preferredTop > 260 ? preferredTop : Math.min(window.innerHeight - 24, anchorTop + 38);
+    const contentHeight = popoverRef.current?.getBoundingClientRect().height
+      ?? Math.min(480, Math.max(0, window.innerHeight - 24));
+    const placement = chartEventPopoverPlacement({
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      anchorX,
+      anchorY: anchorTop,
+      contentHeight
+    });
     return {
-      left,
-      top,
-      width,
-      "--chart-event-popover-origin": preferredTop > 260 ? "translateY(-100%)" : "translateY(0)"
+      left: placement.left,
+      top: placement.top,
+      width: placement.width,
+      maxHeight: placement.maxHeight,
+      transformOrigin: placement.transformOrigin
     } as CSSProperties;
   }, [containerRef, positionRevision, selected]);
 
@@ -164,6 +177,9 @@ export function ChartEventOverlay({
       upcoming
     });
   };
+  const selectedTitleId = selected
+    ? `chart-event-title-${selected.event.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+    : undefined;
 
   return (
     <>
@@ -225,18 +241,20 @@ export function ChartEventOverlay({
           style={selectedStyle}
           role="dialog"
           aria-modal="false"
-          aria-label={selected.event.type === "earnings" ? "실적 이벤트 상세" : "뉴스 이벤트 상세"}
+          aria-labelledby={selectedTitleId}
           onPointerDown={(event) => event.stopPropagation()}
         >
           <header>
-            <span className="chart-event-popover-icon" aria-hidden="true">
-              {selected.event.type === "earnings" ? <CalendarClock size={17} /> : <Newspaper size={17} />}
+            <span className="chart-event-popover-badge" aria-hidden="true">
+              <span>{selected.event.type === "earnings" ? "E" : "N"}</span>
             </span>
-            <div>
-              <small>{selected.event.type === "earnings" ? "EARNINGS" : "DAILY NEWS"}</small>
-              <strong>{selected.event.type === "earnings" ? "실적 발표" : "기업 뉴스"}</strong>
+            <div className="chart-event-popover-title">
+              <small>{selected.event.type === "earnings" ? "FUNDAMENTALS" : "MARKET NEWS"}</small>
+              <strong id={selectedTitleId}>
+                {selected.event.type === "earnings" ? "실적 및 펀더멘탈" : "뉴스 브리핑"}
+              </strong>
             </div>
-            <button type="button" aria-label="이벤트 상세 닫기" onClick={() => setSelected(null)}>
+            <button className="chart-event-popover-close" type="button" aria-label="이벤트 상세 닫기" onClick={() => setSelected(null)}>
               <X size={16} />
             </button>
           </header>
@@ -252,20 +270,38 @@ export function ChartEventOverlay({
 
 function EarningsEventContent({ event, upcoming }: { event: ChartEarningsEvent; upcoming?: UpcomingEarningsEvent }) {
   const session = earningsSessionLabel(event.session);
+  const highlightTone = metricTone(event.eps.surprisePercent);
+  const highlightValue = upcoming ? `D-${upcoming.daysRemaining}` : formatSignedPercent(event.eps.surprisePercent);
   return (
     <div className="chart-event-popover-body">
-      <div className="chart-event-heading-copy">
-        <span>{koreaDateTime.format(new Date(event.eventAt))} · 한국 시간</span>
+      <div className="chart-event-context-strip">
+        <span><CalendarClock size={13} aria-hidden="true" />{koreaDateTime.format(new Date(event.eventAt))}</span>
         <strong>{session}</strong>
       </div>
-      {upcoming && <p className="chart-event-upcoming-note">예정된 발표까지 D-{upcoming.daysRemaining}입니다.</p>}
-      <dl className="chart-event-metrics">
-        <div><dt>실제 EPS</dt><dd>{formatEps(event.eps.actual)}</dd></div>
-        <div><dt>예상 EPS</dt><dd>{formatEps(event.eps.estimate)}</dd></div>
-        <div className={metricTone(event.eps.surprise)}><dt>서프라이즈</dt><dd>{formatSignedEps(event.eps.surprise)}</dd></div>
-        <div className={metricTone(event.eps.surprisePercent)}><dt>서프라이즈율</dt><dd>{formatSignedPercent(event.eps.surprisePercent)}</dd></div>
-      </dl>
-      <footer>출처 {event.source} · 기준 {koreaDateTime.format(new Date(event.sourceAsOf))}</footer>
+      <section className={`chart-event-highlight ${highlightTone}`} aria-label="실적 핵심 결과">
+        <div>
+          <small>{upcoming ? "발표까지" : "EPS 서프라이즈율"}</small>
+          <strong>{highlightValue}</strong>
+        </div>
+        <span>{earningsResultLabel(event, Boolean(upcoming))}</span>
+      </section>
+      {upcoming && <p className="chart-event-upcoming-note">예상 EPS를 기준으로 발표를 기다리고 있습니다.</p>}
+      <section className="chart-event-section" aria-label="EPS 세부 지표">
+        <div className="chart-event-section-label">
+          <span>EPS 결과</span>
+          <small>주당순이익</small>
+        </div>
+        <dl className="chart-event-detail-list">
+          <div><dt>발표</dt><dd>{formatEps(event.eps.actual)}</dd></div>
+          <div><dt>시장 예상</dt><dd>{formatEps(event.eps.estimate)}</dd></div>
+          <div className={metricTone(event.eps.surprise)}><dt>예상 대비</dt><dd>{formatSignedEps(event.eps.surprise)}</dd></div>
+        </dl>
+      </section>
+      <footer className="chart-event-source-footer">
+        <span>DATA SOURCE</span>
+        <strong>{event.source}</strong>
+        <time dateTime={event.sourceAsOf}>기준 {koreaDateTime.format(new Date(event.sourceAsOf))}</time>
+      </footer>
     </div>
   );
 }
@@ -273,26 +309,51 @@ function EarningsEventContent({ event, upcoming }: { event: ChartEarningsEvent; 
 function NewsEventContent({ event }: { event: ChartNewsDay }) {
   return (
     <div className="chart-event-popover-body">
-      <div className="chart-event-heading-copy">
-        <span>{dateLabel.format(new Date(`${event.date}T12:00:00Z`))}</span>
-        <strong className={`is-${event.impactDirection}`}>{newsImpactLabel(event.impactDirection)} · 기사 {event.articleCount}건</strong>
+      <div className="chart-event-context-strip">
+        <span><CalendarClock size={13} aria-hidden="true" />{dateLabel.format(new Date(`${event.date}T12:00:00Z`))}</span>
+        <strong>기사 {event.articleCount}건 종합</strong>
       </div>
-      <p className="chart-event-news-summary">{event.summary || "저장된 일별 요약이 없습니다."}</p>
+      <section className={`chart-event-highlight is-${event.impactDirection}`} aria-label="뉴스 영향 요약">
+        <div>
+          <small>MARKET IMPACT</small>
+          <strong>{newsImpactLabel(event.impactDirection)}</strong>
+        </div>
+        <span>{newsSentimentLabel(event.sentiment)}</span>
+      </section>
+      <section className="chart-event-section">
+        <div className="chart-event-section-label">
+          <span>핵심 요약</span>
+          <small>일별 뉴스 브리핑</small>
+        </div>
+        <p className="chart-event-news-summary">{event.summary || "저장된 일별 요약이 없습니다."}</p>
+      </section>
       {event.keyPoints.length > 0 && (
-        <ul className="chart-event-key-points">
-          {event.keyPoints.map((point) => <li key={point}>{point}</li>)}
-        </ul>
+        <section className="chart-event-section">
+          <div className="chart-event-section-label">
+            <span>주요 포인트</span>
+            <small>{event.keyPoints.length}개</small>
+          </div>
+          <ul className="chart-event-key-points">
+            {event.keyPoints.map((point) => <li key={point}>{point}</li>)}
+          </ul>
+        </section>
       )}
       {event.sources.length > 0 && (
-        <nav className="chart-event-source-links" aria-label="뉴스 원문">
-          {event.sources.slice(0, 3).map((source) => (
-            <a key={source.articleId ?? source.url} href={source.url} target="_blank" rel="noreferrer">
-              <span>{source.name || "원문"}</span>
-              <strong>{source.title}</strong>
-              <ExternalLink size={13} aria-hidden="true" />
-            </a>
-          ))}
-        </nav>
+        <section className="chart-event-section">
+          <div className="chart-event-section-label">
+            <span>원문 기사</span>
+            <small>새 창에서 열기</small>
+          </div>
+          <nav className="chart-event-source-links" aria-label="뉴스 원문">
+            {event.sources.slice(0, 3).map((source) => (
+              <a key={source.articleId ?? source.url} href={source.url} target="_blank" rel="noreferrer">
+                <span>{source.name || "원문"}</span>
+                <strong>{source.title}</strong>
+                <ExternalLink size={14} aria-hidden="true" />
+              </a>
+            ))}
+          </nav>
+        </section>
       )}
     </div>
   );
@@ -323,6 +384,23 @@ function newsImpactLabel(direction: ChartNewsDay["impactDirection"]): string {
   if (direction === "negative") return "부정 영향";
   if (direction === "mixed") return "혼합 영향";
   return "중립 영향";
+}
+
+function newsSentimentLabel(sentiment: string): string {
+  const normalized = sentiment.trim().toLowerCase();
+  if (normalized.includes("positive") || normalized.includes("bullish")) return "긍정 심리";
+  if (normalized.includes("negative") || normalized.includes("bearish")) return "부정 심리";
+  if (normalized.includes("mixed")) return "혼합 심리";
+  return "중립 심리";
+}
+
+function earningsResultLabel(event: ChartEarningsEvent, upcoming: boolean): string {
+  if (upcoming || event.status === "scheduled") return "발표 예정";
+  if (event.eps.actual === null) return "실제값 확인 전";
+  if (event.eps.surprisePercent === null) return "발표 완료";
+  if (event.eps.surprisePercent > 0) return "예상치 상회";
+  if (event.eps.surprisePercent < 0) return "예상치 하회";
+  return "예상치 부합";
 }
 
 function formatEps(value: number | null): string {

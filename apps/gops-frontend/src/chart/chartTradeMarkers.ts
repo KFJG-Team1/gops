@@ -19,7 +19,18 @@ export type ChartTradeMarker = {
   marketDate: string;
   x: number;
   top: number;
+  viewportWidth: number;
+  viewportHeight: number;
   fill: ChartTradeFill;
+  fills: ChartTradeFill[];
+};
+
+export type ChartTradeFillInsight = {
+  kind: "mark_to_market" | "realized" | "unavailable";
+  tone: "gain" | "loss" | "flat" | "unavailable";
+  amount: number | null;
+  percent: number | null;
+  basisPrice: number | null;
 };
 
 export type ChartTradeMarkerCoordinateSpace = {
@@ -37,7 +48,6 @@ const marketDateFormatter = new Intl.DateTimeFormat("en-CA", {
 });
 const markerHeight = 24;
 const markerCandleGap = 10;
-const markerStackGap = 4;
 
 export function normalizeChartTradeFills(orders: unknown[]): ChartTradeFill[] {
   return orders
@@ -47,6 +57,109 @@ export function normalizeChartTradeFills(orders: unknown[]): ChartTradeFill[] {
       const byTime = Date.parse(left.filledAt) - Date.parse(right.filledAt);
       return byTime || left.id.localeCompare(right.id);
     });
+}
+
+export function buildChartTradeFillInsights(
+  fills: ChartTradeFill[],
+  currentPrice: number | null
+): Map<string, ChartTradeFillInsight> {
+  const insights = new Map<string, ChartTradeFillInsight>();
+  const positions = new Map<string, { quantity: number; averagePrice: number; reliable: boolean }>();
+  const hasCurrentPrice = typeof currentPrice === "number" && Number.isFinite(currentPrice) && currentPrice > 0;
+  const orderedFills = [...fills].sort((left, right) => {
+    const byTime = Date.parse(left.filledAt) - Date.parse(right.filledAt);
+    return byTime || left.id.localeCompare(right.id);
+  });
+
+  orderedFills.forEach((fill) => {
+    const position = positions.get(fill.symbol) ?? { quantity: 0, averagePrice: 0, reliable: true };
+    if (fill.side === "buy") {
+      insights.set(fill.id, hasCurrentPrice
+        ? tradeFillInsight(
+            "mark_to_market",
+            (currentPrice - fill.price) * fill.quantity,
+            ((currentPrice - fill.price) / fill.price) * 100,
+            currentPrice
+          )
+        : unavailableTradeFillInsight());
+      if (position.reliable) {
+        const nextQuantity = position.quantity + fill.quantity;
+        position.averagePrice = (
+          position.averagePrice * position.quantity + fill.price * fill.quantity
+        ) / nextQuantity;
+        position.quantity = nextQuantity;
+      }
+      positions.set(fill.symbol, position);
+      return;
+    }
+
+    if (position.reliable && position.quantity >= fill.quantity && position.averagePrice > 0) {
+      const amount = (fill.price - position.averagePrice) * fill.quantity;
+      insights.set(fill.id, tradeFillInsight(
+        "realized",
+        amount,
+        ((fill.price - position.averagePrice) / position.averagePrice) * 100,
+        position.averagePrice
+      ));
+      position.quantity -= fill.quantity;
+      if (position.quantity <= Number.EPSILON) {
+        position.quantity = 0;
+        position.averagePrice = 0;
+      }
+    } else {
+      insights.set(fill.id, unavailableTradeFillInsight());
+      position.reliable = false;
+    }
+    positions.set(fill.symbol, position);
+  });
+
+  return insights;
+}
+
+export function buildChartTradeMarkerInsights(
+  markers: ChartTradeMarker[],
+  fills: ChartTradeFill[],
+  currentPrice: number | null
+): Map<string, ChartTradeFillInsight> {
+  const markerInsights = new Map<string, ChartTradeFillInsight>();
+  const fillInsights = buildChartTradeFillInsights(fills, currentPrice);
+  const hasCurrentPrice = typeof currentPrice === "number" && Number.isFinite(currentPrice) && currentPrice > 0;
+
+  markers.forEach((marker) => {
+    if (marker.side === "buy") {
+      markerInsights.set(marker.id, hasCurrentPrice
+        ? tradeFillInsight(
+            "mark_to_market",
+            (currentPrice - marker.fill.price) * marker.fill.quantity,
+            ((currentPrice - marker.fill.price) / marker.fill.price) * 100,
+            currentPrice
+          )
+        : unavailableTradeFillInsight());
+      return;
+    }
+
+    let realizedAmount = 0;
+    let costBasis = 0;
+    const complete = marker.fills.every((fill) => {
+      const insight = fillInsights.get(fill.id);
+      if (!insight || insight.kind !== "realized" || insight.basisPrice === null || insight.amount === null) {
+        return false;
+      }
+      realizedAmount += insight.amount;
+      costBasis += insight.basisPrice * fill.quantity;
+      return true;
+    });
+    markerInsights.set(marker.id, complete && costBasis > 0
+      ? tradeFillInsight(
+          "realized",
+          realizedAmount,
+          (realizedAmount / costBasis) * 100,
+          costBasis / marker.fill.quantity
+        )
+      : unavailableTradeFillInsight());
+  });
+
+  return markerInsights;
 }
 
 export function chartTradeMarkersForScene(
@@ -85,30 +198,45 @@ export function chartTradeMarkersForScene(
       if (byX) return byX;
       return left[0].fill.side === right[0].fill.side ? 0 : left[0].fill.side === "buy" ? -1 : 1;
     })
-    .flatMap((group) => group.map((candidate, index): ChartTradeMarker => {
-      const candlePrice = candidate.fill.side === "buy"
+    .map((group): ChartTradeMarker => {
+      const candidate = group[0];
+      const fillsInMarker = group
+        .map((item) => item.fill)
+        .sort(compareTradeFills);
+      const aggregateFill = aggregateTradeFills(fillsInMarker);
+      const candlePrice = aggregateFill.side === "buy"
         ? candidate.unit.candle.low
         : candidate.unit.candle.high;
       const candleY = priceToY(scene, candlePrice);
-      const unboundedTop = candidate.fill.side === "buy"
-        ? candleY + markerCandleGap + index * (markerHeight + markerStackGap)
-        : candleY - markerHeight - markerCandleGap - index * (markerHeight + markerStackGap);
+      const unboundedTop = aggregateFill.side === "buy"
+        ? candleY + markerCandleGap
+        : candleY - markerHeight - markerCandleGap;
       const top = Math.max(scene.plot.top + 2, Math.min(scene.plot.priceBottom - markerHeight - 2, unboundedTop));
       return {
-        id: candidate.fill.id,
-        side: candidate.fill.side,
-        label: candidate.fill.side === "buy" ? "B" : "S",
+        id: aggregateFill.id,
+        side: aggregateFill.side,
+        label: aggregateFill.side === "buy" ? "B" : "S",
         marketDate: candidate.marketDate,
         x: scaleCoordinate(candidate.baseX, coordinateSpace.width, scene.width),
         top: scaleCoordinate(top, coordinateSpace.height, scene.height),
-        fill: candidate.fill
+        viewportWidth: coordinateSpace.width,
+        viewportHeight: coordinateSpace.height,
+        fill: aggregateFill,
+        fills: fillsInMarker
       };
-    }));
+    });
 }
 
 export function chartTradeMarkerLayoutKey(markers: ChartTradeMarker[]): string {
   return markers
-    .map((marker) => `${marker.id}:${Math.round(marker.x)}:${Math.round(marker.top)}`)
+    .map((marker) => [
+      marker.id,
+      Math.round(marker.x),
+      Math.round(marker.top),
+      marker.fills.length,
+      marker.fill.quantity,
+      marker.fill.price
+    ].join(":"))
     .join("|");
 }
 
@@ -198,4 +326,45 @@ function scaleCoordinate(value: number, target: number, source: number): number 
   return Number.isFinite(target) && target > 0 && Number.isFinite(source) && source > 0
     ? value / (source / target)
     : value;
+}
+
+function aggregateTradeFills(fills: ChartTradeFill[]): ChartTradeFill {
+  const first = fills[0];
+  const quantity = fills.reduce((total, fill) => total + fill.quantity, 0);
+  const notional = fills.reduce((total, fill) => total + fill.price * fill.quantity, 0);
+  return {
+    ...first,
+    quantity,
+    price: notional / quantity
+  };
+}
+
+function compareTradeFills(left: ChartTradeFill, right: ChartTradeFill): number {
+  const byTime = Date.parse(left.filledAt) - Date.parse(right.filledAt);
+  return byTime || left.id.localeCompare(right.id);
+}
+
+function tradeFillInsight(
+  kind: "mark_to_market" | "realized",
+  amount: number,
+  percent: number,
+  basisPrice: number
+): ChartTradeFillInsight {
+  return {
+    kind,
+    tone: amount > Number.EPSILON ? "gain" : amount < -Number.EPSILON ? "loss" : "flat",
+    amount,
+    percent,
+    basisPrice
+  };
+}
+
+function unavailableTradeFillInsight(): ChartTradeFillInsight {
+  return {
+    kind: "unavailable",
+    tone: "unavailable",
+    amount: null,
+    percent: null,
+    basisPrice: null
+  };
 }

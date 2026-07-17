@@ -1,0 +1,76 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { aggregateQuarterlySeriesToAnnual } from "../src/components/CompanyJournalSummaryPanel";
+
+const annual = aggregateQuarterlySeriesToAnnual([
+  {
+    period: "2025Q1",
+    periodEndDate: "2024-04-30",
+    revenue: 10,
+    netIncome: 2,
+    totalAssets: 100,
+    totalLiabilities: 40,
+    totalEquity: 60,
+    currentAssets: 30,
+    currentLiabilities: 10,
+    sharesOutstanding: 5
+  },
+  {
+    period: "2025Q2",
+    periodEndDate: "2024-07-31",
+    revenue: 20,
+    netIncome: 3,
+    totalAssets: 110,
+    totalLiabilities: 42,
+    totalEquity: 68,
+    currentAssets: 32,
+    currentLiabilities: 11,
+    sharesOutstanding: 5
+  },
+  {
+    period: "2025Q3",
+    periodEndDate: "2024-10-31",
+    revenue: 30,
+    netIncome: 4,
+    totalAssets: 120,
+    totalLiabilities: 45,
+    totalEquity: 75,
+    currentAssets: 36,
+    currentLiabilities: 12,
+    cashAndCashEquivalents: 20,
+    totalDebt: 25,
+    sharesOutstanding: 5
+  },
+  {
+    period: "2025Q4",
+    periodEndDate: "2025-01-31",
+    revenue: 40,
+    netIncome: 5,
+    totalAssets: null,
+    totalLiabilities: null,
+    totalEquity: null,
+    currentAssets: null,
+    currentLiabilities: null,
+    sharesOutstanding: null
+  }
+]);
+
+assert.equal(annual.length, 1);
+assert.equal(annual[0]?.revenue, 100, "flow metrics must still be summed across all four quarters");
+assert.equal(annual[0]?.netIncome, 14);
+assert.equal(annual[0]?.totalEquity, 75, "Q4 flow-only rows must retain the latest finite balance");
+assert.equal(annual[0]?.sharesOutstanding, 5);
+assert.equal(annual[0]?.debtRatio, 0.6);
+assert.equal(annual[0]?.currentRatio, 3);
+assert.equal(annual[0]?.netDebt, 5);
+
+const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-body[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
+assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-reading[\s\S]*?overflow: visible/);
+assert.match(styles, /\.company-journal-evidence \.company-valuation-dashboard,[\s\S]*?overflow-y: scroll/);
+assert.match(styles, /::-webkit-scrollbar-thumb[\s\S]*?background-clip: padding-box/);
+assert.match(styles, /\.workspace-panel-frame \.company-journal-evidence[\s\S]*?scrollbar-width: thin !important/);
+assert.match(styles, /::-webkit-scrollbar[\s\S]*?display: block !important/);
+assert.doesNotMatch(styles, /scrollbar-color:[^;]*var\(--coinbase-primary\)/);
+
+console.log("company journal financial aggregation tests passed");

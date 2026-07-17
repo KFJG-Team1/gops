@@ -138,7 +138,7 @@ export function StockRecommendationExplainPanel({
 
       <div className={styles.verdict}>
         <div className={styles.verdictCopy}>
-          <span className={styles.verdictLabel}>{item.decision?.label ?? "매수 관찰"}</span>
+          <span className={styles.verdictLabel} data-action={item.action}>{item.decision?.label ?? "매수 관찰"}</span>
           {v3 && item.decision ? (
             <>
               <h3>{v3.primary.headline}</h3>
@@ -223,6 +223,7 @@ function SentenceEvidence({ item }: { item: StockRecommendationItem }) {
                   id={`evidence-help-${item.symbol}-${evidence.code}`}
                   label={evidence.label}
                   explanation={evidence.interpretation}
+                  metrics={evidence.metrics}
                 />
               </div>
               <strong>{evidence.primaryValue}</strong>
@@ -241,7 +242,17 @@ function SentenceEvidence({ item }: { item: StockRecommendationItem }) {
   );
 }
 
-function EvidenceHelp({ id, label, explanation }: { id: string; label: string; explanation: string }) {
+function EvidenceHelp({
+  id,
+  label,
+  explanation,
+  metrics
+}: {
+  id: string;
+  label: string;
+  explanation: string;
+  metrics: RecommendationEvidenceMetric[];
+}) {
   if (!explanation) return null;
   return (
     <span className={styles.evidenceHelp}>
@@ -251,6 +262,16 @@ function EvidenceHelp({ id, label, explanation }: { id: string; label: string; e
       <span className={styles.evidenceTooltip} id={id} role="tooltip">
         <strong>왜 이 근거를 보나요?</strong>
         <span>{explanation}</span>
+        {metrics.length > 0 && (
+          <dl className={styles.evidenceComparisonList}>
+            {metrics.map((metric) => (
+              <div key={`${metric.label}-${metric.comparison}`}>
+                <dt>{metric.label}</dt>
+                <dd>{metric.comparison}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
       </span>
     </span>
   );
@@ -273,7 +294,6 @@ function EvidenceMetricBar({ metric }: { metric: RecommendationEvidenceMetric })
         <b style={{ left: `${metric.referencePositionPct}%` }} />
         <em style={{ left: `${metric.valuePositionPct}%` }} />
       </div>
-      <small>{metric.comparison}</small>
     </div>
   );
 }

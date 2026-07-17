@@ -3028,7 +3028,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           upcomingStyle={chartEventUpcomingStyle}
           openRequest={commentaryEventOpenRequest}
         />
-        <ChartTradeOverlay markers={chartTradeMarkers} />
+        <ChartTradeOverlay
+          markers={chartTradeMarkers}
+          fills={chartTradeFills}
+          referencePrice={liveTradePrice(liveTrade) ?? chart.candles.at(-1)?.close ?? null}
+        />
         {tradePlanOverlay && (
           <div ref={tradePlanOverlayRef} className="chart-trade-plan-price-overlay" data-drawing-id={tradePlanOverlay.drawingId}>
             <svg aria-hidden="true">

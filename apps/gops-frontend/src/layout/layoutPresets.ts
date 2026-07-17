@@ -42,6 +42,7 @@ type DefaultPresetDefinition = { name: string; spec: readonly PanelLayoutSpecIte
 const ASSET_PORTFOLIO_LAYOUT_VERSION = 4;
 const PORTFOLIO_FLOW_PANEL_VERSION = 2;
 const STOCK_COMPANY_LAYOUT_VERSION = 2;
+const COMPANY_COMPARE_LAYOUT_VERSION = 2;
 
 // Sensible starting arrangements built from the existing panels (8 cols x 6 rows).
 // These are provided defaults; the user can rearrange and save their own presets.
@@ -131,7 +132,9 @@ export function buildPresetLayout(
 ): TiledPanelState | null {
   // A saved override layout (valid snapshot) wins; otherwise defaults rebuild from spec.
   if (preset.layout) {
-    const layout = migratePortfolioInvestmentSnapshot(preset.layout);
+    const layout = migrateCompanyComparePanelSnapshot(
+      migratePortfolioInvestmentSnapshot(preset.layout)
+    );
     const shouldReplaceLegacyAssetLayout = preset.id === "asset"
       && isStoredTiledPanelStateShape(layout)
       && !hasCurrentAssetPortfolioLayout(layout);
@@ -395,6 +398,59 @@ export function migratePortfolioInvestmentSnapshot(value: unknown): unknown {
   }
 
   return layout;
+}
+
+export function migrateCompanyComparePanelSnapshot(value: unknown): unknown {
+  if (!isStoredTiledPanelStateShape(value)) {
+    return value;
+  }
+  const migratedContentIds = new Set<string>();
+  const contents = Object.fromEntries(Object.entries(value.contents).map(([id, content]) => {
+    if (
+      content.kind !== "companyCompare"
+      || content.props?.companyCompareLayoutVersion === COMPANY_COMPARE_LAYOUT_VERSION
+    ) {
+      return [id, content];
+    }
+    migratedContentIds.add(id);
+    return [
+      id,
+      {
+        ...content,
+        props: {
+          ...(content.props ?? {}),
+          companyCompareLayoutVersion: COMPANY_COMPARE_LAYOUT_VERSION
+        }
+      }
+    ];
+  }));
+  if (migratedContentIds.size === 0) {
+    return value;
+  }
+  return {
+    ...value,
+    contents,
+    slots: value.slots.map((slot) => {
+      if (!migratedContentIds.has(slot.contentId) || !isLegacyCompanyCompareDefaultRect(slot.gridRect)) {
+        return slot;
+      }
+      return {
+        ...slot,
+        gridRect: {
+          ...slot.gridRect,
+          colSpan: 3,
+          rowSpan: 2
+        }
+      };
+    })
+  };
+}
+
+function isLegacyCompanyCompareDefaultRect(gridRect: {
+  colSpan: number;
+  rowSpan: number;
+}): boolean {
+  return gridRect.colSpan === 8 && (gridRect.rowSpan === 4 || gridRect.rowSpan === 5);
 }
 
 const integratedPortfolioPanelKinds: readonly PanelContentKind[] = [
