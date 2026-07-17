@@ -85,7 +85,11 @@ const setup: ChartTradeSetup = {
   projectionBars: 10,
   reasons: ["stored_evidence_conditional"],
   drawingIds: { plan: "chart-plan:risk", signal: "chart-plan:signal" },
-  priceSources: { entry: "저항", target: "2R", stop: "지지" },
+  priceSources: {
+    entry: { label: "저항선", drawingIds: ["level-entry"], derivation: "level" },
+    target: { label: "다음 저항선", drawingIds: ["level-target"], derivation: "level" },
+    stop: { label: "지지선", drawingIds: ["level-stop"], derivation: "level" }
+  },
   assetIdentity: { algorithmVersion: "geometry-v5", inputDigest: "digest-1", asOf: "2026-07-14T20:00:00Z" }
 };
 const snapshot: ChartTradeSetupSnapshot = {

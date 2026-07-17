@@ -31,6 +31,7 @@ export type ThemeColorToken =
   | "evidenceSupport"
   | "evidenceResistance"
   | "evidencePattern"
+  | "evidenceTrend"
   | "proposal"
   | "caution"
   | "purple"
@@ -73,6 +74,7 @@ const cssVariableByToken: Record<ThemeColorToken, string> = {
   evidenceSupport: "--color-evidence-support",
   evidenceResistance: "--color-evidence-resistance",
   evidencePattern: "--color-evidence-pattern",
+  evidenceTrend: "--color-evidence-trend",
   proposal: "--color-proposal",
   caution: "--color-caution",
   purple: "--color-purple",
@@ -180,6 +182,7 @@ export function chartDocumentStyleFromTheme(theme: ThemeColors): ChartDocumentSt
     evidenceSupport: theme.evidenceSupport,
     evidenceResistance: theme.evidenceResistance,
     evidencePattern: theme.evidencePattern,
+    evidenceTrend: theme.evidenceTrend,
     proposal: theme.proposal,
     caution: theme.caution,
     purple: theme.purple,

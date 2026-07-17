@@ -37,7 +37,6 @@ export function ChartAssetOpsPanel({
   currentCandles: CandleDto[];
   currentDrawingIds: string[];
 }) {
-  const [useSp500, setUseSp500] = useState(false);
   const [symbolsText, setSymbolsText] = useState(currentSymbol.toUpperCase());
   const [intervals, setIntervals] = useState<AnalysisAssetInterval[]>(() => defaultChartAssetBuildIntervals(currentInterval));
   const [accepted, setAccepted] = useState<ChartAssetBuildAccepted | null>(null);
@@ -51,6 +50,7 @@ export function ChartAssetOpsPanel({
   const [currentAssetsLoadError, setCurrentAssetsLoadError] = useState<string | null>(null);
   const [assetRevision, setAssetRevision] = useState(0);
   const logRef = useRef<HTMLDivElement | null>(null);
+  const existingAssetKeysRef = useRef<Set<string>>(new Set());
   const normalizedCurrentSymbol = currentSymbol.trim().toUpperCase();
 
   const loadCoverage = useCallback(async () => {
@@ -118,6 +118,15 @@ export function ChartAssetOpsPanel({
       if (terminalStatuses.has(next.status)) {
         invalidateAnalysisAssets();
         if (pollingTimer !== null) window.clearTimeout(pollingTimer);
+        const failedItems = (next.failedItems ?? next.recentItems).filter((item) => item.status === "failed");
+        if (failedItems.length) {
+          const preservedCount = failedItems.filter((item) => existingAssetKeysRef.current.has(assetKey(item.symbol, item.interval))).length;
+          const absentCount = failedItems.length - preservedCount;
+          setNotice([
+            preservedCount ? `실패 ${preservedCount}건 · 기존 자산 유지됨` : "",
+            absentCount ? `실패 ${absentCount}건 · 생성 가능한 기존 자산 없음` : ""
+          ].filter(Boolean).join(" · "));
+        }
         void loadCoverage();
       }
     };
@@ -160,9 +169,9 @@ export function ChartAssetOpsPanel({
     item.status === "saved" && !buildSummaries.get(`${item.symbol}:${item.interval}`)?.writeVerified
   )).length;
 
-  const runBuild = async (retrySymbols?: string[], force = false) => {
-    const symbols = retrySymbols?.length ? retrySymbols : parseSymbols(symbolsText);
-    if (!useSp500 && !symbols.length) {
+  const runBuild = async () => {
+    const symbols = parseSymbols(symbolsText);
+    if (!symbols.length) {
       setError("빌드할 심볼을 입력하세요.");
       return;
     }
@@ -170,13 +179,30 @@ export function ChartAssetOpsPanel({
       setError("interval을 하나 이상 선택하세요.");
       return;
     }
+    if (!window.confirm(`${symbols.join(", ")} · ${intervals.join(", ")} 자산을 현재 완료 봉 기준으로 생성·갱신할까요? 성공한 자산만 기존 저장본을 교체합니다.`)) {
+      return;
+    }
     setError(null);
+    setNotice(null);
     setJob(null);
+    const existingAssetKeys = new Set(
+      coverage
+        .filter((item) => symbols.includes(item.symbol) && intervals.includes(item.interval))
+        .map((item) => assetKey(item.symbol, item.interval))
+    );
+    if (symbols.includes(normalizedCurrentSymbol)) {
+      intervals.forEach((interval) => {
+        if (currentAssets?.assets[interval]) {
+          existingAssetKeys.add(assetKey(normalizedCurrentSymbol, interval));
+        }
+      });
+    }
+    existingAssetKeysRef.current = existingAssetKeys;
     try {
       const result = await submitChartAssetBuild({
-        symbols: retrySymbols?.length ? retrySymbols : useSp500 ? "sp500" : symbols,
+        symbols,
         intervals,
-        force
+        force: true
       });
       setAccepted(result);
       setNotice(result.coalesced ? "같은 조건의 실행 중 작업에 연결했습니다." : null);
@@ -209,11 +235,11 @@ export function ChartAssetOpsPanel({
     <div className="chart-asset-ops-panel">
       <section className="chart-asset-ops-form">
         <div className="chart-asset-ops-universe-row">
-          <label className="chart-asset-ops-check"><input type="checkbox" checked={useSp500} onChange={(event) => setUseSp500(event.target.checked)} />전체 S&amp;P500</label>
+          <strong>개별 심볼</strong>
           <span>콤마로 구분</span>
         </div>
         <div className="chart-asset-ops-symbols">
-          <textarea aria-label="빌드 심볼" value={symbolsText} disabled={useSp500} onChange={(event) => setSymbolsText(event.target.value)} />
+          <textarea aria-label="빌드 심볼" value={symbolsText} onChange={(event) => setSymbolsText(event.target.value)} />
           <button type="button" onClick={() => setSymbolsText((current) => mergeSymbol(current, currentSymbol))}>현재 심볼 추가</button>
         </div>
         <div className="chart-asset-ops-options">
@@ -223,19 +249,8 @@ export function ChartAssetOpsPanel({
           <button type="button" onClick={() => setIntervals(defaultChartAssetBuildIntervals(currentInterval))}>1m·1D 선택</button>
         </div>
         <div className="chart-asset-ops-actions">
-          <button type="button" disabled={running} onClick={() => void runBuild()}>없는 자산 생성</button>
-          <button
-            type="button"
-            disabled={running || useSp500}
-            onClick={() => {
-              const selected = parseSymbols(symbolsText);
-              if (selected.length && window.confirm(`${selected.join(", ")} · ${intervals.join(", ")} 기존 자산을 수동 갱신할까요?`)) {
-                void runBuild(undefined, true);
-              }
-            }}
-          >기존 자산 강제 재생성</button>
+          <button type="button" disabled={running} onClick={() => void runBuild()}>작도 자산 생성·갱신</button>
           {running && <button type="button" onClick={() => accepted && void cancelChartAssetBuild(accepted.jobId).then(setJob).catch((reason) => setError(String(reason)))}>중단</button>}
-          {failedSymbols.length > 0 && <button type="button" disabled={running} onClick={() => void runBuild(failedSymbols, true)}>실패분 강제 재실행</button>}
         </div>
       </section>
 
@@ -262,7 +277,7 @@ export function ChartAssetOpsPanel({
               return <tr key={`${item.symbol}:${item.interval}`}>
                 <td>{item.symbol}</td><td>{item.interval}</td><td>{item.status === "saved" && !summary?.writeVerified ? "미검증(saved 보고)" : item.status}</td>
                 <td>{item.error ?? item.reason ?? item.warning ?? "-"}</td>
-                <td>{summary ? `${summary.algorithmVersion} · ${summary.traceMode} · 후보 ${summary.traceCandidates.levelCandidates}/${summary.traceCandidates.trendCandidates}/${summary.traceCandidates.patternCandidates} · as-of ${formatAnalysisAssetAsOf(summary.asOf)} · ${summary.writeVerified ? "확인" : "이전 자산 유지"}` : item.status === "saved" ? "검증 정보 없음 · worker 버전 확인" : "저장 없음"}</td>
+                <td>{summary ? `${summary.algorithmVersion} · ${summary.traceMode} · 후보 ${summary.traceCandidates.levelCandidates}/${summary.traceCandidates.trendCandidates}/${summary.traceCandidates.patternCandidates} · as-of ${formatAnalysisAssetAsOf(summary.asOf)} · ${summary.writeVerified ? "확인" : "이전 자산 유지"}` : assetResultStorageLabel(item, existingAssetKeysRef.current)}</td>
               </tr>;
             })}</tbody>
           </table></div>}
@@ -327,6 +342,19 @@ function parseSymbols(value: string): string[] {
 
 function mergeSymbol(value: string, symbol: string): string {
   return [...new Set([...parseSymbols(value), symbol.trim().toUpperCase()].filter(Boolean))].join(", ");
+}
+
+function assetKey(symbol: string, interval: string): string {
+  return `${symbol.trim().toUpperCase()}:${interval}`;
+}
+
+function assetResultStorageLabel(item: ChartAssetBuildStatus["recentItems"][number], existingAssetKeys: ReadonlySet<string>): string {
+  if (item.status === "saved" || item.status === "saved_with_warning") {
+    return "검증 정보 없음 · worker 버전 확인";
+  }
+  return existingAssetKeys.has(assetKey(item.symbol, item.interval))
+    ? "기존 자산 유지됨"
+    : "생성 가능한 기존 자산 없음";
 }
 
 function formatGeneratedAt(value: string): string {

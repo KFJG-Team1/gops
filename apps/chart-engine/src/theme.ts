@@ -37,6 +37,7 @@ export const fallbackChartStyle: ChartDocumentStyle = {
   evidenceSupport: bullishInk,
   evidenceResistance: bearishInk,
   evidencePattern: mutedInk,
+  evidenceTrend: mutedInk,
   proposal: signalInk,
   caution: "#ff7a3d",
   purple: "#8c939f",

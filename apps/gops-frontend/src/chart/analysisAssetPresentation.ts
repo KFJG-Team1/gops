@@ -93,7 +93,7 @@ export function analysisAssetFreshness(asset: ChartAnalysisAsset, candles: Candl
 export function resolveAnalysisAssetForCandles(
   asset: ChartAnalysisAsset | null,
   candles: CandleDto[],
-  availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>
+  _availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>
 ): ChartAnalysisAsset | null {
   if (!asset) return null;
   const timestampByKey = canonicalTimestampByKey(candles, asset.interval);
@@ -111,7 +111,7 @@ export function resolveAnalysisAssetForCandles(
     return [presentAnalysisDrawing(resolved, asset, levelDrawingIds)];
   });
   const movingAverageCrossDrawings = buildMovingAverageCrossDrawings(asset, candles);
-  const tradeTimingDrawings = buildTradeTimingDrawings(asset, candles, availableAssets);
+  const tradeTimingDrawings = buildTradeTimingDrawings(asset, candles);
   return {
     ...asset,
     geometry: {
@@ -140,12 +140,12 @@ export function analysisAssetPresentationDiagnostics(
   asset: ChartAnalysisAsset,
   candles: CandleDto[],
   currentDrawingIds?: string[],
-  availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>
+  _availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>
 ): AnalysisAssetPresentationDiagnostics {
   const storedDrawingCount = asset.geometry.drawings.filter((drawing) => (
     !isTradeTimingDrawing(drawing) && !isMovingAverageCrossDrawing(drawing)
   )).length;
-  const resolved = resolveAnalysisAssetForCandles(asset, candles, availableAssets) ?? asset;
+  const resolved = resolveAnalysisAssetForCandles(asset, candles) ?? asset;
   const freshness = analysisAssetFreshness(asset, candles);
   const stale = freshness.state === "source_invalid";
   const outdated = freshness.state === "outdated_snapshot";
@@ -226,11 +226,11 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
     if (!level || drawing.type !== "horizontalLine") return drawing;
     const importance = level.importanceTier;
     const importanceStyle = importance === "major"
-      ? { lineWidth: 3, opacity: 0.95, lineDash: undefined, labelPlacement: "axis" as const }
+      ? { lineWidth: 2.5, opacity: 0.88, lineDash: undefined, labelPlacement: "axis" as const }
       : importance === "standard"
-        ? { lineWidth: 2.25, opacity: 0.82, lineDash: [6, 4], labelPlacement: "axis" as const }
+        ? { lineWidth: 1.75, opacity: 0.78, lineDash: [7, 4], labelPlacement: "axis" as const }
         : importance === "minor"
-          ? { lineWidth: 1.5, opacity: 0.62, lineDash: [2, 4], labelPlacement: "axis" as const }
+          ? { lineWidth: 1.25, opacity: 0.68, lineDash: [2, 4], labelPlacement: "axis" as const }
           : { lineWidth: 2.5, labelPlacement: "axis" as const };
     const roleLabel = level.role === "support" ? "지지" : "저항";
     const importanceLabel = importance === "standard" ? `보조 ${roleLabel}` : importance === "minor" ? `참고 ${roleLabel}` : roleLabel;
@@ -247,38 +247,29 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
   if (isPatternDrawing(drawing, asset)) {
     const primaryPattern = asset.geometry.primaryPattern ?? asset.geometry.primaryTriangle;
     const patternOpacity = primaryPattern?.state === "confirmed"
-      ? 0.92
-      : primaryPattern?.state === "forming" ? 0.72 : 0.60;
+      ? 0.94
+      : primaryPattern?.state === "forming" ? 0.88 : 0.78;
     return {
       ...drawing,
       style: evidenceStyle(drawing.style, "evidencePattern", {
-        lineWidth: 3.5,
+        lineWidth: primaryPattern?.state === "confirmed" ? 3.25 : 3,
         opacity: patternOpacity,
-        labelPlacement: drawing.id.endsWith("-upper") ? "inline" : "none"
+        fillOpacity: 0.04,
+        labelPlacement: "none"
       })
     };
   }
   if (isTrendDrawing(drawing, asset)) {
-    const trend = (asset.geometry.trends ?? []).find((candidate) => (
-      drawing.id === candidate.drawingId || drawing.id.endsWith(`:${candidate.id}`)
-    )) ?? asset.geometry.primaryTrend;
-    const direction = trend?.direction;
-    const token = direction === "down" ? "down" : "up";
     return {
       ...drawing,
-      style: {
-        ...drawing.style,
-        color: undefined,
-        fillColor: undefined,
-        textColor: undefined,
-        colorToken: token,
-        fillToken: token,
-        textToken: token,
-        lineWidth: 2.75,
-        opacity: 0.90,
+      style: evidenceStyle(drawing.style, "evidenceTrend", {
+        lineWidth: 1.5,
+        opacity: 0.76,
+        fillOpacity: 0.02,
         lineDash: undefined,
-        extension: "ray"
-      }
+        extension: "ray",
+        labelPlacement: "none"
+      })
     };
   }
   return drawing;
@@ -286,7 +277,7 @@ function presentAnalysisDrawing<T extends DrawingEntity>(drawing: T, asset: Char
 
 function evidenceStyle(
   style: DrawingEntity["style"],
-  token: "evidenceSupport" | "evidenceResistance" | "evidencePattern",
+  token: "evidenceSupport" | "evidenceResistance" | "evidencePattern" | "evidenceTrend",
   patch: DrawingEntity["style"]
 ): DrawingEntity["style"] {
   return {

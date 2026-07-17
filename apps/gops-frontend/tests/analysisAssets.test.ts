@@ -5,7 +5,7 @@ import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { executeChartCommandGroup, makeChartCommand } from "../../chart-engine/src/commands";
 import { analysisAssetApplyCommands, analysisLayerOfDrawing, analysisLayerToggleCommands, defaultAnalysisLayerVisibility, hasAnalysisLayerDrawings, isChartAssetDrawing } from "../src/chart/analysisLayerController";
 import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
-import { analysisTraceDataMode, analysisTraceLevelPrice, buildAnalysisTraceOverlay } from "../src/chart/analysisTraceOverlay";
+import { analysisTraceDataMode, analysisTraceLevelPrice, buildAnalysisTraceOverlay, selectInterpretationCandidates, type AnalysisTraceOverlayCandidate } from "../src/chart/analysisTraceOverlay";
 import { analysisAssetFreshness, analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
 import { buildPatternSymbolGroups, filterPatternSymbolGroups } from "../src/chart/patternAssetList";
 import type { ChartAssetCoverageItem } from "../src/chart/assetBuildApi";
@@ -94,13 +94,18 @@ const mixedInterval = { ...asset, geometry: { ...asset.geometry, drawings: [{ ..
 assert.equal(normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": mixedInterval } }, "AAPL").assets["1D"], null);
 const resolved = resolveAnalysisAssetForCandles(asset, candles);
 assert.equal(resolved?.geometry.drawings.length, 3);
-assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.id === upper.id)?.style.opacity, .72);
-assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.id === upper.id)?.style.labelPlacement, "inline");
+const resolvedPatternUpper = resolved?.geometry.drawings.find((drawing) => drawing.id === upper.id);
+assert.equal(resolvedPatternUpper?.style.lineWidth, 3);
+assert.equal(resolvedPatternUpper?.style.opacity, .88);
+assert.equal(resolvedPatternUpper?.style.fillOpacity, .04);
+assert.equal(resolvedPatternUpper?.style.colorToken, "evidencePattern");
+assert.equal(resolvedPatternUpper?.style.color, undefined);
+assert.equal(resolvedPatternUpper?.style.labelPlacement, "none");
 assert.equal(resolved?.geometry.drawings.find((drawing) => drawing.id === lower.id)?.style.labelPlacement, "none");
 const resolvedFlag = resolveAnalysisAssetForCandles(genericPatternAsset, candles);
 assert.deepEqual(
   resolvedFlag?.geometry.drawings.filter((drawing) => drawing.id.includes(":flag-")).map((drawing) => [drawing.id.split("-").at(-1), drawing.style.labelPlacement]),
-  [["pole", "none"], ["upper", "inline"], ["lower", "none"]]
+  [["pole", "none"], ["upper", "none"], ["lower", "none"]]
 );
 assert.equal(resolveAnalysisAssetForCandles({
   ...asset,
@@ -108,7 +113,7 @@ assert.equal(resolveAnalysisAssetForCandles({
     ...asset.geometry,
     primaryTriangle: { ...asset.geometry.primaryTriangle!, state: "confirmed" }
   }
-}, candles)?.geometry.drawings.find((drawing) => drawing.id === upper.id)?.style.opacity, .92);
+}, candles)?.geometry.drawings.find((drawing) => drawing.id === upper.id)?.style.opacity, .94);
 const goldenCrossDrawing = resolved?.geometry.drawings.find((drawing) => drawing.id.includes(":sma-cross:"));
 assert.equal(goldenCrossDrawing?.type, "flagMarker");
 assert.equal(goldenCrossDrawing?.label, "골든크로스 · SMA60/120");
@@ -139,7 +144,7 @@ const stale = analysisAssetPresentationDiagnostics(asset, [...candles, { ...cand
 assert.equal(stale.state, "outdated_snapshot");
 assert.equal(stale.outdated, true);
 assert.equal(stale.freshness.lagBars, 1);
-assert.equal(stale.resolvedAsset.geometry.drawings[0].style.opacity, .72);
+assert.equal(stale.resolvedAsset.geometry.drawings[0].style.opacity, .88);
 const sourceInvalidAsset: ChartAnalysisAsset = {
   ...asset,
   coverage: { ...asset.coverage, lastActualClosedAt: previous }
@@ -154,10 +159,9 @@ const userDrawing: DrawingEntity = { ...upper, id: "user", sourceProposalId: und
 const commands = analysisAssetApplyCommands(target, [userDrawing], resolved, allEvidenceVisible, { mode: "pan" });
 assert.equal(commands.filter((command) => command.type === "chart.drawing.add").length, 3);
 assert.ok(commands.some((command) => command.type === "chart.drawing.add" && command.payload.drawing?.label === "골든크로스 · SMA60/120"));
-assert.equal(commands.filter((command) => command.type === "chart.layer.visibility.set").length, 2);
-assert.ok(commands.some((command) => command.type === "chart.layer.visibility.set" && command.payload.layer === "sma:120"));
+assert.equal(commands.filter((command) => command.type === "chart.layer.visibility.set").length, 0);
 assert.equal(analysisLayerToggleCommands(target, [], resolved!, "pattern", true).length, 2);
-assert.equal(analysisLayerToggleCommands(target, [], resolved!, "trend", true).length, 3, "trend adds the SMA cross and two SMA visibility commands");
+assert.equal(analysisLayerToggleCommands(target, [], resolved!, "trend", true).length, 1, "trend only adds its analysis event drawing");
 
 const document = createChartDocument(target.chartDocumentId, "AAPL", "1D");
 const result = executeChartCommandGroup(document, commands, "Apply Geometry asset");
@@ -229,13 +233,26 @@ assert.deepEqual(defaultChartAssetBuildIntervals("1M"), ["1m", "1D"]);
 
 const opsSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAssetOpsPanel.tsx", import.meta.url)), "utf-8");
 const presentationSource = readFileSync(fileURLToPath(new URL("../src/chart/analysisAssetPresentation.ts", import.meta.url)), "utf-8");
+const globalStylesSource = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf-8");
 const semanticCatalogSource = readFileSync(fileURLToPath(new URL("../../../shared/chart-contract/chart-semantics.ko.json", import.meta.url)), "utf-8");
 assert.match(opsSource, /\["1m", "5m", "10m", "1h", "4h", "1D", "1W"\]/);
 assert.match(opsSource, /\["1m", "1D"\]/);
 assert.match(opsSource, /defaultChartAssetBuildIntervals\(currentInterval\)/);
 assert.doesNotMatch(opsSource, /LLM 포함|EventSource|1M/);
+assert.match(opsSource, /작도 자산 생성·갱신/);
+assert.match(opsSource, /force: true/);
+assert.match(opsSource, /기존 자산 유지됨/);
+assert.match(opsSource, /생성 가능한 기존 자산 없음/);
+assert.doesNotMatch(opsSource, /없는 자산 생성|기존 자산 강제 재생성|실패분 강제 재실행|useSp500|전체 S&amp;P500/);
 assert.match(opsSource, /SMA120/);
 assert.match(presentationSource, /chartSemanticCatalog\.patterns/);
+const removedGeometryColorLiterals = ["#a78" + "bfa", "#d4" + "a65a", "trend" + "FallbackColor"];
+removedGeometryColorLiterals.forEach((literal) => assert.equal(presentationSource.toLowerCase().includes(literal.toLowerCase()), false));
+assert.match(globalStylesSource, /--color-evidence-pattern:\s*color-mix\(in srgb, var\(--color-drawing\) 70%, var\(--color-axis\)\)/);
+assert.match(globalStylesSource, /--color-evidence-support:\s*color-mix\(in srgb, var\(--color-up\) 18%, var\(--color-axis\)\)/);
+assert.match(globalStylesSource, /--color-evidence-resistance:\s*color-mix\(in srgb, var\(--color-down\) 18%, var\(--color-axis\)\)/);
+assert.match(globalStylesSource, /--color-evidence-trend:\s*var\(--color-axis\)/);
+removedGeometryColorLiterals.forEach((literal) => assert.equal(globalStylesSource.toLowerCase().includes(literal.toLowerCase()), false));
 assert.match(semanticCatalogSource, /상승 페넌트/);
 assert.match(opsSource, /<th>감지 패턴<\/th>/);
 assert.match(opsSource, /formatDetectedPattern\(item\.primaryPattern\)/);
@@ -267,6 +284,7 @@ assert.match(toggleSource, /label="제안"/);
 assert.match(toggleSource, /data-state=\{state\}/);
 assert.match(toggleSource, /unavailable \? undefined : visibility\[layer\]/);
 assert.match(toggleSource, /분석 레이어 사용 불가/);
+assert.doesNotMatch(toggleSource, /lucide-react|chart-analysis-layer-state|icon=/);
 assert.deepEqual(defaultAnalysisLayerVisibility, { interpretation: false, levels: true, trend: true, pattern: true, proposal: false });
 assert.equal(analysisLayerOfDrawing(upper), "pattern");
 assert.equal(analysisLayerOfDrawing(support), "levels");
@@ -290,7 +308,8 @@ const proposalDrawing: DrawingEntity = {
 };
 assert.equal(analysisLayerOfDrawing(proposalDrawing), "proposal");
 assert.equal(hasAnalysisLayerDrawings(asset, "pattern"), true);
-assert.equal(hasAnalysisLayerDrawings(asset, "trend"), true);
+assert.equal(hasAnalysisLayerDrawings(asset, "trend"), false, "stored SMA values do not make the Geometry trend layer available");
+assert.equal(hasAnalysisLayerDrawings(resolved, "trend"), true, "the resolved SMA cross event remains in the trend layer");
 assert.equal(hasAnalysisLayerDrawings(asset, "interpretation"), false);
 assert.equal(hasAnalysisLayerDrawings(asset, "proposal"), false);
 const splitLayerAsset: ChartAnalysisAsset = {
@@ -344,7 +363,7 @@ assert.equal(focusedTrace?.focused, true);
 assert.deepEqual(focusedTrace?.candidates[0]?.touchPivotIds, ["touch-1", "touch-2"]);
 assert.deepEqual(focusedTrace?.candidates[0]?.reactionPivotIds, ["touch-2"]);
 assert.deepEqual(focusedTrace?.pivots.map((pivot) => pivot.id).sort(), ["pivot-1", "touch-1", "touch-2"]);
-assert.equal(buildAnalysisTraceOverlay(traceAsset, { visible: true })?.candidates.length, 1);
+assert.equal(buildAnalysisTraceOverlay(traceAsset, { visible: true })?.candidates.length, 0);
 const baseTrace = traceAsset.geometry.analysisTrace!;
 const baseLevelCandidate = baseTrace.levelCandidates[0]!;
 const candidatesOnlyAsset: ChartAnalysisAsset = {
@@ -367,12 +386,27 @@ const candidatesOnlyAsset: ChartAnalysisAsset = {
         },
         {
           ...baseLevelCandidate,
+          id: "level-candidate-qualified",
+          selected: false,
+          hardPass: true,
+          evidencePass: true,
+          activePass: true,
+          anchors: [],
+          categoryRank: 2,
+          disposition: "qualified_not_selected",
+          selectionReasons: [],
+          rejectReasons: [],
+          render: { drawingType: "horizontalLine", extension: "plot" },
+          metrics: { ...baseLevelCandidate.metrics, price: 169 }
+        },
+        {
+          ...baseLevelCandidate,
           id: "level-candidate-rejected",
           selected: false,
           hardPass: false,
           activePass: false,
           anchors: [],
-          categoryRank: 2,
+          categoryRank: 3,
           disposition: "rejected",
           selectionReasons: [],
           rejectReasons: ["stale"],
@@ -383,25 +417,21 @@ const candidatesOnlyAsset: ChartAnalysisAsset = {
       selections: { ...baseTrace.selections, levelCandidateIds: ["level-candidate-1"] },
       completeness: {
         complete: true,
-        detected: { levels: 2, trends: 0, patterns: 0 },
-        stored: { levels: 2, trends: 0, patterns: 0 }
+        detected: { levels: 3, trends: 0, patterns: 0 },
+        stored: { levels: 3, trends: 0, patterns: 0 }
       }
     }
   }
 };
 const candidatesOnlyOverlay = buildAnalysisTraceOverlay(candidatesOnlyAsset, { visible: true });
 assert.equal(hasAnalysisLayerDrawings(candidatesOnlyAsset, "interpretation"), true);
-assert.equal(candidatesOnlyOverlay?.candidates.length, 2);
+assert.equal(candidatesOnlyOverlay?.candidates.length, 1);
+assert.equal(candidatesOnlyOverlay?.storedCandidateCount, 3);
 assert.equal(candidatesOnlyOverlay?.showCandidateLines, true);
 assert.equal(
   analysisTraceLevelPrice(candidatesOnlyOverlay!.candidates[0]!, candidatesOnlyOverlay!.pivots),
-  171,
+  169,
   "stored metrics price wins over timed anchors for a horizontal candidate"
-);
-assert.equal(
-  analysisTraceLevelPrice(candidatesOnlyOverlay!.candidates[1]!, candidatesOnlyOverlay!.pivots),
-  168,
-  "a rejected level remains drawable without final drawings or timed anchors"
 );
 const candidatesOnlyHover = buildAnalysisTraceOverlay(candidatesOnlyAsset, {
   visible: false,
@@ -433,6 +463,7 @@ const v2TraceAsset: ChartAnalysisAsset = {
 };
 assert.equal(analysisTraceDataMode(v2TraceAsset), "complete");
 assert.equal(buildAnalysisTraceOverlay(v2TraceAsset, { visible: true })?.showCandidateLines, true);
+assert.equal(buildAnalysisTraceOverlay(v2TraceAsset, { visible: true })?.candidates.length, 0, "selected final candidates are not repeated as interpretation lines");
 assert.equal(buildAnalysisTraceOverlay(v2TraceAsset, { visible: false, candidateIds: ["level-candidate-1"] })?.showCandidateLines, false);
 const legacyTraceAsset: ChartAnalysisAsset = {
   ...asset,
@@ -442,10 +473,58 @@ assert.deepEqual(buildAnalysisTraceOverlay(legacyTraceAsset, { visible: true })?
 assert.equal(analysisTraceDataMode(traceAsset), "bounded");
 assert.equal(analysisTraceDataMode(legacyTraceAsset), "legacy");
 
+const selectorBase: AnalysisTraceOverlayCandidate = {
+  id: "selector-base",
+  category: "levels",
+  role: "support",
+  kind: "level",
+  score: .5,
+  selected: false,
+  hardPass: true,
+  evidencePass: true,
+  activePass: true,
+  rejectReasons: [],
+  categoryRank: 1,
+  disposition: "qualified_not_selected",
+  metrics: { touchCount: 3, reactionCount: 2, currentDistanceAtr: .5, lastTouchAgeBars: 2 },
+  anchors: [],
+  anchorPivotIds: [],
+  touchPivotIds: [],
+  reactionPivotIds: []
+};
+const crowdedCandidates: AnalysisTraceOverlayCandidate[] = Array.from({ length: 85 }, (_, index) => {
+  const category = (["levels", "trend", "pattern"] as const)[index % 3];
+  return {
+    ...selectorBase,
+    id: `crowded-${String(index).padStart(2, "0")}`,
+    category,
+    selected: index < 5,
+    disposition: index < 5 ? "selected" : "qualified_not_selected",
+    score: 1 - index / 100,
+    categoryRank: index + 1,
+    role: category === "levels" ? (index % 2 ? "resistance" : "support") : undefined,
+    direction: category === "trend" ? (index % 2 ? "down" : "up") : undefined,
+    kind: category === "trend" ? (["channel", "uptrend", "downtrend"] as const)[index % 3]
+      : category === "pattern" ? `pattern-${index % 4}` : "level"
+  };
+});
+const selectedCrowdedCandidates = selectInterpretationCandidates(crowdedCandidates);
+assert.equal(selectedCrowdedCandidates.length, 9, "the interpretation layer has an absolute nine-candidate ceiling");
+assert.equal(selectedCrowdedCandidates.some((candidate) => candidate.selected), false);
+assert.equal(selectedCrowdedCandidates.filter((candidate) => candidate.category === "levels").length, 4);
+assert.equal(selectedCrowdedCandidates.filter((candidate) => candidate.category === "trend").length, 3);
+assert.equal(selectedCrowdedCandidates.filter((candidate) => candidate.category === "pattern").length, 2);
+const nearMissCandidates = selectInterpretationCandidates([
+  { ...selectorBase, id: "near-miss-stale", hardPass: false, disposition: "rejected", score: .99, rejectReasons: ["stale"] },
+  { ...selectorBase, id: "near-miss-active", hardPass: false, disposition: "rejected", score: .75 },
+  { ...selectorBase, id: "near-miss-inactive", hardPass: false, activePass: false, disposition: "rejected", score: .9 }
+]);
+assert.deepEqual(nearMissCandidates.map((candidate) => candidate.id), ["near-miss-active"]);
+
 const importanceStyles = [
-  { importanceTier: "major" as const, lineWidth: 3, opacity: .95, lineDash: undefined, label: "지지" },
-  { importanceTier: "standard" as const, lineWidth: 2.25, opacity: .82, lineDash: [6, 4], label: "보조 지지" },
-  { importanceTier: "minor" as const, lineWidth: 1.5, opacity: .62, lineDash: [2, 4], label: "참고 지지" }
+  { importanceTier: "major" as const, lineWidth: 2.5, opacity: .88, lineDash: undefined, label: "지지" },
+  { importanceTier: "standard" as const, lineWidth: 1.75, opacity: .78, lineDash: [7, 4], label: "보조 지지" },
+  { importanceTier: "minor" as const, lineWidth: 1.25, opacity: .68, lineDash: [2, 4], label: "참고 지지" }
 ];
 importanceStyles.forEach((expected) => {
   const styled = resolveAnalysisAssetForCandles({
@@ -486,11 +565,18 @@ const trendAsset: ChartAnalysisAsset = {
 };
 const resolvedTrend = resolveAnalysisAssetForCandles(trendAsset, candles)?.geometry.drawings[0];
 assert.equal(analysisLayerOfDrawing(trendDrawing, trendAsset), "trend");
-assert.equal(resolvedTrend?.style.lineWidth, 2.75);
-assert.equal(resolvedTrend?.style.opacity, .90);
+assert.equal(resolvedTrend?.style.lineWidth, 1.5);
+assert.equal(resolvedTrend?.style.opacity, .76);
+assert.equal(resolvedTrend?.style.fillOpacity, .02);
 assert.equal(resolvedTrend?.style.extension, "ray");
 assert.deepEqual(resolvedTrend?.style.lineDash, undefined);
-assert.equal(resolvedTrend?.style.colorToken, "up");
+assert.equal(resolvedTrend?.style.colorToken, "evidenceTrend");
+assert.equal(resolvedTrend?.style.fillToken, "evidenceTrend");
+assert.equal(resolvedTrend?.style.textToken, "evidenceTrend");
+assert.equal(resolvedTrend?.style.color, undefined, "Geometry presentation stores semantic tokens instead of raw fallback colors");
+assert.equal(resolvedTrend?.style.fillColor, undefined);
+assert.equal(resolvedTrend?.style.textColor, undefined);
+assert.equal(resolvedTrend?.style.labelPlacement, "none");
 const resolvedDownTrend = resolveAnalysisAssetForCandles({
   ...trendAsset,
   geometry: {
@@ -498,4 +584,4 @@ const resolvedDownTrend = resolveAnalysisAssetForCandles({
     trends: trendAsset.geometry.trends?.map((trend) => ({ ...trend, kind: "downtrend", direction: "down" }))
   }
 }, candles)?.geometry.drawings[0];
-assert.equal(resolvedDownTrend?.style.colorToken, "down");
+assert.equal(resolvedDownTrend?.style.colorToken, "evidenceTrend");

@@ -1,13 +1,42 @@
 import type {
   AnalysisAssetInterval,
   ChartAnalysisAsset,
+  GeometryLevel,
   GeometryPattern,
   GeometryPatternKind,
   GeometryTradePlan
 } from "./analysisAssetsApi";
-import type { CandleDto } from "./types";
+import type { CandleDto, DrawingEntity } from "./types";
 
-const intervalOrder: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
+const bullishPatternKinds = new Set<GeometryPatternKind>([
+  "ascending_triangle",
+  "bullish_flag",
+  "bullish_pennant",
+  "bullish_rectangle",
+  "falling_wedge",
+  "descending_channel_breakout"
+]);
+const bearishPatternKinds = new Set<GeometryPatternKind>([
+  "descending_triangle",
+  "bearish_flag",
+  "bearish_pennant",
+  "bearish_rectangle",
+  "rising_wedge",
+  "ascending_channel_breakdown"
+]);
+const poleTargetKinds = new Set<GeometryPatternKind>([
+  "bullish_flag",
+  "bearish_flag",
+  "bullish_pennant",
+  "bearish_pennant"
+]);
+const defaultProjectionBars = 10;
+
+export type ChartTradeSetupPriceSource = {
+  label: string;
+  drawingIds: string[];
+  derivation: "pattern_boundary" | "pattern_measure" | "level";
+};
 
 export type ChartTradeSetup = {
   version: "chart-trade-setup-v1";
@@ -27,9 +56,9 @@ export type ChartTradeSetup = {
   reasons: string[];
   drawingIds: { plan: string; signal: string };
   priceSources: {
-    entry: string;
-    target: string;
-    stop: string;
+    entry: ChartTradeSetupPriceSource;
+    target: ChartTradeSetupPriceSource;
+    stop: ChartTradeSetupPriceSource;
   };
   assetIdentity: {
     algorithmVersion: string;
@@ -38,175 +67,358 @@ export type ChartTradeSetup = {
   };
 };
 
+type PatternDrawingSet = {
+  all: DrawingEntity[];
+  upper: DrawingEntity;
+  lower: DrawingEntity;
+  pole: DrawingEntity | null;
+};
+
+type LevelDrawingSource = {
+  level: GeometryLevel;
+  drawing: DrawingEntity;
+  price: number;
+};
+
 export function projectChartTradeSetup(
   asset: ChartAnalysisAsset | null,
   candles: CandleDto[],
-  availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>
+  _availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>
 ): ChartTradeSetup | null {
-  if (!asset) return null;
+  if (!asset || asset.sourceInterval !== asset.interval) return null;
   const latestLogicalIndex = latestClosedCandleIndex(candles);
   const latest = latestLogicalIndex >= 0 ? candles[latestLogicalIndex] : undefined;
-  if (!latest || !positive(latest.close)) return null;
+  const asOfIndex = findCandleIndex(candles, asset.asOf, asset.interval);
+  if (!latest || !positive(latest.close) || asOfIndex < 0) return null;
 
-  const confirmed = confirmedSetup(asset, candles);
-  if (confirmed) return confirmed;
-
-  const candidates = orderedAssets(asset, availableAssets);
-  for (const candidate of candidates) {
-    const conditional = conditionalSetup(asset, candidate, latest.close, latestLogicalIndex);
-    if (conditional) return conditional;
-  }
-  return null;
+  return patternSetup(asset, candles, latest.close, asOfIndex)
+    ?? levelSetup(asset, latest.close, latestLogicalIndex);
 }
 
-function confirmedSetup(asset: ChartAnalysisAsset, candles: CandleDto[]): ChartTradeSetup | null {
-  const plan = asset.geometry.tradePlan;
-  if (!plan || !completeDisplayedPlan(plan)) return null;
-  const signalIndex = findSignalIndex(candles, plan.signalAt, asset.interval);
-  if (signalIndex < 0) return null;
-  const drawingIds = setupDrawingIds(asset, plan.patternId, "confirmed", plan.action);
+function patternSetup(
+  asset: ChartAnalysisAsset,
+  candles: CandleDto[],
+  currentPrice: number,
+  asOfIndex: number
+): ChartTradeSetup | null {
+  const pattern = primaryPattern(asset);
+  if (!pattern || (pattern.state !== "forming" && pattern.state !== "confirmed")) return null;
+  const action = patternAction(pattern);
+  const patternDrawings = action ? finalPatternDrawings(asset, pattern) : null;
+  if (!action || !patternDrawings) return null;
+
+  let sourceKind: ChartTradeSetup["sourceKind"];
+  let signalIndex: number;
+  let signalAt: string | null;
+  let projectionBars = defaultProjectionBars;
+  if (pattern.state === "confirmed") {
+    const plan = asset.geometry.tradePlan;
+    if (!plan || !completeDisplayedPlan(plan) || !planMatchesPattern(plan, pattern, asset) || plan.action !== action) {
+      return null;
+    }
+    signalIndex = findCandleIndex(candles, plan.signalAt, asset.interval);
+    if (signalIndex < 0) return null;
+    sourceKind = "confirmed";
+    signalAt = candles[signalIndex]?.timestamp ?? null;
+    projectionBars = Math.max(1, Math.round(plan.projectionBars));
+  } else {
+    sourceKind = "conditional";
+    signalIndex = asOfIndex;
+    signalAt = null;
+    const watchPlan = asset.geometry.tradePlan;
+    if (watchPlan?.patternId && patternIds(pattern).includes(watchPlan.patternId)) {
+      projectionBars = Math.max(1, Math.round(watchPlan.projectionBars));
+    }
+  }
+
+  const upperPrice = linePriceAt(patternDrawings.upper, candles, signalIndex, asset.interval);
+  const lowerPrice = linePriceAt(patternDrawings.lower, candles, signalIndex, asset.interval);
+  const measuredMove = patternMeasuredMove(pattern, patternDrawings);
+  if (!positive(upperPrice) || !positive(lowerPrice) || !measuredMove) return null;
+
+  const entryPrice = action === "buy_candidate" ? upperPrice : lowerPrice;
+  const stopPrice = action === "buy_candidate" ? lowerPrice : upperPrice;
+  const targetPrice = action === "buy_candidate"
+    ? entryPrice + measuredMove.value
+    : entryPrice - measuredMove.value;
+  if (!validScenarioPrices(action, sourceKind, currentPrice, entryPrice, targetPrice, stopPrice)) return null;
+
+  const roundedEntry = rounded(entryPrice);
+  const roundedTarget = rounded(targetPrice);
+  const roundedStop = rounded(stopPrice);
+  const patternId = pattern.id ?? pattern.geometryHash;
+  const allPatternDrawingIds = patternDrawings.all.map((drawing) => drawing.id);
+  const drawingIds = setupDrawingIds(asset, patternId, sourceKind, action);
   return {
     version: "chart-trade-setup-v1",
-    action: plan.action,
-    sourceKind: "confirmed",
+    action,
+    sourceKind,
     sourceInterval: asset.interval,
-    entryPrice: plan.entryPrice,
-    entryTrigger: plan.entryTrigger,
-    targetPrice: plan.targetPrice,
-    stopPrice: plan.stopPrice,
-    rewardRiskRatio: plan.rewardRiskRatio,
-    signalAt: candles[signalIndex]?.timestamp ?? plan.signalAt,
+    entryPrice: roundedEntry,
+    entryTrigger: roundedEntry,
+    targetPrice: roundedTarget,
+    stopPrice: roundedStop,
+    rewardRiskRatio: rewardRiskRatio(roundedEntry, roundedTarget, roundedStop),
+    signalAt,
     signalIndex,
-    patternId: plan.patternId,
-    patternKind: plan.patternKind,
-    projectionBars: plan.projectionBars,
-    reasons: [...plan.reasons],
+    patternId,
+    patternKind: pattern.kind,
+    projectionBars,
+    reasons: sourceKind === "confirmed"
+      ? ["confirmed_pattern_signal", "prices_from_final_pattern_geometry"]
+      : ["forming_pattern_geometry", "prices_from_final_pattern_geometry"],
     drawingIds,
     priceSources: {
-      entry: "서버 확인 신호",
-      target: plan.action === "sell_candidate" ? "서버 예상 하단" : "서버 패턴 목표",
-      stop: plan.action === "sell_candidate" ? "서버 재검토 기준" : "서버 손절 기준"
+      entry: source(
+        action === "buy_candidate" ? "패턴 상단" : "패턴 하단",
+        [action === "buy_candidate" ? patternDrawings.upper.id : patternDrawings.lower.id],
+        "pattern_boundary"
+      ),
+      target: source(measuredMove.label, allPatternDrawingIds, "pattern_measure"),
+      stop: source(
+        action === "buy_candidate" ? "패턴 하단" : "패턴 상단",
+        [action === "buy_candidate" ? patternDrawings.lower.id : patternDrawings.upper.id],
+        "pattern_boundary"
+      )
     },
     assetIdentity: identityFromAsset(asset)
   };
 }
 
-function conditionalSetup(
-  displayAsset: ChartAnalysisAsset,
-  evidenceAsset: ChartAnalysisAsset,
+function levelSetup(
+  asset: ChartAnalysisAsset,
   currentPrice: number,
   latestLogicalIndex: number
 ): ChartTradeSetup | null {
-  const pattern = primaryPattern(evidenceAsset);
-  const action: ChartTradeSetup["action"] = pattern?.bias === "bearish"
-    || evidenceAsset.geometry.tradePlan?.action === "sell_candidate"
-    ? "sell_candidate"
-    : "buy_candidate";
-  const support = uniquePrices([
-    ...evidenceAsset.geometry.supports.map((level) => level.price),
-    boundaryPrice(pattern?.lower)
-  ]).filter((price) => price < currentPrice);
-  const resistance = uniquePrices([
-    ...evidenceAsset.geometry.resistances.map((level) => level.price),
-    boundaryPrice(pattern?.upper)
-  ]).filter((price) => price > currentPrice);
+  const supports = finalLevelDrawings(asset, asset.geometry.supports)
+    .filter((item) => item.price < currentPrice)
+    .sort((left, right) => right.price - left.price || left.drawing.id.localeCompare(right.drawing.id));
+  const resistances = finalLevelDrawings(asset, asset.geometry.resistances)
+    .filter((item) => item.price > currentPrice)
+    .sort((left, right) => left.price - right.price || left.drawing.id.localeCompare(right.drawing.id));
 
-  let entryPrice: number;
-  let stopPrice: number;
-  let targetPrice: number;
-  let entrySource: string;
-  let stopSource: string;
-  let targetSource: string;
-
-  if (action === "buy_candidate") {
-    entryPrice = resistance[0] ?? currentPrice;
-    entrySource = resistance.length ? "저장 저항·패턴 상단" : "마지막 완료 봉";
-    const stops = uniquePrices([
-      ...evidenceAsset.geometry.supports.map((level) => level.price),
-      boundaryPrice(pattern?.lower)
-    ]).filter((price) => price < entryPrice).sort((left, right) => right - left);
-    if (!stops.length) return null;
-    stopPrice = stops[0];
-    stopSource = "저장 지지·패턴 하단";
-    const targets = uniquePrices([
-      ...evidenceAsset.geometry.resistances.map((level) => level.price),
-      boundaryPrice(pattern?.upper)
-    ]).filter((price) => price > entryPrice).sort((left, right) => left - right);
-    targetPrice = targets[0] ?? entryPrice + 2 * (entryPrice - stopPrice);
-    targetSource = targets.length ? "다음 저장 저항·패턴 상단" : "2R 투영";
-  } else {
-    entryPrice = [...support].sort((left, right) => right - left)[0] ?? currentPrice;
-    entrySource = support.length ? "저장 지지·패턴 하단" : "마지막 완료 봉";
-    const stops = uniquePrices([
-      ...evidenceAsset.geometry.resistances.map((level) => level.price),
-      boundaryPrice(pattern?.upper)
-    ]).filter((price) => price > entryPrice).sort((left, right) => left - right);
-    if (!stops.length) return null;
-    stopPrice = stops[0];
-    stopSource = "저장 저항·패턴 상단";
-    const targets = uniquePrices([
-      ...evidenceAsset.geometry.supports.map((level) => level.price),
-      boundaryPrice(pattern?.lower)
-    ]).filter((price) => price < entryPrice).sort((left, right) => right - left);
-    targetPrice = targets[0] ?? entryPrice - 2 * (stopPrice - entryPrice);
-    targetSource = targets.length ? "다음 저장 지지·패턴 하단" : "2R 투영";
+  const candidates: ChartTradeSetup[] = [];
+  if (supports.length >= 1 && resistances.length >= 2) {
+    candidates.push(levelScenario(asset, "buy_candidate", latestLogicalIndex, {
+      entry: resistances[0], target: resistances[1], stop: supports[0]
+    }));
   }
+  if (supports.length >= 2 && resistances.length >= 1) {
+    candidates.push(levelScenario(asset, "sell_candidate", latestLogicalIndex, {
+      entry: supports[0], target: supports[1], stop: resistances[0]
+    }));
+  }
+  return candidates
+    .filter((candidate) => validScenarioPrices(
+      candidate.action,
+      candidate.sourceKind,
+      currentPrice,
+      candidate.entryPrice,
+      candidate.targetPrice,
+      candidate.stopPrice
+    ))
+    .sort((left, right) => (
+      Math.abs(left.entryPrice - currentPrice) - Math.abs(right.entryPrice - currentPrice)
+      || left.action.localeCompare(right.action)
+      || left.patternId.localeCompare(right.patternId)
+    ))[0] ?? null;
+}
 
-  if (![entryPrice, stopPrice, targetPrice].every(positive)) return null;
-  const risk = Math.abs(entryPrice - stopPrice);
-  if (risk <= 0) return null;
-  const rewardRiskRatio = Math.abs(targetPrice - entryPrice) / risk;
-  const patternId = pattern?.geometryHash ?? `levels-${evidenceAsset.interval}`;
+function levelScenario(
+  asset: ChartAnalysisAsset,
+  action: ChartTradeSetup["action"],
+  latestLogicalIndex: number,
+  levels: { entry: LevelDrawingSource; target: LevelDrawingSource; stop: LevelDrawingSource }
+): ChartTradeSetup {
+  const entryPrice = rounded(levels.entry.price);
+  const targetPrice = rounded(levels.target.price);
+  const stopPrice = rounded(levels.stop.price);
+  const ids = [levels.entry.drawing.id, levels.target.drawing.id, levels.stop.drawing.id];
+  const patternId = `levels:${ids.join("|")}`;
   return {
     version: "chart-trade-setup-v1",
     action,
     sourceKind: "conditional",
-    sourceInterval: evidenceAsset.interval,
-    entryPrice: rounded(entryPrice),
-    entryTrigger: rounded(entryPrice),
-    targetPrice: rounded(targetPrice),
-    stopPrice: rounded(stopPrice),
-    rewardRiskRatio: rounded(rewardRiskRatio, 4),
+    sourceInterval: asset.interval,
+    entryPrice,
+    entryTrigger: entryPrice,
+    targetPrice,
+    stopPrice,
+    rewardRiskRatio: rewardRiskRatio(entryPrice, targetPrice, stopPrice),
     signalAt: null,
     signalIndex: latestLogicalIndex,
     patternId,
-    patternKind: pattern?.kind ?? null,
-    projectionBars: Math.max(10, evidenceAsset.geometry.tradePlan?.projectionBars ?? 10),
-    reasons: ["stored_evidence_conditional", `source_interval_${evidenceAsset.interval}`],
-    drawingIds: setupDrawingIds(displayAsset, patternId, "conditional", action),
-    priceSources: { entry: entrySource, target: targetSource, stop: stopSource },
-    assetIdentity: identityFromAsset(evidenceAsset)
+    patternKind: null,
+    projectionBars: defaultProjectionBars,
+    reasons: ["prices_from_selected_h_lines"],
+    drawingIds: setupDrawingIds(asset, patternId, "conditional", action),
+    priceSources: {
+      entry: source(action === "buy_candidate" ? "저항선" : "지지선", [levels.entry.drawing.id], "level"),
+      target: source(action === "buy_candidate" ? "다음 저항선" : "다음 지지선", [levels.target.drawing.id], "level"),
+      stop: source(action === "buy_candidate" ? "지지선" : "저항선", [levels.stop.drawing.id], "level")
+    },
+    assetIdentity: identityFromAsset(asset)
   };
 }
 
-function orderedAssets(
-  active: ChartAnalysisAsset,
-  assets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>
-): ChartAnalysisAsset[] {
-  const activePosition = intervalOrder.indexOf(active.interval);
-  const alternatives = intervalOrder
-    .filter((interval) => interval !== active.interval)
-    .sort((left, right) => {
-      const leftDistance = Math.abs(intervalOrder.indexOf(left) - activePosition);
-      const rightDistance = Math.abs(intervalOrder.indexOf(right) - activePosition);
-      return leftDistance - rightDistance || intervalOrder.indexOf(right) - intervalOrder.indexOf(left);
-    })
-    .map((interval) => assets?.[interval])
-    .filter((candidate): candidate is ChartAnalysisAsset => Boolean(candidate && candidate.symbol === active.symbol));
-  return [active, ...alternatives];
+function finalPatternDrawings(asset: ChartAnalysisAsset, pattern: GeometryPattern): PatternDrawingSet | null {
+  const groupIds = asset.geometry.drawingGroups?.pattern;
+  const grouped = groupIds?.length
+    ? asset.geometry.drawings.filter((drawing) => groupIds.includes(drawing.id))
+    : asset.geometry.drawings.filter((drawing) => drawing.id.includes(pattern.geometryHash));
+  const all = grouped.filter((drawing) => (
+    drawing.createdBy === "system"
+    && !drawing.id.startsWith("chart-plan:")
+    && drawing.type === "trendLine"
+    && drawing.anchors.length >= 2
+  ));
+  const upper = boundaryDrawing(all, pattern.geometryHash, "upper");
+  const lower = boundaryDrawing(all, pattern.geometryHash, "lower");
+  if (!upper || !lower) return null;
+  return {
+    all: [...all].sort((left, right) => left.id.localeCompare(right.id)),
+    upper,
+    lower,
+    pole: boundaryDrawing(all, pattern.geometryHash, "pole")
+  };
+}
+
+function boundaryDrawing(
+  drawings: DrawingEntity[],
+  geometryHash: string,
+  boundary: "upper" | "lower" | "pole"
+): DrawingEntity | null {
+  return drawings.find((drawing) => (
+    drawing.id.includes(geometryHash)
+    && (drawing.id.endsWith(`-${boundary}`) || drawing.id.endsWith(`:${boundary}`))
+  )) ?? null;
+}
+
+function patternMeasuredMove(
+  pattern: GeometryPattern,
+  drawings: PatternDrawingSet
+): { value: number; label: "깃대 길이" | "패턴 폭" } | null {
+  if (poleTargetKinds.has(pattern.kind)) {
+    if (!drawings.pole) return null;
+    const [start, end] = drawings.pole.anchors;
+    const value = positive(start?.price) && positive(end?.price) ? Math.abs(end.price - start.price) : 0;
+    return value > 0 ? { value, label: "깃대 길이" } : null;
+  }
+  const [upperStart, upperEnd] = drawings.upper.anchors;
+  const [lowerStart, lowerEnd] = drawings.lower.anchors;
+  if (![upperStart?.price, upperEnd?.price, lowerStart?.price, lowerEnd?.price].every(positive)) return null;
+  const startWidth = Math.abs(upperStart.price! - lowerStart.price!);
+  const endWidth = Math.abs(upperEnd.price! - lowerEnd.price!);
+  const value = Math.max(startWidth, endWidth);
+  return value > 0 ? { value, label: "패턴 폭" } : null;
+}
+
+function finalLevelDrawings(asset: ChartAnalysisAsset, levels: GeometryLevel[]): LevelDrawingSource[] {
+  const groupIds = asset.geometry.drawingGroups?.levels;
+  return levels.flatMap((level): LevelDrawingSource[] => {
+    if (!positive(level.price)) return [];
+    const drawing = asset.geometry.drawings.find((candidate) => (
+      candidate.type === "horizontalLine"
+      && candidate.createdBy === "system"
+      && (!groupIds?.length || groupIds.includes(candidate.id))
+      && (candidate.id === level.id || candidate.id.endsWith(`:${level.id}`))
+    ));
+    if (!drawing) return [];
+    const drawingPrice = drawing.anchors.find((anchor) => positive(anchor.price))?.price;
+    if (!positive(drawingPrice)) return [];
+    const tolerance = Math.max(0.000001, level.price * 0.000001);
+    if (Math.abs(drawingPrice - level.price) > tolerance) return [];
+    return [{ level, drawing, price: drawingPrice }];
+  });
+}
+
+function linePriceAt(
+  drawing: DrawingEntity,
+  candles: CandleDto[],
+  targetIndex: number,
+  interval: AnalysisAssetInterval
+): number | null {
+  const [start, end] = drawing.anchors;
+  if (!positive(start?.price) || !positive(end?.price)) return null;
+  const startIndex = anchorLogicalIndex(start, candles, interval);
+  const endIndex = anchorLogicalIndex(end, candles, interval);
+  if (startIndex === null || endIndex === null || endIndex <= startIndex) return end.price;
+  return start.price + ((end.price - start.price) / (endIndex - startIndex)) * (targetIndex - startIndex);
+}
+
+function anchorLogicalIndex(
+  anchor: DrawingEntity["anchors"][number],
+  candles: CandleDto[],
+  interval: AnalysisAssetInterval
+): number | null {
+  if (typeof anchor.logicalIndex === "number" && Number.isFinite(anchor.logicalIndex)) return anchor.logicalIndex;
+  return anchor.timestamp ? findCandleIndex(candles, anchor.timestamp, interval) : null;
+}
+
+function patternAction(pattern: GeometryPattern): ChartTradeSetup["action"] | null {
+  if (bullishPatternKinds.has(pattern.kind)) return "buy_candidate";
+  if (bearishPatternKinds.has(pattern.kind)) return "sell_candidate";
+  if (pattern.kind === "symmetrical_triangle") {
+    if (pattern.breakoutDirection === "up") return "buy_candidate";
+    if (pattern.breakoutDirection === "down") return "sell_candidate";
+  }
+  return null;
+}
+
+function planMatchesPattern(
+  plan: GeometryTradePlan,
+  pattern: GeometryPattern,
+  asset: ChartAnalysisAsset
+): boolean {
+  return plan.symbol?.trim().toUpperCase() === asset.symbol.trim().toUpperCase()
+    && plan.interval === asset.interval
+    && plan.patternKind === pattern.kind
+    && plan.patternState === pattern.state
+    && patternIds(pattern).includes(plan.patternId);
+}
+
+function patternIds(pattern: GeometryPattern): string[] {
+  return [...new Set([pattern.id, pattern.geometryHash].filter((value): value is string => Boolean(value)))];
 }
 
 function primaryPattern(asset: ChartAnalysisAsset): GeometryPattern | null {
   return asset.geometry.primaryPattern ?? asset.geometry.primaryTriangle ?? null;
 }
 
-function boundaryPrice(boundary: GeometryPattern["upper"] | undefined): number | undefined {
-  const price = boundary?.end?.price;
-  return positive(price) ? price : undefined;
+function source(
+  label: string,
+  drawingIds: string[],
+  derivation: ChartTradeSetupPriceSource["derivation"]
+): ChartTradeSetupPriceSource {
+  return { label, drawingIds: [...new Set(drawingIds)], derivation };
 }
 
-function uniquePrices(values: Array<number | undefined>): number[] {
-  return [...new Set(values.filter(positive).map((value) => rounded(value)))].sort((left, right) => left - right);
+function validScenarioPrices(
+  action: ChartTradeSetup["action"],
+  sourceKind: ChartTradeSetup["sourceKind"],
+  currentPrice: number,
+  entryPrice: number,
+  targetPrice: number,
+  stopPrice: number
+): boolean {
+  if (![currentPrice, entryPrice, targetPrice, stopPrice].every(positive)) return false;
+  if (action === "buy_candidate") {
+    return stopPrice < entryPrice
+      && entryPrice < targetPrice
+      && currentPrice > stopPrice
+      && currentPrice < targetPrice
+      && (sourceKind === "confirmed" || currentPrice <= entryPrice);
+  }
+  return targetPrice < entryPrice
+    && entryPrice < stopPrice
+    && currentPrice > targetPrice
+    && currentPrice < stopPrice
+    && (sourceKind === "confirmed" || currentPrice >= entryPrice);
+}
+
+function rewardRiskRatio(entryPrice: number, targetPrice: number, stopPrice: number): number {
+  const risk = Math.abs(entryPrice - stopPrice);
+  return risk > 0 ? rounded(Math.abs(targetPrice - entryPrice) / risk, 4) : 0;
 }
 
 function completeDisplayedPlan(plan: GeometryTradePlan): plan is GeometryTradePlan & {
@@ -225,12 +437,12 @@ function completeDisplayedPlan(plan: GeometryTradePlan): plan is GeometryTradePl
     && [plan.entryTrigger, plan.entryPrice, plan.stopPrice, plan.targetPrice, plan.rewardRiskRatio].every(positive);
 }
 
-function findSignalIndex(candles: CandleDto[], signalAt: string, interval: AnalysisAssetInterval): number {
-  const exact = candles.findIndex((candle) => candle.timestamp === signalAt && candle.isClosed !== false);
+function findCandleIndex(candles: CandleDto[], timestamp: string, interval: AnalysisAssetInterval): number {
+  const exact = candles.findIndex((candle) => candle.timestamp === timestamp && candle.isClosed !== false);
   if (exact >= 0) return exact;
   if (interval !== "1D" && interval !== "1W") return -1;
-  const signalDate = signalAt.slice(0, 10);
-  return candles.findIndex((candle) => candle.isClosed !== false && candle.timestamp.slice(0, 10) === signalDate);
+  const date = timestamp.slice(0, 10);
+  return candles.findIndex((candle) => candle.isClosed !== false && candle.timestamp.slice(0, 10) === date);
 }
 
 function latestClosedCandleIndex(candles: CandleDto[]): number {

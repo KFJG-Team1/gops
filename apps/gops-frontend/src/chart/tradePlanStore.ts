@@ -1,4 +1,5 @@
 import type { AnalysisAssetInterval, ChartAnalysisAsset, GeometryPatternKind } from "./analysisAssetsApi";
+import { projectChartTradeSetup } from "./chartTradeSetup";
 import type { CandleDto } from "./types";
 
 export type ActiveTradePlan = {
@@ -53,30 +54,33 @@ export function projectActiveTradePlan(
   chartDocumentId: string,
   status: ActiveTradePlan["status"]
 ): ActiveTradePlan | null {
-  const plan = asset?.geometry.tradePlan;
-  if (!asset || !plan || !isNewPositionPlan(plan) || !hasSignalCandle(candles, plan.signalAt)) {
+  if (!asset) {
     return null;
   }
-  const drawingIds = tradePlanDrawingIds(asset);
-  if (!drawingIds) return null;
+  const setup = projectChartTradeSetup(asset, candles);
+  if (!setup
+    || setup.sourceKind !== "confirmed"
+    || setup.action !== "buy_candidate"
+    || !setup.signalAt
+    || !setup.patternKind) return null;
   return {
     version: "active-trade-plan-v1",
     chartDocumentId,
     symbol: asset.symbol,
     interval: asset.interval,
-    direction: plan.direction,
-    action: plan.action,
-    entryPrice: plan.entryPrice,
-    targetPrice: plan.targetPrice,
-    stopPrice: plan.stopPrice,
-    entryTrigger: plan.entryTrigger,
-    rewardRiskRatio: plan.rewardRiskRatio,
-    signalAt: plan.signalAt,
-    patternId: plan.patternId,
-    patternKind: plan.patternKind,
-    projectionBars: plan.projectionBars,
-    reasons: [...plan.reasons],
-    drawingIds,
+    direction: "long",
+    action: setup.action,
+    entryPrice: setup.entryPrice,
+    targetPrice: setup.targetPrice,
+    stopPrice: setup.stopPrice,
+    entryTrigger: setup.entryTrigger,
+    rewardRiskRatio: setup.rewardRiskRatio,
+    signalAt: setup.signalAt,
+    patternId: setup.patternId,
+    patternKind: setup.patternKind,
+    projectionBars: setup.projectionBars,
+    reasons: [...setup.reasons],
+    drawingIds: setup.drawingIds,
     provenance: {
       assetVersion: asset.assetVersion,
       algorithmVersion: asset.algorithmVersion,
@@ -117,26 +121,6 @@ export function setActiveTradePlan(chartDocumentId: string, plan: ActiveTradePla
 
 export function clearActiveTradePlan(chartDocumentId: string): void {
   setActiveTradePlan(chartDocumentId, null);
-}
-
-function isNewPositionPlan(plan: NonNullable<ChartAnalysisAsset["geometry"]["tradePlan"]>): plan is typeof plan & {
-  direction: "long";
-  action: "buy_candidate";
-  entryPrice: number;
-  targetPrice: number;
-  stopPrice: number;
-  entryTrigger: number;
-  rewardRiskRatio: number;
-  signalAt: string;
-} {
-  return plan.action === "buy_candidate" && plan.direction === "long"
-    && [plan.entryPrice, plan.targetPrice, plan.stopPrice, plan.entryTrigger, plan.rewardRiskRatio]
-      .every((value) => typeof value === "number" && Number.isFinite(value))
-    && typeof plan.signalAt === "string";
-}
-
-function hasSignalCandle(candles: CandleDto[], signalAt: string): boolean {
-  return candles.some((candle) => candle.isClosed !== false && candle.timestamp === signalAt);
 }
 
 function samePlan(left: ActiveTradePlan | null, right: ActiveTradePlan | null): boolean {

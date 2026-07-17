@@ -77,10 +77,19 @@ export function chartTradeSetupSnapshotsEqual(
     && left.setup.projectionBars === right.setup.projectionBars
     && left.setup.drawingIds.plan === right.setup.drawingIds.plan
     && left.setup.drawingIds.signal === right.setup.drawingIds.signal
-    && left.setup.priceSources.entry === right.setup.priceSources.entry
-    && left.setup.priceSources.target === right.setup.priceSources.target
-    && left.setup.priceSources.stop === right.setup.priceSources.stop
+    && priceSourcesEqual(left.setup.priceSources.entry, right.setup.priceSources.entry)
+    && priceSourcesEqual(left.setup.priceSources.target, right.setup.priceSources.target)
+    && priceSourcesEqual(left.setup.priceSources.stop, right.setup.priceSources.stop)
     && stringArraysEqual(left.setup.reasons, right.setup.reasons);
+}
+
+function priceSourcesEqual(
+  left: ChartTradeSetupSnapshot["setup"]["priceSources"]["entry"],
+  right: ChartTradeSetupSnapshot["setup"]["priceSources"]["entry"]
+): boolean {
+  return left.label === right.label
+    && left.derivation === right.derivation
+    && stringArraysEqual(left.drawingIds, right.drawingIds);
 }
 
 function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {

@@ -181,8 +181,8 @@ function CurrentCommentary({
     ? analysisAssetPresentationDiagnostics(asset, candles, drawingIds, availableAssets)
     : null, [asset, availableAssets, candles, drawingIdsKey]);
   const setup = useMemo(() => diagnostics
-    ? projectChartTradeSetup(diagnostics.resolvedAsset, candles, availableAssets)
-    : null, [availableAssets, candles, diagnostics]);
+    ? projectChartTradeSetup(diagnostics.resolvedAsset, candles)
+    : null, [candles, diagnostics]);
   const currentPrice = useMemo(() => {
     const candle = [...candles].reverse().find((item) => Number.isFinite(item.close) && item.close > 0);
     return candle?.close ?? null;
@@ -249,7 +249,7 @@ function CurrentCommentary({
             onBlur={restorePinned}
           >
             <span role="cell">{item.label}</span>
-            <strong role="cell">{formatPrice(item.price)}</strong>
+            <strong role="cell">{formatPrice(item.price)}{item.sourceLabel ? ` · ${item.sourceLabel}` : ""}</strong>
             <span role="cell">{item.distancePercent == null ? "—" : `${item.distancePercent >= 0 ? "+" : ""}${item.distancePercent.toFixed(2)}%`}</span>
           </button>)}
         </div>
@@ -344,7 +344,7 @@ function CommentaryScenarioButton({ scenario, chartDocumentId, symbol, interval,
     }}
   >
     <span className="chart-commentary-scenario-status">{scenario.status}</span>
-    <span className="chart-commentary-scenario-line">{scenario.confirmation} · {scenario.labels.target} {formatPrice(scenario.targetPrice)} · {scenario.labels.risk} {formatPrice(scenario.invalidationPrice)}</span>
+    <span className="chart-commentary-scenario-line">{scenario.confirmation} · {scenario.labels.target} {formatPrice(scenario.targetPrice)} · {scenario.targetSourceLabel} · {scenario.labels.risk} {formatPrice(scenario.invalidationPrice)} · {scenario.riskSourceLabel}</span>
     <span className="chart-commentary-scenario-line">손익비 1 : {scenario.rewardRiskRatio.toFixed(2)} · 유효기간 {scenario.projectionBars}개 봉</span>
   </button>;
 }

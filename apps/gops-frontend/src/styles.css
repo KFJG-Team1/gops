@@ -194,9 +194,10 @@
   --color-signal-soft: var(--coinbase-primary-soft);
   --color-info: #28b8d8;
   --color-info-soft: color-mix(in srgb, var(--color-info) 14%, transparent);
-  --color-evidence-support: color-mix(in srgb, var(--color-up) 28%, var(--color-muted));
-  --color-evidence-resistance: color-mix(in srgb, var(--color-down) 28%, var(--color-muted));
-  --color-evidence-pattern: var(--color-muted);
+  --color-evidence-pattern: color-mix(in srgb, var(--color-drawing) 70%, var(--color-axis));
+  --color-evidence-support: color-mix(in srgb, var(--color-up) 18%, var(--color-axis));
+  --color-evidence-resistance: color-mix(in srgb, var(--color-down) 18%, var(--color-axis));
+  --color-evidence-trend: var(--color-axis);
   --color-proposal: var(--color-signal);
   --color-caution: var(--coinbase-accent-yellow);
   --color-caution-soft: var(--coinbase-accent-yellow-glow);
