@@ -54,14 +54,8 @@ export function buildRenderScene({
   });
   const prices = visibleCandles.flatMap((candle) => [
     candle.high,
-    candle.low,
-    candle.ma5,
-    candle.ma20,
-    candle.ma60
+    candle.low
   ])
-    .concat(document.drawings
-      .filter((drawing) => drawing.visible !== false && drawing.type === "riskRewardBox" && drawing.style.zoneSplit === true)
-      .flatMap((drawing) => drawing.anchors.map((anchor) => anchor.price)))
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   const rawMinPrice = prices.length ? Math.min(...prices) : 0;
   const rawMaxPrice = prices.length ? Math.max(...prices) : 1;

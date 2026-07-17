@@ -1243,7 +1243,7 @@ assert.ok(expandedIndicatorChild?.kind === "candle");
 if (expandedIndicatorChild?.kind === "candle") {
   const expandedRsiLookup = createIndicatorPointLookup(expandedIndicatorScene.chart.indicatorSeries, "rsi:14", expandedIndicatorScene.chart.interval);
   assert.equal(expandedRsiLookup(expandedIndicatorChild)?.value, 40);
-  assert.ok(expandedIndicatorScene.scales.minPrice <= 90);
+  assert.ok(expandedIndicatorScene.scales.minPrice > 90);
 }
 
 const semanticFutureCandles = Array.from(
@@ -1628,8 +1628,10 @@ const idleLivePriceScaleScene = buildFrontendChartScene(frontendChartState({
   streamState: "idle",
   liveTrade: { price: 120, timestamp: "2026-07-10T13:30:30.000Z" }
 }), 800, 360);
-assert.ok(livePriceScaleScene.scales.maxPrice > 120);
-assert.ok(idleLivePriceScaleScene.scales.maxPrice < 110);
+assert.deepEqual(
+  [livePriceScaleScene.scales.minPrice, livePriceScaleScene.scales.maxPrice],
+  [idleLivePriceScaleScene.scales.minPrice, idleLivePriceScaleScene.scales.maxPrice]
+);
 const fourDigitPriceScene = buildFrontendChartScene(frontendChartState({
   candles: [{ ...semanticFutureCandles[0], open: 1350, high: 1356.22, low: 1340, close: 1355 } as CandleDto],
   visibleCount: 1
@@ -2283,7 +2285,7 @@ const guardedSmaScene = buildFrontendChartScene(frontendChartState({
   }
 }), 600, 320);
 assert.ok(guardedSmaScene.scales.minPrice >= 0);
-assert.ok(guardedSmaScene.scales.maxPrice > 100);
+assert.ok(guardedSmaScene.scales.maxPrice < 1);
 assert.ok(guardedSmaScene.scales.priceTicks.every((tick) => tick >= 0));
 const invalidOverlayScale = resolvePriceScale([0.18, 0.23, Number.NaN, Number.POSITIVE_INFINITY, 0, -1], 240);
 assert.ok(invalidOverlayScale.domainMax < 1);
@@ -2320,7 +2322,7 @@ const nearbySmaScene = buildFrontendChartScene(frontendChartState({
     "sma:120": [{ timestamp: narrowPriceCandle.timestamp, value: 208 }]
   }
 }), 600, 320);
-assert.ok(nearbySmaScene.scales.minPrice <= 208);
+assert.ok(nearbySmaScene.scales.minPrice > 208);
 assert.ok(nearbySmaScene.scales.priceTicks.every((tick) => tick >= 0));
 const bidAskNarrowPriceScene = buildFrontendChartScene(frontendChartState({
   chartType: "bidask",
@@ -3755,13 +3757,14 @@ const proposalPriceRangeState = frontendChartState({
   })]
 });
 const proposalPriceRangeScene = buildFrontendChartScene(proposalPriceRangeState, 640, 360);
-assert.ok(proposalPriceRangeScene.scales.maxPrice >= 150);
-assert.ok(proposalPriceRangeScene.scales.minPrice <= 80);
 const hiddenProposalPriceRangeScene = buildFrontendChartScene({
   ...proposalPriceRangeState,
   drawings: proposalPriceRangeState.drawings.map((drawing) => ({ ...drawing, visible: false }))
 }, 640, 360);
-assert.ok(hiddenProposalPriceRangeScene.scales.maxPrice < 120);
+assert.deepEqual(
+  [proposalPriceRangeScene.scales.minPrice, proposalPriceRangeScene.scales.maxPrice],
+  [hiddenProposalPriceRangeScene.scales.minPrice, hiddenProposalPriceRangeScene.scales.maxPrice]
+);
 const extremeProposalPriceRangeScene = buildFrontendChartScene({
   ...proposalPriceRangeState,
   drawings: proposalPriceRangeState.drawings.map((drawing) => ({
@@ -3769,8 +3772,10 @@ const extremeProposalPriceRangeScene = buildFrontendChartScene({
     anchors: drawing.anchors.map((anchor, index) => index === 2 ? { ...anchor, price: 10_000 } : anchor)
   }))
 }, 640, 360);
-assert.ok(extremeProposalPriceRangeScene.scales.minPrice >= 0);
-assert.ok(extremeProposalPriceRangeScene.scales.maxPrice > 10_000);
+assert.deepEqual(
+  [extremeProposalPriceRangeScene.scales.minPrice, extremeProposalPriceRangeScene.scales.maxPrice],
+  [hiddenProposalPriceRangeScene.scales.minPrice, hiddenProposalPriceRangeScene.scales.maxPrice]
+);
 assert.equal(
   extremeProposalPriceRangeScene.scales.priceTicks.length,
   priceTickCountForHeight(extremeProposalPriceRangeScene.plot.priceBottom - extremeProposalPriceRangeScene.plot.top)
