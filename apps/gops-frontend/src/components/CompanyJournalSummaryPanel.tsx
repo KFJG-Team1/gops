@@ -20,6 +20,8 @@ type CompanySummaryPanelProps = {
   valuationPriceFixture?: ValuationPricePoint[];
   stabilityContent?: "stability" | "stability-dashboard";
   journalPresentation?: boolean;
+  financialPeriodMode?: FinancialPeriodMode;
+  onFinancialPeriodModeChange?: (mode: FinancialPeriodMode) => void;
 };
 
 export type CompanyPanelView = "info" | "valuation" | "profitability" | "stability";
@@ -102,7 +104,41 @@ const financialChartAxisTypography = {
 } satisfies CSSProperties;
 
 const defaultFinancialChartSize = { width: 620, height: 360 };
-const financialChartPlot = { left: 92, right: 12, top: 10, bottom: 34 } as const;
+const financialChartAxisLabelX = 0;
+
+type ResponsiveChartPlotOptions = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  compactLeft?: number;
+  compactRight?: number;
+};
+
+function responsiveChartPlot(chartWidth: number, options: ResponsiveChartPlotOptions) {
+  const progress = Math.min(1, Math.max(0, (chartWidth - 320) / 480));
+  const compactLeft = options.compactLeft ?? Math.min(options.left, 58);
+  const compactRight = options.compactRight ?? Math.min(options.right, 18);
+  return {
+    left: compactLeft + (options.left - compactLeft) * progress,
+    right: compactRight + (options.right - compactRight) * progress,
+    top: options.top,
+    bottom: options.bottom
+  };
+}
+
+function financialChartPointX(
+  index: number,
+  pointCount: number,
+  plotLeft: number,
+  innerWidth: number,
+  edgePadding: number
+) {
+  if (pointCount <= 1) return plotLeft + innerWidth / 2;
+  const safeEdgePadding = Math.min(Math.max(0, edgePadding), innerWidth / 2);
+  const availableWidth = Math.max(0, innerWidth - safeEdgePadding * 2);
+  return plotLeft + safeEdgePadding + (index / (pointCount - 1)) * availableWidth;
+}
 
 function useFinancialChartSize() {
   const [chart, setChart] = useState<SVGSVGElement | null>(null);
@@ -138,9 +174,40 @@ function useFinancialChartSize() {
   return { chartRef, chartWidth: size.width, chartHeight: size.height };
 }
 
-export function CompanySummaryPanel({ symbol, item, items = [], view = "all", onEvidenceChange, disableRemoteFetch = false, valuationContent = "combined", valuationPriceFixture = emptyValuationPriceFixture, stabilityContent = "stability", journalPresentation = false }: CompanySummaryPanelProps) {
+function JournalChartAnnotation({
+  target,
+  label,
+  x,
+  y,
+  top,
+  chartWidth
+}: {
+  target: string;
+  label: string;
+  x: number;
+  y: number;
+  top: number;
+  chartWidth: number;
+}) {
+  const labelWidth = Math.min(176, Math.max(92, Array.from(label).length * 10 + 20));
+  const labelX = x - labelWidth - 10 >= 4
+    ? x - labelWidth - 10
+    : Math.min(chartWidth - labelWidth - 4, x + 10);
+  const labelY = top + 2;
+  return (
+    <g className="company-journal-chart-annotation" data-journal-annotation={target} aria-hidden="true">
+      <line className="company-journal-chart-annotation-guide" x1={x} x2={x} y1={labelY + 26} y2={y} />
+      <circle className="company-journal-chart-annotation-anchor" cx={x} cy={y} r={6} />
+      <rect className="company-journal-chart-annotation-label" x={labelX} y={labelY} width={labelWidth} height={25} rx={7} />
+      <text className="company-journal-chart-annotation-text" x={labelX + 9} y={labelY + 17}>{label}</text>
+    </g>
+  );
+}
+
+export function CompanySummaryPanel({ symbol, item, items = [], view = "all", onEvidenceChange, disableRemoteFetch = false, valuationContent = "combined", valuationPriceFixture = emptyValuationPriceFixture, stabilityContent = "stability", journalPresentation = false, financialPeriodMode: controlledFinancialPeriodMode, onFinancialPeriodModeChange }: CompanySummaryPanelProps) {
   const [earningsMetric, setEarningsMetric] = useState<EarningsMetric>("eps");
-  const [financialPeriodMode, setFinancialPeriodMode] = useState<FinancialPeriodMode>(journalPresentation ? "annual" : "quarterly");
+  const [internalFinancialPeriodMode, setInternalFinancialPeriodMode] = useState<FinancialPeriodMode>(journalPresentation ? "annual" : "quarterly");
+  const financialPeriodMode = controlledFinancialPeriodMode ?? internalFinancialPeriodMode;
   const [selectedFinancialPeriod, setSelectedFinancialPeriod] = useState<string | null>(null);
   const [financialSeries, setFinancialSeries] = useState<CompanyFinancialSeriesPoint[] | null>(null);
   const [earningsSeriesFromApi, setEarningsSeriesFromApi] = useState<CompanyEarningsSeriesPoint[] | null>(null);
@@ -180,6 +247,12 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
     () => buildEarningsSeries(item, earningsActualSeries, earningsSeriesFromApi),
     [earningsActualSeries, earningsSeriesFromApi, item]
   );
+  const periodEarningsSeries = useMemo(
+    () => financialPeriodMode === "annual"
+      ? aggregateEarningsSeriesToAnnual(earningsSeries).slice(-5)
+      : earningsSeries.slice(-12),
+    [earningsSeries, financialPeriodMode]
+  );
   const valuationMetrics = useMemo(
     () => buildValuationMetrics(price, marketCap, item),
     [price, marketCap, item]
@@ -190,6 +263,14 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
       : (valuationCandles ?? []).map((candle) => ({ timestamp: candle.timestamp, close: candle.close })),
     [valuationCandles, valuationPriceFixture]
   );
+
+  const changeFinancialPeriodMode = useCallback((mode: FinancialPeriodMode) => {
+    setSelectedFinancialPeriod(null);
+    if (controlledFinancialPeriodMode === undefined) {
+      setInternalFinancialPeriodMode(mode);
+    }
+    onFinancialPeriodModeChange?.(mode);
+  }, [controlledFinancialPeriodMode, onFinancialPeriodModeChange]);
 
   useEffect(() => {
     setFailedCompanyLogoBackdropUrl(null);
@@ -267,11 +348,11 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
   useEffect(() => {
     onEvidenceChange?.({
       financialSeries: profitabilitySeries,
-      earningsSeries,
+      earningsSeries: periodEarningsSeries,
       selectedFinancialPeriod,
       financialPeriodMode
     });
-  }, [earningsSeries, financialPeriodMode, onEvidenceChange, profitabilitySeries, selectedFinancialPeriod]);
+  }, [financialPeriodMode, onEvidenceChange, periodEarningsSeries, profitabilitySeries, selectedFinancialPeriod]);
 
   const infoRows: ReadonlyArray<readonly [string, string, ("up" | "down" | "neutral")?]> = [
     ["현재가", formatUsd(price)],
@@ -339,16 +420,13 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
       symbol={normalizedSymbol}
       metric={earningsMetric}
       onMetricChange={setEarningsMetric}
-      series={earningsSeries}
+      series={periodEarningsSeries}
       comparison={comparison}
       metrics={valuationMetrics}
       financialSeries={profitabilitySeries}
       periodMode={financialPeriodMode}
       selectedPeriod={selectedFinancialPeriod}
-      onPeriodModeChange={(mode) => {
-        setSelectedFinancialPeriod(null);
-        setFinancialPeriodMode(mode);
-      }}
+      onPeriodModeChange={changeFinancialPeriodMode}
       onPeriodSelect={setSelectedFinancialPeriod}
       contentMode={valuationContent}
       valuationPrices={valuationPrices}
@@ -361,10 +439,7 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
         series={profitabilitySeries}
         periodMode={financialPeriodMode}
         selectedPeriod={selectedFinancialPeriod}
-        onPeriodModeChange={(mode) => {
-          setSelectedFinancialPeriod(null);
-          setFinancialPeriodMode(mode);
-        }}
+        onPeriodModeChange={changeFinancialPeriodMode}
         onPeriodSelect={setSelectedFinancialPeriod}
         compactJournal={journalPresentation}
       />
@@ -376,10 +451,7 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
         <StabilityDashboard
           financialSeries={profitabilitySeries}
           periodMode={financialPeriodMode}
-          onPeriodModeChange={(mode) => {
-            setSelectedFinancialPeriod(null);
-            setFinancialPeriodMode(mode);
-          }}
+          onPeriodModeChange={changeFinancialPeriodMode}
           compactJournal={journalPresentation}
         />
       ) : <StabilityFinanceChart series={profitabilitySeries} />}
@@ -537,13 +609,26 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
   const minValue = values.length ? Math.min(0, ...values) : 0;
   const maxValue = values.length ? Math.max(...values) : 1;
   const paddedMax = maxValue === minValue ? maxValue + 1 : maxValue + (maxValue - minValue) * 0.16;
-  const plot = { left: metric === "revenue" ? 74 : 48, right: 22, top: 24, bottom: 40 };
+  const plot = responsiveChartPlot(chartWidth, {
+    left: metric === "revenue" ? 110 : 90,
+    right: 36,
+    top: 24,
+    bottom: 40,
+    compactLeft: metric === "revenue" ? 72 : 58,
+    compactRight: 22
+  });
   const xStep = points.length > 1 ? (chartWidth - plot.left - plot.right) / (points.length - 1) : 0;
   const yFor = (value: number) => {
     const span = paddedMax - minValue || 1;
     return plot.top + (1 - (value - minValue) / span) * (chartHeight - plot.top - plot.bottom);
   };
   const yTicks = makeTicks(minValue, paddedMax, 5);
+  const latestIndex = points.length - 1;
+  const latestPoint = points[latestIndex];
+  const latestX = points.length > 1 ? plot.left + xStep * latestIndex : chartWidth - plot.right - 22;
+  const latestYValues = [latestPoint?.actual, latestPoint?.estimate]
+    .filter((value): value is number => Number.isFinite(value ?? NaN))
+    .map(yFor);
 
   return (
     <div className="company-earnings-history-card">
@@ -571,6 +656,9 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
           const actualY = actual == null ? null : yFor(actual);
           const estimateY = estimate == null ? null : yFor(estimate);
           const hasComparison = actualY != null && estimateY != null;
+          const comparisonGap = hasComparison ? Math.min(9, Math.max(5, xStep * 0.08)) : 0;
+          const estimateX = x - comparisonGap;
+          const actualX = x + comparisonGap;
           return (
             <g
               key={`${point.period}-${index}`}
@@ -579,13 +667,15 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
               style={{ "--earnings-index": index } as CSSProperties}
             >
               {estimate != null && (
-                <circle className="company-earnings-dot estimate" cx={x} cy={estimateY ?? 0} r={9} />
+                <circle className="company-earnings-dot estimate" cx={estimateX} cy={estimateY ?? 0} r={7}>
+                  <title>{`${formatPeriod(point.period, point.periodEndDate)} · 추정 ${formatEarningsAxisValue(estimate, metric)}`}</title>
+                </circle>
               )}
               {hasComparison && (
                 <line
                   className={`company-earnings-surprise-stem ${tone}`}
-                  x1={x}
-                  x2={x}
+                  x1={estimateX}
+                  x2={actualX}
                   y1={estimateY ?? 0}
                   y2={actualY ?? 0}
                   pathLength={1}
@@ -594,11 +684,13 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
               {actual != null && (
                 <circle
                   className={`company-earnings-dot actual ${tone}`}
-                  cx={x}
+                  cx={actualX}
                   cy={actualY ?? 0}
-                  r={8}
+                  r={7}
                   style={hasComparison ? { "--earnings-actual-offset-y": `${(estimateY ?? 0) - (actualY ?? 0)}px` } as CSSProperties : undefined}
-                />
+                >
+                  <title>{`${formatPeriod(point.period, point.periodEndDate)} · 실적 ${formatEarningsAxisValue(actual, metric)}`}</title>
+                </circle>
               )}
               {shouldShowPeriodLabel(index, points.length) && (
                 <text className="company-earnings-period" x={x} y={chartHeight - 11}>{formatPeriod(point.period, point.periodEndDate)}</text>
@@ -606,6 +698,16 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
             </g>
           );
         })}
+        {points.length > 0 && (
+          <JournalChartAnnotation
+            target="earnings-latest"
+            label="실제치·추정치 차이"
+            x={latestX}
+            y={latestYValues.length ? Math.min(...latestYValues) : plot.top}
+            top={plot.top}
+            chartWidth={chartWidth}
+          />
+        )}
         {!points.length && (
           <text className="company-earnings-empty" x={chartWidth / 2} y={chartHeight / 2}>실적 시계열 확인 중</text>
         )}
@@ -645,20 +747,34 @@ function ProfitabilityDashboard({
         </div>
       </header>}
       <div className="company-profitability-chart-grid">
-        <ProfitGrowthChart points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
-        <InvestmentReturnChart points={points} periodMode={periodMode} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
-      </div>
-      <div className="company-profitability-table-section">
-        <div className="company-profitability-table-heading">
-          <strong>기간별 핵심 수치</strong>
-          <span>ROIC · 계산되지 않음</span>
-        </div>
-        <FinancialSeriesTable
-          points={tablePoints}
-          rows={buildProfitabilityDashboardRows(tablePoints, periodMode)}
-          selectedPeriod={selectedPeriod}
-          emptyLabel="수익성 재무 데이터 확인 중"
-        />
+        <section className="company-financial-metric-block" aria-label="수익 성장지표와 기간별 수치">
+          <ProfitGrowthChart points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
+          <section className="company-profitability-table-section" aria-label="기간별 수익 성장 수치">
+            <div className="company-profitability-table-heading">
+              <strong>기간별 수익 성장 수치</strong>
+            </div>
+            <FinancialSeriesTable
+              points={tablePoints}
+              rows={buildProfitGrowthRows(tablePoints, periodMode)}
+              selectedPeriod={selectedPeriod}
+              emptyLabel="수익 성장 데이터 확인 중"
+            />
+          </section>
+        </section>
+        <section className="company-financial-metric-block" aria-label="투자수익률과 기간별 수치">
+          <InvestmentReturnChart points={points} periodMode={periodMode} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
+          <section className="company-profitability-table-section" aria-label="기간별 투자수익률 수치">
+            <div className="company-profitability-table-heading">
+              <strong>기간별 투자수익률 수치</strong>
+            </div>
+            <FinancialSeriesTable
+              points={tablePoints}
+              rows={buildInvestmentReturnRows(tablePoints, periodMode)}
+              selectedPeriod={selectedPeriod}
+              emptyLabel="투자수익률 데이터 확인 중"
+            />
+          </section>
+        </section>
       </div>
     </section>
   );
@@ -668,13 +784,6 @@ function ProfitGrowthChart({ points, selectedPeriod, onPeriodSelect }: Financial
   return (
     <FinancialStaticChartCard
       title="수익 성장지표"
-      legend={(
-        <div className="company-profitability-legend" aria-label="수익 성장지표 범례">
-          <span><i className="revenue" /><GlossaryText text="매출액" /></span>
-          <span><i className="operating-margin" /><GlossaryText text="영업이익률" /></span>
-          <span><i className="net-margin" /><GlossaryText text="순이익률" /></span>
-        </div>
-      )}
     >
       <ProfitGrowthPlot points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
     </FinancialStaticChartCard>
@@ -690,7 +799,7 @@ function ProfitGrowthPlot({ points, selectedPeriod, onPeriodSelect }: FinancialI
   const marginValues = [...operatingMargins, ...netMargins].filter((value): value is number => Number.isFinite(value ?? NaN));
   const moneyDomain = paddedDomain(moneyValues, { includeZero: true, fallbackMax: 1 });
   const marginDomain = paddedDomain(marginValues, { includeZero: true, fallbackMax: 0.3 });
-  const plot = { left: 96, right: 54, top: 12, bottom: 38 };
+  const plot = responsiveChartPlot(chartWidth, { left: 96, right: 54, top: 12, bottom: 38, compactLeft: 62, compactRight: 38 });
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = innerWidth / points.length;
@@ -698,14 +807,21 @@ function ProfitGrowthPlot({ points, selectedPeriod, onPeriodSelect }: FinancialI
   const zeroY = valueToY(0, moneyDomain, plot.top, innerHeight);
   const moneyY = (value: number) => valueToY(value, moneyDomain, plot.top, innerHeight);
   const ratioY = (value: number) => valueToY(value, marginDomain, plot.top, innerHeight);
-  const xFor = (index: number) => plot.left + slot * index + slot / 2;
+  const xFor = (index: number) => financialChartPointX(index, points.length, plot.left, innerWidth, barWidth / 2 + 4);
   const operatingPath = financialLinePath(operatingMargins, xFor, ratioY);
   const netPath = financialLinePath(netMargins, xFor, ratioY);
+  const latestIndex = points.length - 1;
+  const latestRevenue = points[latestIndex]?.revenue;
+  const latestYValues = [
+    Number.isFinite(latestRevenue ?? NaN) ? moneyY(latestRevenue as number) : null,
+    Number.isFinite(operatingMargins[latestIndex] ?? NaN) ? ratioY(operatingMargins[latestIndex] as number) : null,
+    Number.isFinite(netMargins[latestIndex] ?? NaN) ? ratioY(netMargins[latestIndex] as number) : null
+  ].filter((value): value is number => value != null);
   return (
     <svg ref={chartRef} className="company-profitability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="매출액 영업이익률 순이익률 시계열">
       {makeTicks(moneyDomain.min, moneyDomain.max, 5).map((tick) => {
         const y = moneyY(tick);
-        return <g key={tick}><line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="company-financial-axis-value" x={plot.left - 10} y={y + 5}>{formatKoreanMoneyAxis(tick)}</text></g>;
+        return <g key={tick}><line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="company-financial-axis-value" x={financialChartAxisLabelX} y={y + 5}>{formatKoreanMoneyAxis(tick)}</text></g>;
       })}
       {makeTicks(marginDomain.min, marginDomain.max, 5).map((tick) => <text key={`ratio-${tick}`} className="company-financial-axis-ratio" x={chartWidth - plot.right + 8} y={ratioY(tick) + 5}>{formatRatioPercent(tick)}</text>)}
       <line className="company-profitability-zero" x1={plot.left} x2={chartWidth - plot.right} y1={zeroY} y2={zeroY} />
@@ -735,6 +851,14 @@ function ProfitGrowthPlot({ points, selectedPeriod, onPeriodSelect }: FinancialI
         { key: "operating", value: operatingMargins[index], className: "company-profitability-operating-dot" },
         { key: "net", value: netMargins[index], className: "company-profitability-net-dot" }
       ], xFor, ratioY, selectedPeriod, onPeriodSelect, index === points.length - 1 ? "profitability-latest" : undefined))}
+      <JournalChartAnnotation
+        target="profitability-latest"
+        label="매출·마진 동반 개선"
+        x={xFor(latestIndex)}
+        y={latestYValues.length ? Math.min(...latestYValues) : plot.top}
+        top={plot.top}
+        chartWidth={chartWidth}
+      />
     </svg>
   );
 }
@@ -747,14 +871,6 @@ function InvestmentReturnChart({ points, periodMode, selectedPeriod, onPeriodSel
   return (
     <FinancialStaticChartCard
       title="투자수익률"
-      legend={(
-        <div className="company-profitability-legend company-return-legend" aria-label="투자수익률 범례">
-          <span><i className="net-income" /><GlossaryText text="당기순이익" /></span>
-          <span><i className="roe" /><GlossaryText text="ROE" /></span>
-          <span><i className="roa" /><GlossaryText text="ROA" /></span>
-          <span><i className="fcf-margin" /><GlossaryText text="FCF Margin" /></span>
-        </div>
-      )}
     >
       <InvestmentReturnPlot points={points} ratios={{ roe, roa, fcfMargin }} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
     </FinancialStaticChartCard>
@@ -768,7 +884,7 @@ function InvestmentReturnPlot({ points, ratios, selectedPeriod, onPeriodSelect }
   const ratioValues = [...ratios.roe, ...ratios.roa, ...ratios.fcfMargin].filter((value): value is number => Number.isFinite(value ?? NaN));
   const moneyDomain = paddedDomain(moneyValues, { includeZero: true, fallbackMax: 1 });
   const ratioDomain = paddedDomain(ratioValues, { includeZero: true, fallbackMax: 0.3 });
-  const plot = { left: 96, right: 54, top: 12, bottom: 38 };
+  const plot = responsiveChartPlot(chartWidth, { left: 96, right: 54, top: 12, bottom: 38, compactLeft: 62, compactRight: 38 });
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = innerWidth / points.length;
@@ -776,12 +892,20 @@ function InvestmentReturnPlot({ points, ratios, selectedPeriod, onPeriodSelect }
   const zeroY = valueToY(0, moneyDomain, plot.top, innerHeight);
   const moneyY = (value: number) => valueToY(value, moneyDomain, plot.top, innerHeight);
   const ratioY = (value: number) => valueToY(value, ratioDomain, plot.top, innerHeight);
-  const xFor = (index: number) => plot.left + slot * index + slot / 2;
+  const xFor = (index: number) => financialChartPointX(index, points.length, plot.left, innerWidth, barWidth / 2 + 4);
+  const latestIndex = points.length - 1;
+  const latestIncome = points[latestIndex]?.netIncome;
+  const latestYValues = [
+    Number.isFinite(latestIncome ?? NaN) ? moneyY(latestIncome as number) : null,
+    Number.isFinite(ratios.roe[latestIndex] ?? NaN) ? ratioY(ratios.roe[latestIndex] as number) : null,
+    Number.isFinite(ratios.roa[latestIndex] ?? NaN) ? ratioY(ratios.roa[latestIndex] as number) : null,
+    Number.isFinite(ratios.fcfMargin[latestIndex] ?? NaN) ? ratioY(ratios.fcfMargin[latestIndex] as number) : null
+  ].filter((value): value is number => value != null);
   return (
     <svg ref={chartRef} className="company-profitability-plot company-return-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="당기순이익 ROE ROA FCF Margin 시계열">
       {makeTicks(moneyDomain.min, moneyDomain.max, 5).map((tick) => {
         const y = moneyY(tick);
-        return <g key={tick}><line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="company-financial-axis-value" x={plot.left - 10} y={y + 5}>{formatKoreanMoneyAxis(tick)}</text></g>;
+        return <g key={tick}><line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="company-financial-axis-value" x={financialChartAxisLabelX} y={y + 5}>{formatKoreanMoneyAxis(tick)}</text></g>;
       })}
       {makeTicks(ratioDomain.min, ratioDomain.max, 5).map((tick) => <text key={`ratio-${tick}`} className="company-financial-axis-ratio" x={chartWidth - plot.right + 8} y={ratioY(tick) + 5}>{formatRatioPercent(tick)}</text>)}
       <line className="company-profitability-zero" x1={plot.left} x2={chartWidth - plot.right} y1={zeroY} y2={zeroY} />
@@ -804,11 +928,19 @@ function InvestmentReturnPlot({ points, ratios, selectedPeriod, onPeriodSelect }
         { key: "roa", value: ratios.roa[index], className: "company-return-dot roa" },
         { key: "fcf", value: ratios.fcfMargin[index], className: "company-return-dot fcf-margin" }
       ], xFor, ratioY, selectedPeriod, onPeriodSelect, index === points.length - 1 ? "returns-latest" : undefined))}
+      <JournalChartAnnotation
+        target="returns-latest"
+        label="자본 효율·현금 확인"
+        x={xFor(latestIndex)}
+        y={latestYValues.length ? Math.min(...latestYValues) : plot.top}
+        top={plot.top}
+        chartWidth={chartWidth}
+      />
     </svg>
   );
 }
 
-function FinancialStaticChartCard({ title, children, legend }: { title: string; children: ReactNode; legend: ReactNode }) {
+function FinancialStaticChartCard({ title, children, legend }: { title: string; children: ReactNode; legend?: ReactNode }) {
   return <section className="company-financial-static-card"><strong>{title}</strong>{children}{legend}</section>;
 }
 
@@ -846,20 +978,33 @@ function StabilityDashboard({
         </div>
       </header>}
       <div className="company-stability-dashboard-grid">
-        <StabilityFinanceChart series={points} />
-        <StabilityRatiosChart series={points} />
+        <section className="company-financial-metric-block" aria-label="자본·부채 구조와 기간별 수치">
+          <StabilityFinanceChart series={points} />
+          <section className="company-stability-dashboard-table" aria-label="자본·부채 기간별 수치">
+            <div className="company-profitability-table-heading">
+              <strong>기간별 자본·부채 수치</strong>
+            </div>
+            <FinancialSeriesTable
+              points={tablePoints}
+              rows={buildStabilityCapitalRows(tablePoints, periodMode)}
+              emptyLabel="자본·부채 데이터 확인 중"
+            />
+          </section>
+        </section>
+        <section className="company-financial-metric-block" aria-label="안정성지표와 기간별 수치">
+          <StabilityRatiosChart series={points} />
+          <section className="company-stability-dashboard-table" aria-label="유동성과 이자 부담 기간별 수치">
+            <div className="company-profitability-table-heading">
+              <strong>기간별 안정성 수치</strong>
+            </div>
+            <FinancialSeriesTable
+              points={tablePoints}
+              rows={buildStabilityHealthRows(tablePoints, periodMode)}
+              emptyLabel="안정성지표 데이터 확인 중"
+            />
+          </section>
+        </section>
       </div>
-      <section className="company-stability-dashboard-table" aria-label="안정성 기간별 수치">
-        <div className="company-profitability-table-heading">
-          <strong>안정성 수치</strong>
-          <span>총부채, 이자성 부채와 순부채를 구분해 표시합니다.</span>
-        </div>
-        <FinancialSeriesTable
-          points={tablePoints}
-          rows={buildStabilityDashboardTableRows(tablePoints, periodMode)}
-          emptyLabel="안정성 재무 데이터 확인 중"
-        />
-      </section>
     </section>
   );
 }
@@ -867,19 +1012,11 @@ function StabilityDashboard({
 function StabilityRatiosChart({ series }: { series: FinancialChartPoint[] }) {
   const { chartRef, chartWidth, chartHeight } = useFinancialChartSize();
   const points = series.filter(isRenderableStabilityRatiosPoint).slice(-12);
-  const legend = (
-    <div className="company-profitability-legend company-stability-ratios-legend" aria-label="안정성지표 범례">
-      <span><i className="debt-ratio" /><GlossaryText text="부채비율" /></span>
-      <span><i className="current-liability-ratio" /><GlossaryText text="유동부채비율" /></span>
-      <span><i className="noncurrent-liability-ratio" /><GlossaryText text="비유동부채비율" /></span>
-    </div>
-  );
   if (!points.length) {
     return (
       <FinancialChartShell
         className="company-stability-ratios-card"
         title="안정성지표"
-        legend={legend}
         table={<FinancialSeriesTable points={[]} rows={[]} emptyLabel="안정성 비율 데이터 확인 중" />}
       >
         <div className="company-profitability-empty-card">안정성 비율 시계열 확인 중</div>
@@ -892,17 +1029,19 @@ function StabilityRatiosChart({ series }: { series: FinancialChartPoint[] }) {
   const ratioValues = [...debtRatios, ...currentRatios, ...noncurrentRatios]
     .filter((value): value is number => Number.isFinite(value ?? NaN));
   const ratioDomain = paddedDomain(ratioValues, { includeZero: true, fallbackMax: 1 });
-  const plot = { left: 78, right: 20, top: 10, bottom: 34 };
+  const plot = responsiveChartPlot(chartWidth, { left: 78, right: 20, top: 10, bottom: 34, compactLeft: 58, compactRight: 12 });
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
-  const slot = innerWidth / Math.max(1, points.length);
-  const xFor = (index: number) => plot.left + slot * index + slot / 2;
+  const xFor = (index: number) => financialChartPointX(index, points.length, plot.left, innerWidth, 6);
   const ratioY = (value: number) => valueToY(value, ratioDomain, plot.top, innerHeight);
+  const latestIndex = points.length - 1;
+  const latestYValues = [debtRatios[latestIndex], currentRatios[latestIndex], noncurrentRatios[latestIndex]]
+    .filter((value): value is number => Number.isFinite(value ?? NaN))
+    .map(ratioY);
   return (
     <FinancialChartShell
       className="company-stability-ratios-card"
       title="안정성지표"
-      legend={legend}
       table={<FinancialSeriesTable points={points.slice(-6)} rows={buildStabilityRatioTableRows(points.slice(-6))} />}
     >
       <svg ref={chartRef} className="company-profitability-plot company-stability-ratios-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="부채비율 유동부채비율 비유동부채비율 시계열">
@@ -911,7 +1050,7 @@ function StabilityRatiosChart({ series }: { series: FinancialChartPoint[] }) {
           return (
             <g key={tick}>
               <line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} />
-              <text className="company-financial-axis-value" x={plot.left - 10} y={y + 5}>{formatRatioPercent(tick)}</text>
+              <text className="company-financial-axis-value" x={financialChartAxisLabelX} y={y + 5}>{formatRatioPercent(tick)}</text>
             </g>
           );
         })}
@@ -926,8 +1065,16 @@ function StabilityRatiosChart({ series }: { series: FinancialChartPoint[] }) {
           { key: "current", value: currentRatios[index], className: "current-liability-ratio" },
           { key: "noncurrent", value: noncurrentRatios[index], className: "noncurrent-liability-ratio" }
         ].map((metric) => Number.isFinite(metric.value ?? NaN)
-          ? <circle key={`${point.period}-${index}-${metric.key}`} className={`company-stability-metric-dot ${metric.className}`} data-journal-mark={index === points.length - 1 ? "stability-latest" : undefined} cx={xFor(index)} cy={ratioY(metric.value as number)} r={3.5} />
+          ? <circle key={`${point.period}-${index}-${metric.key}`} className={`company-stability-metric-dot ${metric.className}`} data-journal-mark={index === points.length - 1 ? "stability-ratios-latest" : undefined} cx={xFor(index)} cy={ratioY(metric.value as number)} r={3.5} />
           : null))}
+        <JournalChartAnnotation
+          target="stability-ratios-latest"
+          label="부채 구성 개선"
+          x={xFor(latestIndex)}
+          y={latestYValues.length ? Math.min(...latestYValues) : plot.top}
+          top={plot.top}
+          chartWidth={chartWidth}
+        />
       </svg>
     </FinancialChartShell>
   );
@@ -944,13 +1091,6 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
       <FinancialChartShell
         className="company-stability-card"
         title="자본·부채 구조"
-        legend={(
-          <div className="company-profitability-legend company-stability-legend" aria-label="안정성 범례">
-            <span><i className="equity" /><GlossaryText text="총자본" /></span>
-            <span><i className="liabilities" /><GlossaryText text="총부채" /></span>
-            <span><i className="debt-ratio" /><GlossaryText text="부채비율" /></span>
-          </div>
-        )}
         table={<FinancialSeriesTable points={[]} rows={[]} emptyLabel="안정성 재무 데이터 확인 중" />}
       >
         <div className="company-profitability-empty-card">안정성 시계열 확인 중</div>
@@ -961,7 +1101,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const ratioValues = points.map(debtRatioFor).filter((value): value is number => Number.isFinite(value ?? NaN));
   const moneyDomain = paddedDomain(moneyValues, { includeZero: true, fallbackMax: 1, minFloor: 0 });
   const ratioDomain = paddedDomain(ratioValues, { includeZero: true, fallbackMax: 1 });
-  const plot = financialChartPlot;
+  const plot = responsiveChartPlot(chartWidth, { left: 92, right: 20, top: 10, bottom: 34, compactLeft: 62, compactRight: 12 });
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = points.length ? innerWidth / points.length : innerWidth;
@@ -969,7 +1109,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
   const zeroY = valueToY(0, moneyDomain, plot.top, innerHeight);
   const moneyY = (value: number) => valueToY(value, moneyDomain, plot.top, innerHeight);
   const ratioY = (value: number) => valueToY(value, ratioDomain, plot.top, innerHeight);
-  const xFor = (index: number) => plot.left + slot * index + slot / 2;
+  const xFor = (index: number) => financialChartPointX(index, points.length, plot.left, innerWidth, barWidth + 4);
   const ratioPath = points
     .map((point, index) => {
       const ratio = debtRatioFor(point);
@@ -980,18 +1120,19 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
     })
     .filter(Boolean)
     .join(" ");
+  const latestIndex = points.length - 1;
+  const latestPoint = points[latestIndex];
+  const latestRatio = latestPoint ? debtRatioFor(latestPoint) : null;
+  const latestYValues = [
+    Number.isFinite(latestPoint?.totalEquity ?? NaN) ? moneyY(latestPoint?.totalEquity as number) : null,
+    Number.isFinite(latestPoint?.totalLiabilities ?? NaN) ? moneyY(latestPoint?.totalLiabilities as number) : null,
+    Number.isFinite(latestRatio ?? NaN) ? ratioY(latestRatio as number) : null
+  ].filter((value): value is number => value != null);
 
   return (
     <FinancialChartShell
       className="company-stability-card"
       title="자본·부채 구조"
-      legend={(
-        <div className="company-profitability-legend company-stability-legend" aria-label="안정성 범례">
-          <span><i className="equity" /><GlossaryText text="총자본" /></span>
-          <span><i className="liabilities" /><GlossaryText text="총부채" /></span>
-          <span><i className="debt-ratio" /><GlossaryText text="부채비율" /></span>
-        </div>
-      )}
       table={<FinancialSeriesTable points={tablePoints} rows={buildStabilityTableRows(tablePoints)} />}
     >
       <svg ref={chartRef} className="company-profitability-plot company-stability-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="SEC 재무 안정성 시계열">
@@ -1000,7 +1141,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
           return (
             <g key={tick}>
               <line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} />
-              <text className="company-financial-axis-value" x={plot.left - 12} y={y + 5}>{formatKoreanMoneyAxis(tick)}</text>
+              <text className="company-financial-axis-value" x={financialChartAxisLabelX} y={y + 5}>{formatKoreanMoneyAxis(tick)}</text>
             </g>
           );
         })}
@@ -1010,7 +1151,7 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
           const totalEquity = Number.isFinite(point.totalEquity ?? NaN) ? point.totalEquity as number : null;
           const totalLiabilities = Number.isFinite(point.totalLiabilities ?? NaN) ? point.totalLiabilities as number : null;
           return (
-            <g key={`${point.period}-${index}`} data-journal-mark={index === points.length - 1 ? "stability-latest" : undefined}>
+            <g key={`${point.period}-${index}`} data-journal-mark={index === points.length - 1 ? "stability-capital-latest" : undefined}>
               {totalEquity != null && (
                 <rect
                   className="company-stability-bar equity"
@@ -1041,9 +1182,17 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
         {points.map((point, index) => {
           const ratio = debtRatioFor(point);
           return Number.isFinite(ratio ?? NaN)
-            ? <circle key={`${point.period}-${index}-debt-ratio`} className="company-stability-ratio-dot" data-journal-mark={index === points.length - 1 ? "stability-latest" : undefined} cx={xFor(index)} cy={ratioY(ratio as number)} r={3.5} />
+            ? <circle key={`${point.period}-${index}-debt-ratio`} className="company-stability-ratio-dot" data-journal-mark={index === points.length - 1 ? "stability-capital-latest" : undefined} cx={xFor(index)} cy={ratioY(ratio as number)} r={3.5} />
             : null;
         })}
+        <JournalChartAnnotation
+          target="stability-capital-latest"
+          label="자본 증가가 더 빠름"
+          x={xFor(latestIndex)}
+          y={latestYValues.length ? Math.min(...latestYValues) : plot.top}
+          top={plot.top}
+          chartWidth={chartWidth}
+        />
       </svg>
     </FinancialChartShell>
   );
@@ -1061,7 +1210,7 @@ function FinancialChartShell({
   title: string;
   subtitle?: string;
   children: ReactNode;
-  legend: ReactNode;
+  legend?: ReactNode;
   table: ReactNode;
 }) {
   const [activePage, setActivePage] = useState<0 | 1>(0);
@@ -1155,17 +1304,32 @@ function ValuationPagedPanel({
       )}
       {showValuation && !showEarnings && (
         <div className="company-valuation-dashboard-grid is-valuation-only">
-          <PerShareIndicatorsChart points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
-          <HistoricalValuationChart points={historicalValuationSeries} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
+          <section className="company-financial-metric-block company-per-share-block" aria-label="주당지표와 기간별 주당지표">
+            <PerShareIndicatorsChart points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
+            <section className="company-per-share-table-section" aria-label="기간별 주당지표 수치">
+              <div className="company-profitability-table-heading">
+                <strong>기간별 주당지표</strong>
+              </div>
+              <FinancialSeriesTable
+                points={tablePoints}
+                rows={buildPerShareTableRows(tablePoints, periodMode)}
+                selectedPeriod={selectedPeriod}
+                emptyLabel="주당지표 데이터 확인 중"
+              />
+            </section>
+          </section>
+          <section className="company-financial-metric-block company-valuation-metrics-block" aria-label="가치지표와 현재 가치지표">
+            <HistoricalValuationChart points={historicalValuationSeries} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
+            <ValuationMetricsPanel metrics={metrics} />
+          </section>
         </div>
       )}
-      {showValuation && (
+      {showValuation && showEarnings && (
         <div className={`company-valuation-dashboard-detail ${!showEarnings ? "is-valuation-only" : ""}`}>
           <ValuationMetricsPanel metrics={metrics} />
           <section className="company-per-share-table-section" aria-label="기간별 주당지표 수치">
             <div className="company-profitability-table-heading">
               <strong>기간별 주당지표</strong>
-              <span>EPS · BPS · SPS · CPS</span>
             </div>
             <FinancialSeriesTable
               points={tablePoints}
@@ -1184,14 +1348,6 @@ function PerShareIndicatorsChart({ points, selectedPeriod, onPeriodSelect }: Fin
   return (
     <FinancialStaticChartCard
       title="주당지표"
-      legend={(
-        <div className="company-profitability-legend company-per-share-legend" aria-label="주당지표 범례">
-          <span><i className="eps" /><GlossaryText text="EPS" /></span>
-          <span><i className="bps" /><GlossaryText text="BPS" /></span>
-          <span><i className="sps" /><GlossaryText text="SPS" /></span>
-          <span><i className="cps" /><GlossaryText text="CPS" /></span>
-        </div>
-      )}
     >
       <PerShareIndicatorsPlot points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} />
     </FinancialStaticChartCard>
@@ -1247,22 +1403,26 @@ function HistoricalValuationPlot({
   const values = [...per, ...pbr, ...psr].filter((value): value is number => Number.isFinite(value ?? NaN));
   if (!points.length || !values.length) return <div className="company-profitability-empty-card">결산일 가격 데이터 확인 중</div>;
   const domain = paddedDomain(values, { includeZero: true, fallbackMax: 10, minFloor: 0 });
-  const plot = { left: 70, right: 24, top: 12, bottom: 38 };
+  const plot = responsiveChartPlot(chartWidth, { left: 70, right: 24, top: 12, bottom: 38, compactLeft: 54, compactRight: 14 });
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
-  const slot = innerWidth / points.length;
-  const xFor = (index: number) => plot.left + slot * index + slot / 2;
+  const xFor = (index: number) => financialChartPointX(index, points.length, plot.left, innerWidth, 6);
   const multipleY = (value: number) => valueToY(value, domain, plot.top, innerHeight);
   const seriesDefinitions = [
     { key: "per", values: per, className: "per" },
     { key: "pbr", values: pbr, className: "pbr" },
     { key: "psr", values: psr, className: "psr" }
   ] as const;
+  const latestIndex = points.length - 1;
+  const latestValues = seriesDefinitions
+    .map((definition) => definition.values[latestIndex])
+    .filter((value): value is number => Number.isFinite(value ?? NaN));
+  const latestY = latestValues.length ? Math.min(...latestValues.map(multipleY)) : plot.top;
   return (
     <svg ref={chartRef} className="company-profitability-plot company-historical-valuation-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="결산일 가격 기준 PER PBR PSR 시계열">
       {makeTicks(domain.min, domain.max, 5).map((tick) => {
         const y = multipleY(tick);
-        return <g key={tick}><line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="company-financial-axis-value" x={plot.left - 10} y={y + 5}>{formatMultipleAxis(tick)}</text></g>;
+        return <g key={tick}><line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="company-financial-axis-value" x={financialChartAxisLabelX} y={y + 5}>{formatMultipleAxis(tick)}</text></g>;
       })}
       {seriesDefinitions.map((definition) => (
         <path key={definition.key} className={`company-historical-valuation-line ${definition.className}`} d={financialLinePath(definition.values, xFor, multipleY)} />
@@ -1280,6 +1440,14 @@ function HistoricalValuationPlot({
           </g>
         );
       })}
+      <JournalChartAnnotation
+        target="valuation-latest"
+        label="현재 가치 배수 확인"
+        x={xFor(latestIndex)}
+        y={latestY}
+        top={plot.top}
+        chartWidth={chartWidth}
+      />
     </svg>
   );
 }
@@ -1290,25 +1458,31 @@ function PerShareIndicatorsPlot({ points, selectedPeriod, onPeriodSelect }: Fina
   const metrics = points.map(perShareMetricsForPoint);
   const values = metrics.flatMap((point) => [point.eps, point.bps, point.sps, point.cps]).filter((value): value is number => Number.isFinite(value ?? NaN));
   const domain = paddedDomain(values, { includeZero: true, fallbackMax: 1 });
-  const plot = { left: 76, right: 20, top: 12, bottom: 38 };
+  const plot = responsiveChartPlot(chartWidth, { left: 76, right: 20, top: 12, bottom: 38, compactLeft: 56, compactRight: 12 });
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = innerWidth / points.length;
   const barWidth = Math.max(4, Math.min(15, slot * 0.17));
   const zeroY = valueToY(0, domain, plot.top, innerHeight);
   const valueY = (value: number) => valueToY(value, domain, plot.top, innerHeight);
-  const xFor = (index: number) => plot.left + slot * index + slot / 2;
+  const xFor = (index: number) => financialChartPointX(index, points.length, plot.left, innerWidth, barWidth * 2 + 4);
   const seriesDefinitions = [
     { key: "eps", className: "eps", offset: -1.5 },
     { key: "bps", className: "bps", offset: -0.5 },
     { key: "sps", className: "sps", offset: 0.5 },
     { key: "cps", className: "cps", offset: 1.5 }
   ] as const;
+  const latestIndex = points.length - 1;
+  const latestMetrics = metrics[latestIndex]!;
+  const latestValues = seriesDefinitions
+    .map((definition) => latestMetrics[definition.key])
+    .filter((value): value is number => Number.isFinite(value ?? NaN));
+  const latestY = latestValues.length ? Math.min(...latestValues.map(valueY)) : plot.top;
   return (
     <svg ref={chartRef} className="company-profitability-plot company-per-share-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="EPS BPS SPS CPS 주당지표 시계열">
       {makeTicks(domain.min, domain.max, 5).map((tick) => {
         const y = valueY(tick);
-        return <g key={tick}><line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="company-financial-axis-value" x={plot.left - 10} y={y + 5}>{formatPerShareAxis(tick)}</text></g>;
+        return <g key={tick}><line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="company-financial-axis-value" x={financialChartAxisLabelX} y={y + 5}>{formatPerShareAxis(tick)}</text></g>;
       })}
       <line className="company-profitability-zero" x1={plot.left} x2={chartWidth - plot.right} y1={zeroY} y2={zeroY} />
       {points.map((point, index) => {
@@ -1316,7 +1490,7 @@ function PerShareIndicatorsPlot({ points, selectedPeriod, onPeriodSelect }: Fina
         const key = financialPointKey(point);
         const valuesForPoint = metrics[index]!;
         return (
-          <g key={`${key}-${index}`} className={`company-financial-period-point ${key === selectedPeriod ? "is-selected" : ""}`} data-journal-mark={index === points.length - 1 ? "valuation-latest" : undefined} role="button" tabIndex={0} aria-label={`${formatPeriod(point.period, point.periodEndDate)} 선택`} onClick={() => onPeriodSelect(key)} onKeyDown={(event) => handleFinancialPointKeyDown(event.key, () => onPeriodSelect(key))}>
+          <g key={`${key}-${index}`} className={`company-financial-period-point ${key === selectedPeriod ? "is-selected" : ""}`} data-journal-mark={index === points.length - 1 ? "per-share-latest" : undefined} role="button" tabIndex={0} aria-label={`${formatPeriod(point.period, point.periodEndDate)} 선택`} onClick={() => onPeriodSelect(key)} onKeyDown={(event) => handleFinancialPointKeyDown(event.key, () => onPeriodSelect(key))}>
             {seriesDefinitions.map((definition) => {
               const value = valuesForPoint[definition.key];
               if (!Number.isFinite(value ?? NaN)) return null;
@@ -1327,6 +1501,14 @@ function PerShareIndicatorsPlot({ points, selectedPeriod, onPeriodSelect }: Fina
           </g>
         );
       })}
+      <JournalChartAnnotation
+        target="per-share-latest"
+        label="주당 실적 증가"
+        x={xFor(latestIndex)}
+        y={latestY}
+        top={plot.top}
+        chartWidth={chartWidth}
+      />
     </svg>
   );
 }
@@ -1425,6 +1607,13 @@ function FinancialSeriesTable({
   return (
     <div className="company-financial-table-wrap">
       <table className="company-financial-table">
+        <colgroup>
+          <col className="company-financial-table-label-column" />
+          {points.map((point, index) => (
+            <col key={`${point.period}-${index}`} className="company-financial-table-period-column" />
+          ))}
+          {showYoy && <col className="company-financial-table-change-column" />}
+        </colgroup>
         <thead>
           <tr>
             <th>항목</th>
@@ -1439,7 +1628,7 @@ function FinancialSeriesTable({
             <tr key={row.label}>
               <th>
                 <i className={row.marker} />
-                {row.label}
+                <GlossaryText text={row.label} />
               </th>
               {row.values.map((value, index) => (
                 <td
@@ -1627,6 +1816,14 @@ function buildProfitabilityDashboardRows(points: FinancialChartPoint[], periodMo
   ];
 }
 
+function buildProfitGrowthRows(points: FinancialChartPoint[], periodMode: FinancialPeriodMode): FinancialTableRow[] {
+  return buildProfitabilityDashboardRows(points, periodMode).slice(0, 3);
+}
+
+function buildInvestmentReturnRows(points: FinancialChartPoint[], periodMode: FinancialPeriodMode): FinancialTableRow[] {
+  return buildProfitabilityDashboardRows(points, periodMode).slice(3);
+}
+
 function buildStabilityTableRows(points: FinancialChartPoint[]): FinancialTableRow[] {
   return [
     { label: "총자본", marker: "equity", values: points.map((point) => formatUsdCompact(point.totalEquity)) },
@@ -1684,6 +1881,40 @@ function buildStabilityDashboardTableRows(points: FinancialChartPoint[], periodM
     },
     { label: "순부채", marker: "net-debt", values: points.map((point) => formatUsdCompact(netDebtFor(point))), yoy: formatValueGrowth(comparison ? netDebtFor(comparison) : null, latest ? netDebtFor(latest) : null) }
   ];
+}
+
+function buildStabilityCapitalRows(points: FinancialChartPoint[], periodMode: FinancialPeriodMode): FinancialTableRow[] {
+  const latestIndex = points.length - 1;
+  const comparisonIndex = latestIndex - (periodMode === "quarterly" ? 4 : 1);
+  const latest = points[latestIndex];
+  const comparison = points[comparisonIndex];
+  const ratioYoy = (current: number | null, previous: number | null) => current == null || previous == null
+    ? "확인 중"
+    : formatPercentagePointChange(current - previous);
+  return [
+    {
+      label: "총자본",
+      marker: "equity",
+      values: points.map((point) => formatUsdCompact(point.totalEquity)),
+      yoy: formatValueGrowth(comparison?.totalEquity, latest?.totalEquity)
+    },
+    {
+      label: "총부채",
+      marker: "liabilities",
+      values: points.map((point) => formatUsdCompact(point.totalLiabilities)),
+      yoy: formatValueGrowth(comparison?.totalLiabilities, latest?.totalLiabilities)
+    },
+    {
+      label: "부채비율",
+      marker: "debt-ratio",
+      values: points.map((point) => formatRatioPercent(debtRatioFor(point))),
+      yoy: ratioYoy(latest ? debtRatioFor(latest) : null, comparison ? debtRatioFor(comparison) : null)
+    }
+  ];
+}
+
+function buildStabilityHealthRows(points: FinancialChartPoint[], periodMode: FinancialPeriodMode): FinancialTableRow[] {
+  return buildStabilityDashboardTableRows(points, periodMode).slice(1);
 }
 
 function isRenderableProfitabilityPoint(point: FinancialChartPoint): boolean {
@@ -1827,6 +2058,38 @@ function aggregateQuarterlySeriesToAnnual(series: FinancialChartPoint[]): Financ
       } satisfies FinancialChartPoint];
     });
   return annual.length ? annual : series;
+}
+
+function aggregateEarningsSeriesToAnnual(series: EarningsChartPoint[]): EarningsChartPoint[] {
+  const grouped = new Map<number, EarningsChartPoint[]>();
+  series.forEach((point) => {
+    const year = financialPointYear({ period: point.period, periodEndDate: point.periodEndDate });
+    if (year == null) return;
+    const points = grouped.get(year) ?? [];
+    points.push(point);
+    grouped.set(year, points);
+  });
+  const annual = Array.from(grouped.entries())
+    .sort(([left], [right]) => left - right)
+    .flatMap(([year, points]) => {
+      if (points.length < 4) return [];
+      const sorted = [...points].sort(compareEarningsPoints);
+      const latest = sorted.at(-1)!;
+      return [{
+        period: `${year}FY`,
+        periodEndDate: latest.periodEndDate,
+        actualEps: sumNullableNumbers(sorted.map((point) => point.actualEps)),
+        estimatedEps: sumNullableNumbers(sorted.map((point) => point.estimatedEps)),
+        actualRevenue: sumNullableNumbers(sorted.map((point) => point.actualRevenue)),
+        estimatedRevenue: sumNullableNumbers(sorted.map((point) => point.estimatedRevenue))
+      }];
+    });
+  return annual.length ? annual : series;
+}
+
+function sumNullableNumbers(values: Array<number | null | undefined>): number | null {
+  const valid = values.filter((value): value is number => Number.isFinite(value ?? NaN));
+  return valid.length ? valid.reduce((sum, value) => sum + value, 0) : null;
 }
 
 function sumFinancialValues(points: FinancialChartPoint[], key: keyof FinancialChartPoint): number | null {

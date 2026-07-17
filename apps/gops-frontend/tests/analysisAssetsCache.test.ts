@@ -11,9 +11,11 @@ import {
 const originalFetch = globalThis.fetch;
 type ResolveResponse = (response: Response) => void;
 const responseResolvers: ResolveResponse[] = [];
+const requestUrls: string[] = [];
 let fetchCalls = 0;
-globalThis.fetch = (() => {
+globalThis.fetch = ((input) => {
   fetchCalls += 1;
+  requestUrls.push(String(input));
   return new Promise<Response>((resolve) => responseResolvers.push(resolve));
 }) as typeof fetch;
 
@@ -43,6 +45,17 @@ try {
   responseResolvers[3](fakeResponse("retried"));
   assert.equal((await retriedRequest).meta?.servedAt, "retried", "failed responses are not cached");
   assert.equal(fetchCalls, 4);
+
+  invalidateAnalysisAssets("CACHE-RACE");
+  const minuteRequest = fetchAnalysisAssets("CACHE-RACE", "1m");
+  responseResolvers[4](fakeResponse("minute"));
+  await minuteRequest;
+  const dailyRequest = fetchAnalysisAssets("CACHE-RACE", "1D");
+  responseResolvers[5](fakeResponse("daily"));
+  await dailyRequest;
+  assert.equal(fetchCalls, 6, "each requested simulation interval has an independent cache entry");
+  assert.match(requestUrls[4], /symbol=CACHE-RACE&interval=1m/);
+  assert.match(requestUrls[5], /symbol=CACHE-RACE&interval=1D/);
 
   assert.equal(
     analysisAssetsLoadErrorMessage(new AnalysisAssetsRequestError(409, "simulation_data_unavailable")),

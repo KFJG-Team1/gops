@@ -293,16 +293,20 @@ export function analysisAssetsLoadErrorMessage(reason: unknown): string {
     : "작도 자산을 불러오지 못했습니다.";
 }
 
-export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsResponse> {
+export function fetchAnalysisAssets(symbol: string, interval?: string): Promise<AnalysisAssetsResponse> {
   const normalized = symbol.trim().toUpperCase();
-  const cached = responseCache.get(normalized);
+  const requestedInterval = isAnalysisAssetIntervalValue(interval) ? interval : undefined;
+  const cacheKey = `${normalized}:${requestedInterval ?? "all"}`;
+  const cached = responseCache.get(cacheKey);
   if (cached) return Promise.resolve(cached);
-  const pending = inFlight.get(normalized);
+  const pending = inFlight.get(cacheKey);
   if (pending) return pending;
   const requestGlobalGeneration = globalGeneration;
   const requestSymbolGeneration = symbolGenerations.get(normalized) ?? 0;
   let request: Promise<AnalysisAssetsResponse>;
-  request = fetch(`/api/charts/analysis-assets?${new URLSearchParams({ symbol: normalized }).toString()}`, {
+  const params = new URLSearchParams({ symbol: normalized });
+  if (requestedInterval) params.set("interval", requestedInterval);
+  request = fetch(`/api/charts/analysis-assets?${params.toString()}`, {
     headers: { Accept: "application/json" }
   }).then(async (response) => {
     const payload = await response.json().catch(() => ({}));
@@ -315,21 +319,25 @@ export function fetchAnalysisAssets(symbol: string): Promise<AnalysisAssetsRespo
     return normalizeAnalysisAssetsResponse(payload, normalized);
   }).then((payload) => {
     if (globalGeneration === requestGlobalGeneration && (symbolGenerations.get(normalized) ?? 0) === requestSymbolGeneration) {
-      responseCache.set(normalized, payload);
+      responseCache.set(cacheKey, payload);
     }
     return payload;
   }).finally(() => {
-    if (inFlight.get(normalized) === request) inFlight.delete(normalized);
+    if (inFlight.get(cacheKey) === request) inFlight.delete(cacheKey);
   });
-  inFlight.set(normalized, request);
+  inFlight.set(cacheKey, request);
   return request;
 }
 
 export function invalidateAnalysisAssets(symbol?: string): void {
   if (symbol) {
     const normalized = symbol.trim().toUpperCase();
-    responseCache.delete(normalized);
-    inFlight.delete(normalized);
+    for (const key of responseCache.keys()) {
+      if (key.startsWith(`${normalized}:`)) responseCache.delete(key);
+    }
+    for (const key of inFlight.keys()) {
+      if (key.startsWith(`${normalized}:`)) inFlight.delete(key);
+    }
     symbolGenerations.set(normalized, (symbolGenerations.get(normalized) ?? 0) + 1);
     invalidationListeners.forEach((listener) => listener(normalized));
     return;
@@ -339,6 +347,11 @@ export function invalidateAnalysisAssets(symbol?: string): void {
   symbolGenerations.clear();
   globalGeneration += 1;
   invalidationListeners.forEach((listener) => listener());
+}
+
+function isAnalysisAssetIntervalValue(value: string | undefined): value is AnalysisAssetInterval {
+  return value === "1m" || value === "5m" || value === "10m" || value === "1h"
+    || value === "4h" || value === "1D" || value === "1W";
 }
 
 export function subscribeAnalysisAssetsInvalidation(listener: (symbol?: string) => void): () => void {

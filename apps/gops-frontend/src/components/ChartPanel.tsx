@@ -846,7 +846,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     setAnalysisAssets((current) => current?.symbol === requestedSymbol ? current : null);
     setAnalysisAssetsLoadError(null);
     appliedAnalysisAssetKeyRef.current = "";
-    fetchAnalysisAssets(requestedSymbol)
+    fetchAnalysisAssets(requestedSymbol, chart.interval)
       .then((response) => {
         if (active && response.symbol === requestedSymbol) {
           setAnalysisAssets(response);
@@ -862,7 +862,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     return () => {
       active = false;
     };
-  }, [analysisAssetsRevision, chart.symbol]);
+  }, [analysisAssetsRevision, chart.interval, chart.symbol]);
 
   const rawActiveAnalysisAsset = isAnalysisAssetInterval(chart.interval)
     && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
