@@ -19,7 +19,17 @@ export type ChartTradeMarker = {
   marketDate: string;
   x: number;
   top: number;
+  viewportWidth: number;
+  viewportHeight: number;
   fill: ChartTradeFill;
+};
+
+export type ChartTradeFillInsight = {
+  kind: "mark_to_market" | "realized" | "unavailable";
+  tone: "gain" | "loss" | "flat" | "unavailable";
+  amount: number | null;
+  percent: number | null;
+  basisPrice: number | null;
 };
 
 export type ChartTradeMarkerCoordinateSpace = {
@@ -47,6 +57,63 @@ export function normalizeChartTradeFills(orders: unknown[]): ChartTradeFill[] {
       const byTime = Date.parse(left.filledAt) - Date.parse(right.filledAt);
       return byTime || left.id.localeCompare(right.id);
     });
+}
+
+export function buildChartTradeFillInsights(
+  fills: ChartTradeFill[],
+  currentPrice: number | null
+): Map<string, ChartTradeFillInsight> {
+  const insights = new Map<string, ChartTradeFillInsight>();
+  const positions = new Map<string, { quantity: number; averagePrice: number; reliable: boolean }>();
+  const hasCurrentPrice = typeof currentPrice === "number" && Number.isFinite(currentPrice) && currentPrice > 0;
+  const orderedFills = [...fills].sort((left, right) => {
+    const byTime = Date.parse(left.filledAt) - Date.parse(right.filledAt);
+    return byTime || left.id.localeCompare(right.id);
+  });
+
+  orderedFills.forEach((fill) => {
+    const position = positions.get(fill.symbol) ?? { quantity: 0, averagePrice: 0, reliable: true };
+    if (fill.side === "buy") {
+      insights.set(fill.id, hasCurrentPrice
+        ? tradeFillInsight(
+            "mark_to_market",
+            (currentPrice - fill.price) * fill.quantity,
+            ((currentPrice - fill.price) / fill.price) * 100,
+            currentPrice
+          )
+        : unavailableTradeFillInsight());
+      if (position.reliable) {
+        const nextQuantity = position.quantity + fill.quantity;
+        position.averagePrice = (
+          position.averagePrice * position.quantity + fill.price * fill.quantity
+        ) / nextQuantity;
+        position.quantity = nextQuantity;
+      }
+      positions.set(fill.symbol, position);
+      return;
+    }
+
+    if (position.reliable && position.quantity >= fill.quantity && position.averagePrice > 0) {
+      const amount = (fill.price - position.averagePrice) * fill.quantity;
+      insights.set(fill.id, tradeFillInsight(
+        "realized",
+        amount,
+        ((fill.price - position.averagePrice) / position.averagePrice) * 100,
+        position.averagePrice
+      ));
+      position.quantity -= fill.quantity;
+      if (position.quantity <= Number.EPSILON) {
+        position.quantity = 0;
+        position.averagePrice = 0;
+      }
+    } else {
+      insights.set(fill.id, unavailableTradeFillInsight());
+      position.reliable = false;
+    }
+    positions.set(fill.symbol, position);
+  });
+
+  return insights;
 }
 
 export function chartTradeMarkersForScene(
@@ -101,6 +168,8 @@ export function chartTradeMarkersForScene(
         marketDate: candidate.marketDate,
         x: scaleCoordinate(candidate.baseX, coordinateSpace.width, scene.width),
         top: scaleCoordinate(top, coordinateSpace.height, scene.height),
+        viewportWidth: coordinateSpace.width,
+        viewportHeight: coordinateSpace.height,
         fill: candidate.fill
       };
     }));
@@ -198,4 +267,29 @@ function scaleCoordinate(value: number, target: number, source: number): number 
   return Number.isFinite(target) && target > 0 && Number.isFinite(source) && source > 0
     ? value / (source / target)
     : value;
+}
+
+function tradeFillInsight(
+  kind: "mark_to_market" | "realized",
+  amount: number,
+  percent: number,
+  basisPrice: number
+): ChartTradeFillInsight {
+  return {
+    kind,
+    tone: amount > Number.EPSILON ? "gain" : amount < -Number.EPSILON ? "loss" : "flat",
+    amount,
+    percent,
+    basisPrice
+  };
+}
+
+function unavailableTradeFillInsight(): ChartTradeFillInsight {
+  return {
+    kind: "unavailable",
+    tone: "unavailable",
+    amount: null,
+    percent: null,
+    basisPrice: null
+  };
 }

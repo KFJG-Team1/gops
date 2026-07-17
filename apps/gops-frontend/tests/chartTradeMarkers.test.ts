@@ -265,7 +265,7 @@ assert.deepEqual(fillInsights.get("sell-at-120"), {
   kind: "realized",
   tone: "gain",
   amount: 45,
-  percent: 100 / 7,
+  percent: (15 / 105) * 100,
   basisPrice: 105
 });
 assert.deepEqual(fillInsights.get("sell-without-cost-basis"), {
@@ -276,6 +276,13 @@ assert.deepEqual(fillInsights.get("sell-without-cost-basis"), {
   basisPrice: null
 });
 assert.equal(buildChartTradeFillInsights(insightFills, null).get("buy-at-100")?.kind, "unavailable");
+assert.deepEqual(buildChartTradeFillInsights(insightFills, 90).get("buy-at-100"), {
+  kind: "mark_to_market",
+  tone: "loss",
+  amount: -20,
+  percent: -10,
+  basisPrice: 90
+});
 
 const tradeOverlaySource = readFileSync(
   fileURLToPath(new URL("../src/components/ChartTradeOverlay.tsx", import.meta.url)),

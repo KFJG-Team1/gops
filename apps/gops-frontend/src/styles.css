@@ -1061,7 +1061,13 @@ button {
   font-weight: 900;
   line-height: 1;
   pointer-events: auto;
-  cursor: help;
+  cursor: default;
+}
+
+.chart-trade-marker-glyph {
+  position: relative;
+  z-index: 1;
+  transition: transform 120ms ease;
 }
 
 .chart-trade-marker::after {
@@ -1096,9 +1102,160 @@ button {
 
 .chart-trade-marker:hover,
 .chart-trade-marker:focus-visible {
-  transform: translateX(-50%) scale(1.08);
+  z-index: 8;
   outline: 2px solid color-mix(in srgb, var(--color-text) 50%, transparent);
   outline-offset: 2px;
+}
+
+.chart-trade-marker:hover .chart-trade-marker-glyph,
+.chart-trade-marker:focus-visible .chart-trade-marker-glyph {
+  transform: scale(1.08);
+}
+
+.chart-trade-tooltip {
+  --chart-trade-tooltip-accent: var(--color-muted);
+  --chart-trade-tooltip-x: -50%;
+  --chart-trade-tooltip-y: 5px;
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  display: grid;
+  width: 236px;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--chart-trade-tooltip-accent) 34%, var(--color-border));
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--color-surface) 94%, var(--coinbase-surface-dark));
+  color: var(--color-text);
+  box-shadow:
+    0 16px 42px color-mix(in srgb, var(--color-background) 82%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 7%, transparent);
+  font: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(var(--chart-trade-tooltip-x), var(--chart-trade-tooltip-y));
+  transition: opacity 120ms ease, transform 140ms ease, visibility 0s linear 140ms;
+  visibility: hidden;
+}
+
+.chart-trade-tooltip.is-gain { --chart-trade-tooltip-accent: var(--color-up); }
+.chart-trade-tooltip.is-loss { --chart-trade-tooltip-accent: var(--color-down); }
+.chart-trade-tooltip.is-flat { --chart-trade-tooltip-accent: var(--color-caution); }
+
+.chart-trade-marker.is-tooltip-above .chart-trade-tooltip {
+  bottom: calc(100% + 13px);
+}
+
+.chart-trade-marker.is-tooltip-below .chart-trade-tooltip {
+  --chart-trade-tooltip-y: -5px;
+  top: calc(100% + 13px);
+}
+
+.chart-trade-marker.is-tooltip-left .chart-trade-tooltip {
+  --chart-trade-tooltip-x: 0;
+  left: -8px;
+}
+
+.chart-trade-marker.is-tooltip-right .chart-trade-tooltip {
+  --chart-trade-tooltip-x: 0;
+  right: -8px;
+  left: auto;
+}
+
+.chart-trade-marker:hover .chart-trade-tooltip,
+.chart-trade-marker:focus-visible .chart-trade-tooltip {
+  --chart-trade-tooltip-y: 0px;
+  opacity: 1;
+  transition-delay: 80ms, 80ms, 0s;
+  visibility: visible;
+}
+
+.chart-trade-tooltip-heading,
+.chart-trade-tooltip-status,
+.chart-trade-tooltip-row {
+  display: flex;
+  align-items: center;
+}
+
+.chart-trade-tooltip-heading {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chart-trade-tooltip-heading > strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 850;
+  letter-spacing: -.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-trade-tooltip-side {
+  border: 1px solid color-mix(in srgb, currentColor 34%, var(--color-border));
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .08em;
+}
+
+.chart-trade-tooltip-side.is-buy { color: var(--color-up); }
+.chart-trade-tooltip-side.is-sell { color: var(--color-down); }
+
+.chart-trade-tooltip-status {
+  gap: 6px;
+  color: var(--chart-trade-tooltip-accent);
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.chart-trade-tooltip-status > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.chart-trade-tooltip-details {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--color-text) 8%, var(--color-border));
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, var(--color-border));
+  padding: 9px 0;
+}
+
+.chart-trade-tooltip-row {
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.chart-trade-tooltip-row > strong {
+  overflow: hidden;
+  color: var(--color-text-medium);
+  font-size: 10px;
+  font-weight: 730;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-trade-tooltip-pnl > strong {
+  color: var(--chart-trade-tooltip-accent);
+  font-weight: 820;
+}
+
+.chart-trade-tooltip-time {
+  color: var(--color-muted);
+  font-size: 9px;
+  font-weight: 620;
+  letter-spacing: .015em;
 }
 
 .chart-upcoming-earnings-badge:hover,
