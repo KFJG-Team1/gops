@@ -73,7 +73,14 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(page.getByText(/상승 삼각형 돌파 확인/).first()).toBeVisible();
   const commentaryPanel = page.locator(".chart-commentary-panel");
   await expect(commentaryPanel.getByLabel("종합 해설")).toBeVisible();
-  await expect(commentaryPanel.locator(".chart-commentary-generated")).toHaveAttribute("data-prompt-version", "chart-commentary.ko.v1");
+  await expect(commentaryPanel.locator(".chart-commentary-generated")).toHaveAttribute("data-prompt-version", "chart-commentary.ko.v2");
+  await expect(commentaryPanel.locator(".chart-commentary-reference-tag")).toHaveCount(0);
+  await expect(commentaryPanel.locator(".chart-commentary-generated > p")).toHaveCount(3);
+  const drawingReference = commentaryPanel.getByRole("button", { name: "상승 삼각형 돌파 확인 구조 관련 작도 강조 고정" });
+  await drawingReference.click();
+  await expect(drawingReference).toHaveAttribute("aria-pressed", "true");
+  await drawingReference.click();
+  await expect(drawingReference).toHaveAttribute("aria-pressed", "false");
   const indicatorRecommendation = commentaryPanel.getByRole("button", { name: "상대강도지수 차트 레이어 전환" });
   await expect(indicatorRecommendation).toHaveAttribute("aria-pressed", "false");
   await indicatorRecommendation.click();
@@ -148,7 +155,7 @@ test("five analysis layers render independently with commentary focus and cards"
   await patternStep.press("Enter");
   await expect(patternStep).toHaveAttribute("aria-pressed", "false");
 
-  const candleReference = commentaryPanel.getByRole("button", { name: /주요 봉 .* 차트에서 열기/ }).first();
+  const candleReference = commentaryPanel.getByRole("button", { name: "최근 완료 봉 차트에서 열기" });
   await expect(candleReference).toBeEnabled();
   await candleReference.click();
   await expect(chart.getByRole("button", { name: "선택 항목에 질문하기" })).toBeVisible();
@@ -812,26 +819,36 @@ function assetResponse(): Record<string, unknown> {
     },
     indicators: { sma60: 170, sma120: 165, cross: { status: "none", direction: null } },
     commentary: {
-      version: "chart-commentary.v1", status: "ready", generatedAt: asOf, model: "fixture-model",
-      promptVersion: "chart-commentary.ko.v1",
+      version: "chart-commentary.v2", status: "ready", generatedAt: asOf, model: "fixture-model",
+      promptVersion: "chart-commentary.ko.v2",
       sourceIdentity: {
         geometryInputDigest: "sha256:fixture", candlesAsOf: asOf, indicatorsAsOf: asOf,
         contextDigest: "sha256:fixture-context"
       },
-      blocks: [
-        { id: "overview", kind: "overview", text: "상승 삼각형 돌파 확인 구조를 중심으로 완료 봉과 최종 작도를 함께 읽습니다.", referenceIds: ["drawing:pattern"] },
-        { id: "drawing", kind: "drawing_guide", text: "패턴 상단은 돌파 기준, 하단은 구조가 유지되는지 확인하는 반대 경계입니다.", referenceIds: ["drawing:pattern"] },
-        { id: "indicator", kind: "indicator_context", text: "가격 움직임의 강도는 상대강도지수를 함께 보면 구조의 속도를 구분하는 데 도움이 됩니다.", referenceIds: ["candle:latest"] },
-        { id: "events", kind: "event_context", text: "이 해설은 저장된 이벤트 맥락만 사용하며 뉴스가 가격의 원인이라고 단정하지 않습니다.", referenceIds: [] },
-        { id: "watch", kind: "watch_next", text: "다음 완료 봉이 패턴 경계 안팎에서 어떻게 마감하는지를 이어서 확인합니다.", referenceIds: ["candle:latest"] }
+      paragraphs: [
+        { id: "structure", segments: [
+          { id: "structure-open", text: "현재 가격은 " },
+          { id: "structure-pattern", text: "상승 삼각형 돌파 확인 구조", link: { kind: "drawing", referenceIds: ["drawing:pattern"] } },
+          { id: "structure-close", text: "를 중심으로 읽을 수 있습니다. 패턴 상단은 돌파 기준이고 하단은 구조가 유지되는지 확인하는 반대 경계입니다." }
+        ] },
+        { id: "confirmation", segments: [
+          { id: "confirmation-candle", text: "최근 완료 봉", link: { kind: "candle", referenceId: "candle:latest" } },
+          { id: "confirmation-middle", text: "의 반응과 " },
+          { id: "confirmation-rsi", text: "상대강도지수", link: { kind: "indicator", layer: "rsi:14", referenceIds: ["candle:previous"] } },
+          { id: "confirmation-close", text: "를 함께 보면 경계 시험 과정에서 가격 움직임의 힘이 이어지는지 구분하는 데 도움이 됩니다. 지표는 작도를 대신하지 않고 반응의 질을 확인하는 보조 근거입니다." }
+        ] },
+        { id: "context", segments: [
+          { id: "context-text", text: "저장된 이벤트가 없는 구간에서는 차트 구조와 완료 봉을 우선합니다. 다음 완료 봉이 패턴 경계 안팎에서 어떻게 마감하는지를 같은 기준으로 이어서 확인합니다." }
+        ] }
       ],
       indicatorRecommendations: [{
         layer: "rsi:14", label: "상대강도지수", reason: "패턴 경계 부근에서 가격 움직임의 강도를 함께 확인합니다.",
-        referenceIds: ["candle:latest"]
+        referenceIds: ["candle:previous"]
       }],
       references: [
         { id: "drawing:pattern", type: "drawing", drawingIds: [upper.id, lower.id] },
-        { id: "candle:latest", type: "candle", timestamp: asOf, candleKey: asOf.slice(0, 10) }
+        { id: "candle:latest", type: "candle", timestamp: asOf, candleKey: asOf.slice(0, 10) },
+        { id: "candle:previous", type: "candle", timestamp: candles[138].timestamp, candleKey: candles[138].timestamp.slice(0, 10) }
       ],
       limitations: ["저장된 최신 뉴스 요약이 없습니다."]
     }

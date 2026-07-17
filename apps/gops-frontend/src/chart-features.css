@@ -422,58 +422,68 @@
 
 .chart-commentary-generated {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
-.chart-commentary-generated-block {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.chart-commentary-generated-block p {
+.chart-commentary-generated p {
   margin: 0;
 }
 
-.chart-commentary-reference-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  align-items: center;
-}
-
-.chart-commentary-reference-tag {
-  min-height: 26px;
-  border: 1px solid color-mix(in srgb, var(--color-axis) 36%, var(--color-border));
-  border-radius: 999px;
-  padding: 3px 8px;
-  background: color-mix(in srgb, var(--color-axis) 7%, transparent);
-  color: var(--color-muted);
-  font: var(--type-caption);
+.chart-commentary-inline-reference {
+  display: inline;
+  appearance: none;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-signal) 72%, var(--color-text));
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: color-mix(in srgb, currentColor 62%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  white-space: normal;
   cursor: pointer;
 }
 
-.chart-commentary-reference-tag:hover:not(:disabled),
-.chart-commentary-reference-tag:focus-visible {
-  border-color: var(--color-signal);
+.chart-commentary-inline-reference.is-drawing {
+  color: var(--color-evidence-pattern);
+}
+
+.chart-commentary-inline-reference.is-news,
+.chart-commentary-inline-reference.is-earnings,
+.chart-commentary-inline-reference.is-candle {
+  color: color-mix(in srgb, var(--color-axis) 78%, var(--color-text));
+}
+
+.chart-commentary-inline-reference:hover:not(:disabled),
+.chart-commentary-inline-reference:focus-visible,
+.chart-commentary-inline-reference[aria-pressed="true"] {
   color: var(--color-text);
-  outline: none;
+  text-decoration-style: solid;
+  text-decoration-color: currentColor;
 }
 
-.chart-commentary-reference-tag[aria-pressed="true"] {
-  border-color: color-mix(in srgb, var(--color-signal) 70%, var(--color-border));
-  background: color-mix(in srgb, var(--color-signal) 10%, transparent);
-  color: var(--color-signal);
+.chart-commentary-inline-reference:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid color-mix(in srgb, var(--color-signal) 72%, transparent);
+  outline-offset: 2px;
 }
 
-.chart-commentary-reference-tag:disabled {
+.chart-commentary-inline-reference:disabled,
+.chart-commentary-inline-reference.is-unavailable {
+  color: var(--color-muted);
   cursor: not-allowed;
-  opacity: 0.48;
+  opacity: 0.56;
+  text-decoration-color: color-mix(in srgb, var(--color-muted) 45%, transparent);
 }
 
-.chart-commentary-indicator-tag {
+.chart-commentary-inline-reference-wrap {
   position: relative;
-  display: inline-flex;
+  display: inline;
 }
 
 .chart-commentary-indicator-reason {
@@ -493,19 +503,9 @@
   line-height: 1.45;
 }
 
-.chart-commentary-indicator-tag:hover .chart-commentary-indicator-reason,
-.chart-commentary-indicator-tag:focus-within .chart-commentary-indicator-reason {
+.chart-commentary-inline-reference-wrap:hover .chart-commentary-indicator-reason,
+.chart-commentary-inline-reference-wrap:focus-within .chart-commentary-indicator-reason {
   display: block;
-}
-
-.chart-commentary-generated-limitations {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 8px;
-  border-top: 1px solid var(--color-border);
-  padding-top: 8px;
-  color: var(--color-muted);
-  font: var(--type-caption);
 }
 
 .chart-commentary-price-table {

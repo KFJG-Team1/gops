@@ -111,6 +111,47 @@ const commentaryAsset = {
 };
 const normalizedCommentary = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": commentaryAsset } }, "AAPL").assets["1D"];
 assert.equal(normalizedCommentary?.commentary?.promptVersion, "chart-commentary.ko.v1");
+const commentaryV2Asset = {
+  ...asset,
+  commentary: {
+    version: "chart-commentary.v2", status: "ready", generatedAt: now, model: "fixture-model",
+    promptVersion: "chart-commentary.ko.v2",
+    sourceIdentity: commentaryAsset.commentary.sourceIdentity,
+    paragraphs: [
+      { id: "structure", segments: [
+        { id: "structure-text", text: "현재 구조는 " },
+        { id: "structure-link", text: "최종 패턴 작도", link: { kind: "drawing", referenceIds: ["drawing:pattern"] } },
+        { id: "structure-close", text: "를 중심으로 읽습니다." }
+      ] },
+      { id: "confirmation", segments: [
+        { id: "candle-link", text: "최근 완료 봉", link: { kind: "candle", referenceId: "candle:latest" } },
+        { id: "confirmation-text", text: "과 " },
+        { id: "indicator-link", text: "상대강도지수", link: { kind: "indicator", layer: "rsi:14", referenceIds: ["candle:previous"] } },
+        { id: "confirmation-close", text: "를 함께 확인합니다." }
+      ] },
+      { id: "context", segments: [
+        { id: "context-text", text: "다음 완료 봉이 경계 안팎에서 마감하는지를 이어서 관찰합니다." }
+      ] }
+    ],
+    indicatorRecommendations: [{
+      layer: "rsi:14", label: "상대강도지수", reason: "가격 강도 확인", referenceIds: ["candle:previous"]
+    }],
+    references: [
+      { id: "drawing:pattern", type: "drawing", drawingIds: [upper.id, lower.id] },
+      { id: "candle:latest", type: "candle", timestamp: asset.asOf, candleKey: asset.asOf.slice(0, 10) },
+      { id: "candle:previous", type: "candle", timestamp: now, candleKey: now.slice(0, 10) }
+    ],
+    limitations: []
+  }
+};
+const normalizedCommentaryV2 = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": commentaryV2Asset } }, "AAPL").assets["1D"];
+assert.equal(normalizedCommentaryV2?.commentary?.promptVersion, "chart-commentary.ko.v2");
+assert.equal(normalizedCommentaryV2?.commentary?.version, "chart-commentary.v2");
+const mismatchedIndicatorLink = {
+  ...commentaryV2Asset,
+  commentary: { ...commentaryV2Asset.commentary, indicatorRecommendations: [] }
+};
+assert.equal(normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": mismatchedIndicatorLink } }, "AAPL").assets["1D"]?.commentary, undefined);
 const malformedCommentary = { ...commentaryAsset, commentary: { ...commentaryAsset.commentary, references: [] } };
 assert.equal(normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": malformedCommentary } }, "AAPL").assets["1D"]?.commentary, undefined);
 const mismatchedCommentaryDigest = {
@@ -285,6 +326,7 @@ assert.match(opsSource, /defaultChartAssetBuildIntervals\(currentInterval\)/);
 assert.doesNotMatch(opsSource, /LLM 포함|EventSource|1M/);
 assert.match(opsSource, /작도 자산 생성·갱신/);
 assert.match(opsSource, /force: true/);
+assert.match(opsSource, /저장 해설 없음 · Rule-based fallback/);
 assert.match(opsSource, /기존 자산 유지됨/);
 assert.match(opsSource, /생성 가능한 기존 자산 없음/);
 assert.doesNotMatch(opsSource, /없는 자산 생성|기존 자산 강제 재생성|실패분 강제 재실행|useSp500|전체 S&amp;P500/);
@@ -310,6 +352,8 @@ assert.match(commentarySource, /chart-commentary-metric-card/);
 assert.match(commentarySource, /asset\.commentary\?\.status === "ready"/);
 assert.match(commentarySource, /dispatchChartCommentaryIndicatorToggle/);
 assert.match(commentarySource, /dispatchChartCommentaryReferenceOpen/);
+assert.match(commentarySource, /chart-commentary-inline-reference/);
+assert.doesNotMatch(commentarySource, /chart-commentary-reference-tags|chart-commentary-reference-tag/);
 assert.doesNotMatch(commentarySource, /usePortfolioHoldingsData|HoldingSummary|실계좌 보유 현황|평균 매입가/);
 assert.match(commentarySource, /ConversationView/);
 assert.match(semanticCatalogSource, /하락 채널 상단 돌파/);

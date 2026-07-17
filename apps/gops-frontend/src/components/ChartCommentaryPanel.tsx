@@ -13,6 +13,7 @@ import {
   type AnalysisAssetInterval,
   type ChartAnalysisAsset,
   type ChartAssetCommentary,
+  type ChartAssetCommentaryLink,
   type ChartAssetCommentaryReference
 } from "../chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
@@ -232,6 +233,7 @@ function CurrentCommentary({
             interval={interval}
             candles={candles}
             chartLayers={chartLayers}
+            onRestoreFocus={restorePinned}
           />
           : viewModel.summary.map((sentence) => <p key={sentence}><GlossaryText text={sentence} /></p>)}
       </section>
@@ -302,103 +304,167 @@ function CurrentCommentary({
   );
 }
 
-function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candles, chartLayers }: {
+function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candles, chartLayers, onRestoreFocus }: {
   commentary: ChartAssetCommentary;
   chartDocumentId?: string;
   symbol: string;
   interval: ChartInterval;
   candles: CandleDto[];
   chartLayers: Partial<Record<string, boolean>>;
+  onRestoreFocus: () => void;
 }) {
+  const [pinnedDrawingLinkId, setPinnedDrawingLinkId] = useState<string | null>(null);
   const references = useMemo(
     () => new Map(commentary.references.map((reference) => [reference.id, reference])),
     [commentary.references]
   );
-  const recommendationsByBlock = commentary.blocks.some((block) => block.kind === "indicator_context")
-    ? commentary.indicatorRecommendations
-    : [];
+  const recommendations = useMemo(
+    () => new Map(commentary.indicatorRecommendations.map((item) => [item.layer, item])),
+    [commentary.indicatorRecommendations]
+  );
+  const drawingLinks = useMemo(() => {
+    const result = new Map<string, string[]>();
+    if (commentary.version !== "chart-commentary.v2") return result;
+    commentary.paragraphs.forEach((paragraph) => paragraph.segments.forEach((segment) => {
+      if (segment.link?.kind !== "drawing") return;
+      const drawingIds = segment.link.referenceIds.flatMap((referenceId) => {
+        const reference = references.get(referenceId);
+        return reference?.type === "drawing" ? reference.drawingIds : [];
+      });
+      result.set(segment.id, [...new Set(drawingIds)]);
+    }));
+    return result;
+  }, [commentary, references]);
+  useEffect(() => {
+    setPinnedDrawingLinkId(null);
+  }, [commentary.sourceIdentity.contextDigest, chartDocumentId]);
+
+  const focusDrawing = (drawingIds: string[], mode: FocusMode) => {
+    if (chartDocumentId) dispatchFocus(chartDocumentId, symbol, interval, drawingIds, mode);
+  };
+  const restoreDrawingFocus = () => {
+    const pinnedDrawingIds = pinnedDrawingLinkId ? drawingLinks.get(pinnedDrawingLinkId) : undefined;
+    if (pinnedDrawingIds?.length) focusDrawing(pinnedDrawingIds, "select");
+    else onRestoreFocus();
+  };
+  const toggleDrawingPin = (segmentId: string, drawingIds: string[]) => {
+    if (pinnedDrawingLinkId === segmentId) {
+      setPinnedDrawingLinkId(null);
+      onRestoreFocus();
+      return;
+    }
+    setPinnedDrawingLinkId(segmentId);
+    focusDrawing(drawingIds, "select");
+  };
+
+  if (commentary.version === "chart-commentary.v1") {
+    const legacyParagraphs = [
+      commentary.blocks.slice(0, 2),
+      commentary.blocks.slice(2, 4),
+      commentary.blocks.slice(4, 5)
+    ].map((blocks) => blocks.map((block) => block.text.trim()).filter(Boolean).join(" "));
+    return <div className="chart-commentary-generated is-legacy" data-prompt-version={commentary.promptVersion}>
+      {legacyParagraphs.map((text, index) => <p key={`legacy-paragraph-${index}`}><GlossaryText text={text} /></p>)}
+    </div>;
+  }
+
   return <div className="chart-commentary-generated" data-prompt-version={commentary.promptVersion}>
-    {commentary.blocks.map((block) => <section key={block.id} className={`chart-commentary-generated-block is-${block.kind}`}>
-      <p><GlossaryText text={block.text} /></p>
-      {(block.referenceIds.length > 0 || (block.kind === "indicator_context" && recommendationsByBlock.length > 0)) && (
-        <div className="chart-commentary-reference-tags" aria-label={`${commentaryBlockLabel(block.kind)} 참조`}>
-          {block.referenceIds.flatMap((referenceId) => {
-            const reference = references.get(referenceId);
-            return reference ? [<CommentaryReferenceTag
-              key={reference.id}
-              reference={reference}
-              chartDocumentId={chartDocumentId}
-              symbol={symbol}
-              interval={interval}
-              candles={candles}
-            />] : [];
-          })}
-          {block.kind === "indicator_context" && recommendationsByBlock.map((recommendation) => {
-            const reasonId = `commentary-indicator-${recommendation.layer.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-            return <span key={recommendation.layer} className="chart-commentary-indicator-tag">
-              <button
-                type="button"
-                className="chart-commentary-reference-tag is-indicator"
-                aria-pressed={Boolean(chartLayers[recommendation.layer])}
-                aria-label={`${recommendation.label} 차트 레이어 전환`}
-                aria-describedby={reasonId}
-                disabled={!chartDocumentId}
-                onClick={() => chartDocumentId && dispatchChartCommentaryIndicatorToggle({
-                  chartDocumentId,
-                  layer: recommendation.layer
-                })}
-              >{recommendation.label}</button>
-              <span id={reasonId} className="chart-commentary-indicator-reason" role="tooltip">
-                <GlossaryText text={recommendation.reason} />
-              </span>
-            </span>;
-          })}
-        </div>
-      )}
-    </section>)}
-    {commentary.limitations.length > 0 && <aside className="chart-commentary-generated-limitations" aria-label="해설 데이터 한계">
-      {commentary.limitations.map((limitation) => <span key={limitation}><GlossaryText text={limitation} /></span>)}
-    </aside>}
+    {commentary.paragraphs.map((paragraph) => <p key={paragraph.id}>
+      {paragraph.segments.map((segment) => <CommentaryInlineSegment
+        key={segment.id}
+        segmentId={segment.id}
+        text={segment.text}
+        link={segment.link}
+        references={references}
+        recommendation={segment.link?.kind === "indicator" ? recommendations.get(segment.link.layer) : undefined}
+        chartDocumentId={chartDocumentId}
+        interval={interval}
+        candles={candles}
+        chartLayers={chartLayers}
+        drawingIds={drawingLinks.get(segment.id) ?? []}
+        drawingPinned={pinnedDrawingLinkId === segment.id}
+        onDrawingFocus={focusDrawing}
+        onDrawingRestore={restoreDrawingFocus}
+        onDrawingPin={toggleDrawingPin}
+      />)}
+    </p>)}
   </div>;
 }
 
-function CommentaryReferenceTag({ reference, chartDocumentId, symbol, interval, candles }: {
-  reference: ChartAssetCommentaryReference;
+function CommentaryInlineSegment({
+  segmentId, text, link, references, recommendation, chartDocumentId, interval, candles,
+  chartLayers, drawingIds, drawingPinned, onDrawingFocus, onDrawingRestore, onDrawingPin
+}: {
+  segmentId: string;
+  text: string;
+  link?: ChartAssetCommentaryLink;
+  references: Map<string, ChartAssetCommentaryReference>;
+  recommendation?: ChartAssetCommentary["indicatorRecommendations"][number];
   chartDocumentId?: string;
-  symbol: string;
   interval: ChartInterval;
   candles: CandleDto[];
+  chartLayers: Partial<Record<string, boolean>>;
+  drawingIds: string[];
+  drawingPinned: boolean;
+  onDrawingFocus: (drawingIds: string[], mode: FocusMode) => void;
+  onDrawingRestore: () => void;
+  onDrawingPin: (segmentId: string, drawingIds: string[]) => void;
 }) {
-  if (reference.type === "drawing") {
-    const focus = (mode: FocusMode) => chartDocumentId && dispatchFocus(
-      chartDocumentId,
-      symbol,
-      interval,
-      reference.drawingIds,
-      mode
-    );
+  if (!link) return <span><GlossaryText text={text} /></span>;
+  if (link.kind === "drawing") {
+    const available = Boolean(chartDocumentId && drawingIds.length);
     return <button
       type="button"
-      className="chart-commentary-reference-tag is-drawing"
-      disabled={!chartDocumentId}
-      onMouseEnter={() => focus("spotlight")}
-      onMouseLeave={() => focus("clear")}
-      onFocus={() => focus("spotlight")}
-      onBlur={() => focus("clear")}
-    >{drawingReferenceLabel(reference.id)}</button>;
+      className="chart-commentary-inline-reference is-drawing"
+      disabled={!available}
+      aria-pressed={drawingPinned}
+      aria-label={`${text.trim()} 관련 작도 강조 고정`}
+      title={!available ? "현재 자산에서 이 작도를 찾을 수 없습니다." : undefined}
+      onMouseEnter={() => available && onDrawingFocus(drawingIds, "spotlight")}
+      onMouseLeave={onDrawingRestore}
+      onFocus={() => available && onDrawingFocus(drawingIds, "spotlight")}
+      onBlur={onDrawingRestore}
+      onClick={() => available && onDrawingPin(segmentId, drawingIds)}
+    >{text}</button>;
+  }
+  if (link.kind === "indicator") {
+    const reasonId = `commentary-indicator-${segmentId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    const available = Boolean(chartDocumentId && recommendation);
+    return <span className="chart-commentary-inline-reference-wrap is-indicator">
+      <button
+        type="button"
+        className="chart-commentary-inline-reference is-indicator"
+        aria-pressed={Boolean(chartLayers[link.layer])}
+        aria-label={`${text.trim()} 차트 레이어 전환`}
+        aria-describedby={recommendation ? reasonId : undefined}
+        disabled={!available}
+        title={!recommendation ? "이 보조지표의 저장된 추천 근거가 없습니다." : undefined}
+        onClick={() => chartDocumentId && recommendation && dispatchChartCommentaryIndicatorToggle({
+          chartDocumentId,
+          layer: link.layer
+        })}
+      >{text}</button>
+      {recommendation && <span id={reasonId} className="chart-commentary-indicator-reason" role="tooltip">
+        <GlossaryText text={recommendation.reason} />
+      </span>}
+    </span>;
+  }
+  const reference = references.get(link.referenceId);
+  if (!reference || reference.type === "drawing" || reference.type !== link.kind) {
+    return <span className="chart-commentary-inline-reference is-unavailable" aria-disabled="true">{text}</span>;
   }
   const available = commentaryReferenceAvailable(reference, candles, interval);
   return <button
     type="button"
-    className={`chart-commentary-reference-tag is-${reference.type}`}
+    className={`chart-commentary-inline-reference is-${reference.type}`}
     disabled={!chartDocumentId || !available}
-    aria-label={`${commentaryReferenceLabel(reference)} 차트에서 열기`}
+    aria-label={`${text.trim()} 차트에서 열기`}
     title={!available ? "현재 로드된 차트 범위에서 이 참조 시점을 열 수 없습니다." : undefined}
     onClick={() => chartDocumentId && available && dispatchChartCommentaryReferenceOpen({
       chartDocumentId,
       reference
     })}
-  >{commentaryReferenceLabel(reference)}</button>;
+  >{text}</button>;
 }
 
 function commentaryReferenceAvailable(
@@ -414,34 +480,6 @@ function commentaryReferenceAvailable(
   if (reference.type === "earnings" && reference.eventId.endsWith(":upcoming")) return true;
   const marketDate = reference.type === "news" ? reference.marketDate : marketDateForTimestamp(reference.eventAt);
   return candles.some((candle) => marketDateForTimestamp(candle.timestamp) === marketDate);
-}
-
-function commentaryBlockLabel(kind: ChartAssetCommentary["blocks"][number]["kind"]): string {
-  if (kind === "overview") return "전체 구조";
-  if (kind === "drawing_guide") return "작도 읽기";
-  if (kind === "indicator_context") return "보조지표";
-  if (kind === "event_context") return "뉴스·실적";
-  return "다음 확인 조건";
-}
-
-function drawingReferenceLabel(id: string): string {
-  if (id.endsWith(":levels")) return "지지·저항 작도";
-  if (id.endsWith(":trend")) return "추세 작도";
-  if (id.endsWith(":pattern")) return "패턴 작도";
-  return "관련 작도";
-}
-
-function commentaryReferenceLabel(reference: Exclude<ChartAssetCommentaryReference, { type: "drawing" }>): string {
-  if (reference.type === "news") return `뉴스 ${reference.marketDate}`;
-  if (reference.type === "earnings") return `실적 ${formatReferenceDate(reference.eventAt)}`;
-  return `주요 봉 ${formatReferenceDate(reference.timestamp)}`;
-}
-
-function formatReferenceDate(value: string): string {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime())
-    ? date.toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })
-    : value;
 }
 
 function CommentaryScenarioButton({ scenario, chartDocumentId, symbol, interval, onRestore }: {
