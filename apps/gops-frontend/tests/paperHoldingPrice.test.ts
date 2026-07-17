@@ -124,10 +124,10 @@ assert.doesNotMatch(holdingMarkerSource, /drawDarkAxisPill/);
 assert.doesNotMatch(holdingMarkerSource, /scene\.plot\.left \+ 8/);
 assert.match(
   holdingMarkerSource,
-  /drawAxisPill\(\s*context,\s*holding\.averagePrice\.toFixed\(2\),\s*rightAxisPillX\(scene\),\s*y,\s*"right"\s*\)/s
+  /drawAxisPill\(\s*context,\s*holding\.averagePrice\.toFixed\(2\),\s*rightAxisPillX\(scene\),\s*y,\s*"right",\s*"holdingPrice"\s*\)/s
 );
-assert.doesNotMatch(holdingMarkerSource, /"holdingPrice"/);
 assert.match(holdingMarkerSource, /context\.globalAlpha = 0\.72/);
+assert.match(chartCanvasSource, /isHoldingPrice \? colors\.pointYellow/);
 
 const chartPanelSource = readFileSync(
   resolve(process.cwd(), "src/components/ChartPanel.tsx"),
