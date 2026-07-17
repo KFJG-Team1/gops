@@ -44,13 +44,18 @@ export type OrderSnapshot = {
   price?: string | number;
   limit_price?: string | number;
   fill_price?: string | number | null;
+  filled_price?: string | number | null;
   created_at?: string;
   filled_at?: string | null;
+  virtualSubmittedAt?: string;
+  virtualFilledAt?: string | null;
   cancelled_at?: string | null;
   generation?: number;
-  execution_mode?: "paper";
+  execution_mode?: "paper" | "simulation";
+  order_type?: "market" | "limit";
   reason?: string | null;
   simulation?: boolean;
+  runId?: string;
   risk?: RiskVerdict;
 };
 

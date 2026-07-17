@@ -431,9 +431,8 @@ export function QuickOrderPanel({
       if (order.simulation) {
         showToast({ id: `${order.order_id}-sim`, tone: "success", message: "모의 체결가는 재생 엔진 기준입니다." });
         requestPortfolioRefresh();
-      } else {
-        trackOrder(order);
       }
+      trackOrder(order);
     } catch (error) {
       removeToast(pendingToastId);
       const detail = (error as Error & { detail?: unknown }).detail;
@@ -463,6 +462,7 @@ export function QuickOrderPanel({
       }
       const status = payload.order?.status?.toLowerCase();
       if (!status || !terminalStatuses.has(status)) return;
+      if (payload.order?.simulation) requestPortfolioRefresh();
       showToast({
         id: `${order.order_id}-${status}`,
         tone: status === "filled" ? "success" : "error",

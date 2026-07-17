@@ -1037,6 +1037,69 @@ button {
   outline-offset: 2px;
 }
 
+.chart-trade-marker-layer {
+  position: absolute;
+  z-index: 17;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.chart-trade-marker {
+  position: absolute;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  transform: translateX(-50%);
+  border: 2px solid color-mix(in srgb, var(--color-surface) 88%, transparent);
+  border-radius: 50%;
+  color: #fff;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--color-background) 62%, transparent);
+  font: var(--type-caption);
+  font-weight: 900;
+  line-height: 1;
+  pointer-events: auto;
+  cursor: help;
+}
+
+.chart-trade-marker::after {
+  position: absolute;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  transform: translateX(-50%) rotate(45deg);
+  background: inherit;
+  content: "";
+}
+
+.chart-trade-marker.is-buy {
+  background: var(--color-up);
+}
+
+.chart-trade-marker.is-buy::after {
+  top: -5px;
+  border-top: inherit;
+  border-left: inherit;
+}
+
+.chart-trade-marker.is-sell {
+  background: var(--color-down);
+}
+
+.chart-trade-marker.is-sell::after {
+  bottom: -5px;
+  border-right: inherit;
+  border-bottom: inherit;
+}
+
+.chart-trade-marker:hover,
+.chart-trade-marker:focus-visible {
+  transform: translateX(-50%) scale(1.08);
+  outline: 2px solid color-mix(in srgb, var(--color-text) 50%, transparent);
+  outline-offset: 2px;
+}
+
 .chart-upcoming-earnings-badge:hover,
 .chart-upcoming-earnings-badge:focus-visible {
   transform: translateY(-2px);
