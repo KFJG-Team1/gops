@@ -33,7 +33,7 @@ export type ChartCommentaryHolding = {
 };
 
 export type ChartCommentaryKeyPrice = {
-  id: "support" | "resistance" | "entry" | "target" | "invalidation";
+  id: "entry" | "target" | "invalidation";
   label: string;
   price: number;
   distancePercent: number | null;
@@ -127,11 +127,8 @@ export function buildChartCommentaryViewModel(
   const evidence = buildChartCommentaryModel(asset, setup);
   const support = nearestLevel(asset.geometry.supports, currentPrice);
   const resistance = nearestLevel(asset.geometry.resistances, currentPrice);
-  const levelDrawingIds = drawingIdsForGroup(asset, "levels");
   const planDrawingIds = setup ? [setup.drawingIds.signal, setup.drawingIds.plan] : [];
   const keyPrices: ChartCommentaryKeyPrice[] = [];
-  if (support) keyPrices.push(keyPrice("support", "지지", support.price, currentPrice, levelDrawingIds));
-  if (resistance) keyPrices.push(keyPrice("resistance", "저항", resistance.price, currentPrice, levelDrawingIds));
   if (setup) {
     const labels = tradePlanPresentation(setup.action);
     keyPrices.push(

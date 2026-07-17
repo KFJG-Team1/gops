@@ -74,6 +74,8 @@ test("five analysis layers render independently with commentary focus and cards"
   const commentaryPanel = page.locator(".chart-commentary-panel");
   await expect(commentaryPanel.getByRole("row", { name: "보유 $148.42 18주" })).toBeVisible();
   await expect(commentaryPanel.getByLabel("종합 해설")).toBeVisible();
+  await expect(commentaryPanel.locator(".chart-commentary-price-head").getByRole("columnheader")).toHaveText(["제안", "가격", "현재가 대비"]);
+  await expect(commentaryPanel.locator(".chart-commentary-price-table > button > span:first-child")).toHaveText(["진입", "목표", "손절"]);
   await expect(page.getByRole("button", { name: "연결", exact: true })).toHaveCount(0);
   expect(await commentaryPanel.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await expect(commentaryPanel).toHaveScreenshot("chart-commentary-panel.png", { timeout: 15_000 });

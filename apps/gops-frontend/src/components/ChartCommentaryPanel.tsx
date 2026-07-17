@@ -237,7 +237,7 @@ function CurrentCommentary({
       {viewModel.keyPrices.length > 0 && <section className="chart-commentary-key-prices" aria-label="주요 가격">
         <div className="chart-commentary-price-table" role="table">
           <div className="chart-commentary-price-head" role="row">
-            <span role="columnheader">기준</span><span role="columnheader">가격</span><span role="columnheader">현재가 대비</span>
+            <span role="columnheader">제안</span><span role="columnheader">가격</span><span role="columnheader">현재가 대비</span>
           </div>
           {viewModel.keyPrices.map((item) => <button
             key={item.id}
