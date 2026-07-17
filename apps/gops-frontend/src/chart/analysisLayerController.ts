@@ -29,9 +29,9 @@ export function dispatchChartAnalysisLayerToggle(request: ChartAnalysisLayerTogg
 
 export const defaultAnalysisLayerVisibility: AnalysisLayerVisibility = {
   interpretation: false,
-  levels: true,
-  trend: true,
-  pattern: true,
+  levels: false,
+  trend: false,
+  pattern: false,
   proposal: false
 };
 

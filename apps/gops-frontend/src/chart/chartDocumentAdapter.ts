@@ -44,25 +44,7 @@ export function ensureFrontendChartDocuments(
   fallbackSymbol: string
 ): ChartRuntimeState {
   const panels = chartRuntimePanelsForPanelState(panelState, fallbackSymbol);
-  const activeDocumentIds = new Set(panels.map((panel) => panel.chartDocumentId ?? `${panel.id}-chartDocument`));
-  const ensured = chartRuntimeReducer(runtime, { kind: "chart.ensureDocuments", panels });
-  let changed = ensured !== runtime;
-  const documents = { ...ensured.documents };
-  for (const id of activeDocumentIds) {
-    const document = documents[id];
-    if (!document) {
-      continue;
-    }
-    if (!runtime.documents[id] && document.layers.volume) {
-      documents[id] = {
-        ...document,
-        layers: { ...document.layers, volume: false },
-        panes: document.panes.map((pane) => pane.id === "volume" ? { ...pane, heightRatio: 0.22 } : pane)
-      };
-      changed = true;
-    }
-  }
-  return changed ? { ...ensured, documents } : ensured;
+  return chartRuntimeReducer(runtime, { kind: "chart.ensureDocuments", panels });
 }
 
 export function chartStateFromDocument(

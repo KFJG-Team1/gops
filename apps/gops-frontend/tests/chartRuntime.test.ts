@@ -2883,7 +2883,22 @@ const defaultChartDocument = defaultChartContent?.chartDocumentId
   ? frontendInitialRuntime.documents[defaultChartContent.chartDocumentId]
   : undefined;
 assert.ok(defaultChartDocument);
-assert.equal(defaultChartDocument.layers.volume, false);
+assert.equal(defaultChartDocument.layers.volume, true);
+const volumeOffRuntime = {
+  ...frontendInitialRuntime,
+  documents: {
+    ...frontendInitialRuntime.documents,
+    [defaultChartDocument.id]: {
+      ...defaultChartDocument,
+      layers: { ...defaultChartDocument.layers, volume: false }
+    }
+  }
+};
+assert.equal(
+  ensureFrontendChartDocuments(volumeOffRuntime, tiledState, "NVDA").documents[defaultChartDocument.id]?.layers.volume,
+  false,
+  "an existing chart document keeps its explicit volume preference"
+);
 assert.equal((defaultChartContent as Record<string, unknown> | undefined)?.isDefaultChart, undefined);
 assert.equal((defaultChartSlot as Record<string, unknown> | undefined)?.required, undefined);
 assert.deepEqual(defaultChartSlot.gridRect, { col: 1, row: 3, colSpan: 8, rowSpan: 4 });
@@ -4645,7 +4660,7 @@ assert.match(chartCanvasSource, /lineWidth: interpretationFocusedLineWidth\(desc
 assert.match(chartCanvasSource, /fillOpacity: 0/);
 assert.match(chartCanvasSource, /labelPlacement: "none"/);
 assert.match(chartCanvasSource, /function interpretationLineWidth[\s\S]*pattern"\) return 5\.5[\s\S]*levels"\) return 4\.5[\s\S]*return 4/);
-assert.match(chartCanvasSource, /const interpretationLineOpacity = 0\.4/);
+assert.match(chartCanvasSource, /const interpretationLineOpacity = 0\.3/);
 assert.match(chartCanvasSource, /const analysisSpotlightDimMultiplier = 0\.5/);
 assert.match(chartCanvasSource, /const focusedDrawingMaxOuterLineWidth = 6/);
 assert.match(chartCanvasSource, /const focusedDrawingMaxCoreLineWidth = 4\.5/);
@@ -4751,7 +4766,7 @@ assert.match(chartCanvasSource, /spotlighted\s*\? Math\.min\(4\.5, baseLineWidth
 assert.match(chartCanvasSource, /if \(spotlight\?\.has\(drawing\.id\)\) return 1;/);
 assert.match(chartCanvasSource, /return analysis \? analysisSpotlightDimMultiplier : 0\.82;/);
 assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 3);
-assert.match(chartDocumentAdapterSource, /volume: false/);
+assert.doesNotMatch(chartDocumentAdapterSource, /volume: false/);
 
 const panelLayoutSource = readFileSync(fileURLToPath(new URL("../src/layout/panelLayout.ts", import.meta.url)), "utf-8");
 assert.doesNotMatch(panelLayoutSource, /id: "slot-trade"/);

@@ -45,7 +45,13 @@ const candles = [
   { timestamp: now, open: 1, high: 1, low: 1, close: 1, volume: 1, isClosed: true },
   { timestamp: "2026-07-11T20:00:00.000Z", open: 1, high: 1, low: 1, close: 1, volume: 1, isClosed: true }
 ];
-const allEvidenceVisible = { ...defaultAnalysisLayerVisibility, proposal: true };
+const allEvidenceVisible = {
+  ...defaultAnalysisLayerVisibility,
+  levels: true,
+  trend: true,
+  pattern: true,
+  proposal: true
+};
 
 assert.equal(isChartAssetDrawing(upper), true);
 assert.equal(candleKeyForTimestamp("2026-07-06T00:00:00.000Z", "1W"), "2026-07-06");
@@ -429,7 +435,7 @@ assert.match(toggleSource, /data-state=\{state\}/);
 assert.match(toggleSource, /unavailable \? undefined : visibility\[layer\]/);
 assert.match(toggleSource, /분석 레이어 사용 불가/);
 assert.doesNotMatch(toggleSource, /lucide-react|chart-analysis-layer-state|icon=/);
-assert.deepEqual(defaultAnalysisLayerVisibility, { interpretation: false, levels: true, trend: true, pattern: true, proposal: false });
+assert.deepEqual(defaultAnalysisLayerVisibility, { interpretation: false, levels: false, trend: false, pattern: false, proposal: false });
 assert.equal(analysisLayerOfDrawing(upper), "pattern");
 assert.equal(analysisLayerOfDrawing(support), "levels");
 assert.equal(analysisLayerOfDrawing(goldenCrossDrawing!), "trend");

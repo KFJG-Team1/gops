@@ -323,7 +323,7 @@ type DrawingRenderBatch = {
 };
 
 const interpretationUnderlayIdPrefix = "interpretation-underlay:";
-const interpretationLineOpacity = 0.4;
+const interpretationLineOpacity = 0.3;
 const analysisSpotlightDimMultiplier = 0.5;
 const focusedDrawingMaxOuterLineWidth = 6;
 const focusedDrawingMaxCoreLineWidth = 4.5;

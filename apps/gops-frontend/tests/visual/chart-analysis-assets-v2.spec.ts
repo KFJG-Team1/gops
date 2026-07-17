@@ -57,9 +57,9 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(page.locator(".chart-analysis-layer-state")).toHaveCount(0);
   await expect(page.locator(".chart-analysis-asof")).toContainText(/해석 유력 후보 · 유력 후보 \d+\/2 · 전체 4/);
   const interpretationToggle = page.getByRole("button", { name: "해석 분석 레이어 켜기" });
-  const levelsToggle = page.getByRole("button", { name: "지지·저항 분석 레이어 끄기" });
-  const trendToggle = page.getByRole("button", { name: "추세 분석 레이어 끄기" });
-  const patternToggle = page.getByRole("button", { name: "패턴 분석 레이어 끄기" });
+  const levelsToggle = page.getByRole("button", { name: /^지지·저항 분석 레이어 (?:켜기|끄기)$/ });
+  const trendToggle = page.getByRole("button", { name: /^추세 분석 레이어 (?:켜기|끄기)$/ });
+  const patternToggle = page.getByRole("button", { name: /^패턴 분석 레이어 (?:켜기|끄기)$/ });
   const proposalToggle = page.getByRole("button", { name: "제안 분석 레이어 켜기" });
   const evidenceStep = page.locator(".chart-commentary-focus button").first();
   await expect(interpretationToggle).toBeEnabled();
@@ -68,6 +68,12 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(patternToggle).toBeEnabled();
   await expect(proposalToggle).toBeEnabled();
   await expect(interpretationToggle).toHaveAttribute("data-state", "off");
+  await expect(levelsToggle).toHaveAttribute("data-state", "off");
+  await expect(trendToggle).toHaveAttribute("data-state", "off");
+  await expect(patternToggle).toHaveAttribute("data-state", "off");
+  await levelsToggle.click();
+  await trendToggle.click();
+  await patternToggle.click();
   await expect(levelsToggle).toHaveAttribute("data-state", "on");
   await expect(trendToggle).toHaveAttribute("data-state", "on");
   await expect(patternToggle).toHaveAttribute("data-state", "on");
@@ -195,9 +201,6 @@ test("interpretation alone keeps broad final underlays and shortlisted candidate
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
   await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
-  await page.getByRole("button", { name: "지지·저항 분석 레이어 끄기" }).click();
-  await page.getByRole("button", { name: "추세 분석 레이어 끄기" }).click();
-  await page.getByRole("button", { name: "패턴 분석 레이어 끄기" }).click();
   await expect(page.getByRole("button", { name: "해석 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
   await expect(chart.locator(".chart-primary-pattern-badge")).toHaveCount(0);
@@ -209,6 +212,9 @@ test("final analysis strokes sit above their interpretation underlays", async ({
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
   await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
+  await page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" }).click();
+  await page.getByRole("button", { name: "추세 분석 레이어 켜기" }).click();
+  await page.getByRole("button", { name: "패턴 분석 레이어 켜기" }).click();
   await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "추세 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "패턴 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
@@ -240,7 +246,7 @@ test("proposal toggle is disabled when the asset has no proposal drawings", asyn
   includeConditionalEvidence = false;
   await page.goto("/?symbol=NVDA");
   await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
-  await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 끄기" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" })).toBeEnabled();
   const unavailableProposalToggle = page.getByRole("button", { name: "제안 분석 레이어 사용 불가" });
   await expect(unavailableProposalToggle).toBeDisabled();
   await expect(unavailableProposalToggle).toHaveAttribute("data-state", "unavailable");
@@ -477,8 +483,8 @@ test("price axis and proposal labels share order selection while scenario contro
   await expect(labels).toHaveCount(3);
   await assertLabelsRightOfBox();
   const targetLabel = chart.getByRole("button", { name: "목표 가격 198.00 주문창에 적용" });
-  const patternToggle = chart.getByRole("button", { name: "패턴 분석 레이어 끄기" });
-  await patternToggle.click();
+  const patternToggle = chart.getByRole("button", { name: "패턴 분석 레이어 켜기" });
+  await expect(patternToggle).toHaveAttribute("aria-pressed", "false");
   await expect(chart.locator(".chart-primary-pattern-badge")).toHaveCount(0);
   await targetLabel.focus();
   await expect(chart.locator(".chart-primary-pattern-badge")).toHaveText("상승 삼각형 · 돌파 확인");
