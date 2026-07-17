@@ -136,7 +136,7 @@
 }
 
 .verdictCopy h3 {
-  max-width: 32ch;
+  max-width: 26em;
   color: var(--report-ink);
   overflow-wrap: break-word;
   text-wrap: balance;
@@ -298,20 +298,16 @@
   z-index: 30;
   top: calc(100% + 7px);
   left: 0;
-  display: grid;
+  display: none;
   width: min(330px, 70vw);
   gap: 6px;
-  visibility: hidden;
   border: 1px solid var(--report-rule);
   border-radius: 6px;
   padding: 11px 12px;
   background: #1b1b1b;
   box-shadow: none;
   color: var(--report-ink);
-  opacity: 0;
   pointer-events: none;
-  transform: translateY(-4px);
-  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
 }
 
 .evidenceTooltip strong {
@@ -327,11 +323,40 @@
   line-height: 1.5;
 }
 
+.evidenceComparisonList {
+  display: grid;
+  gap: 5px;
+  margin: 2px 0 0;
+  border-top: 1px solid var(--report-rule);
+  padding-top: 7px;
+}
+
+.evidenceComparisonList > div {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.3fr);
+  gap: 8px;
+}
+
+.evidenceComparisonList dt,
+.evidenceComparisonList dd {
+  margin: 0;
+  overflow-wrap: break-word;
+  word-break: keep-all;
+  font: var(--type-caption);
+}
+
+.evidenceComparisonList dt {
+  color: var(--report-muted);
+}
+
+.evidenceComparisonList dd {
+  color: var(--report-ink);
+  text-align: right;
+}
+
 .evidenceHelp:hover .evidenceTooltip,
 .evidenceHelp:focus-within .evidenceTooltip {
-  visibility: visible;
-  opacity: 1;
-  transform: translateY(0);
+  display: grid;
 }
 
 .evidenceMetricGrid {
@@ -347,8 +372,7 @@
   background: var(--report-canvas);
 }
 
-.evidenceMetricHeader span,
-.evidenceMetric small {
+.evidenceMetricHeader span {
   color: var(--report-muted);
   font: var(--type-caption);
 }
@@ -409,13 +433,6 @@
   border-radius: 50%;
   background: var(--report-muted);
   transform: translate(-50%, -50%);
-}
-
-.evidenceMetric small {
-  display: block;
-  overflow-wrap: break-word;
-  word-break: keep-all;
-  line-height: 1.4;
 }
 
 .cautionRow p {

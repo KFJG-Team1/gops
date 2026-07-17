@@ -100,11 +100,19 @@ test("V3 explanation prioritizes the natural-language conclusion and shows every
   await expect(qualityMetric).toBeVisible();
   const marketHelp = explanation.getByRole("button", { name: "시장 흐름 근거 설명" });
   const marketExplanation = explanation.getByText("시장 전체 상승에 편승한 움직임인지 구분하기 위해 SPY를 기준으로 비교했습니다. 장중과 마감 구간이 같은 방향이라 일시적인 초반 급등보다 지속된 종목 수요로 해석했습니다.", { exact: true });
+  const marketBaseline = explanation.getByText("SPY 대비 · 중립 0%p", { exact: true }).first();
   await expect(marketHelp).toBeVisible();
   await expect(marketExplanation).toBeHidden();
+  await expect(marketBaseline).toBeHidden();
+  await expect(explanation.locator("[class*='evidenceMetric'] small")).toHaveCount(0);
   await marketHelp.focus();
   await expect(marketExplanation).toBeVisible();
-  await expect(explanation.locator("[class*='cautionRow']")).toHaveCount(3);
+  await expect(marketBaseline).toBeVisible();
+  await expect(explanation.locator("[class*='cautionRow']")).toHaveCount(1);
+  await expect(explanation.getByText("추격 진입 기준", { exact: true })).toBeVisible();
+  await expect(explanation.getByText("돌파 매수는 $345.89까지만 검토합니다. 상한에서 무효화 기준 $339.23까지의 하락 폭은 주당 $6.66입니다.", { exact: true })).toBeVisible();
+  await expect(explanation.getByText("판단 유효 범위", { exact: true })).toHaveCount(0);
+  await expect(explanation.getByText("신뢰도 해석", { exact: true })).toHaveCount(0);
 
   if (!narrow) {
     const headlineLines = await headline.evaluate((element) => {
@@ -455,7 +463,7 @@ function v3RecommendationPayload(): Record<string, unknown> {
           status: "ready",
           headline: "시장보다 강한 흐름과 활발한 거래가 이어져, 계획된\u00a0가격대에서 매수를 검토할 수 있습니다.",
           body: "",
-          promptVersion: "recommendation-decision-renderer.ko.v6"
+          promptVersion: "recommendation-decision-renderer.ko.v7"
         },
         deterministic: {
           summary: "",
@@ -533,9 +541,7 @@ function v3RecommendationPayload(): Record<string, unknown> {
       ],
       counterEvidence: null,
       cautions: [
-        { code: "spread_proximity", label: "체결 여건", severity: "warning", sentence: "호가 스프레드가 현재 위험성향의 실행 한도에 근접합니다." },
-        { code: "decision_scope", label: "판단 유효 범위", severity: "notice", sentence: "가격이 $339.23 아래로 내려가거나 당일 15:50 ET가 지나면 이 장중 판단은 더 이상 유효하지 않습니다." },
-        { code: "confidence_scope", label: "신뢰도 해석", severity: "notice", sentence: "근거 신뢰도는 수익 성공확률이 아니라 사용된 데이터의 완전성과 신선도를 뜻합니다." }
+        { code: "chase_limit", label: "추격 진입 기준", severity: "warning", sentence: "돌파 매수는 $345.89까지만 검토합니다. 상한에서 무효화 기준 $339.23까지의 하락 폭은 주당 $6.66입니다." }
       ]
     }],
     profile: investmentProfile()
