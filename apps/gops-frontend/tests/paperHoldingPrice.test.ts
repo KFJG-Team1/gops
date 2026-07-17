@@ -4,10 +4,11 @@ import { resolve } from "node:path";
 import {
   findPaperHoldingOverlay,
   formatPaperHoldingQuantity,
+  paperHoldingPriceMarkerForScene,
   paperHoldingOverlayLabel,
   paperHoldingOverlayPriceLabel
 } from "../src/chart/paperHoldingPrice";
-import { buildChartScene } from "../src/chart/scene";
+import { buildChartScene, priceToY } from "../src/chart/scene";
 import type { ChartState } from "../src/chart/types";
 
 const positions = [
@@ -96,6 +97,20 @@ assert.deepEqual(
   [candleOnlyScene.scales.minPrice, candleOnlyScene.scales.maxPrice]
 );
 
+const markerScene = buildChartScene({
+  ...chartWithHolding,
+  holdingOverlay: { symbol: "AMD", quantity: 20, averagePrice: 100 }
+}, 640, 360);
+const scaledHoldingMarker = paperHoldingPriceMarkerForScene(markerScene, {
+  width: 320,
+  height: 180
+});
+assert.ok(scaledHoldingMarker);
+assert.equal(scaledHoldingMarker.y, priceToY(markerScene, 100) * 0.5);
+assert.equal(scaledHoldingMarker.axisLeft, markerScene.plot.right * 0.5);
+assert.equal(scaledHoldingMarker.axisWidth, (markerScene.width - markerScene.plot.right) * 0.5);
+assert.equal(scaledHoldingMarker.priceText, "$100.00");
+
 const chartCanvasSource = readFileSync(
   resolve(process.cwd(), "src/chart/ChartCanvas.tsx"),
   "utf-8"
@@ -116,6 +131,8 @@ assert.match(chartPanelSource, /chart-holding-price-marker/);
 assert.match(chartPanelSource, /paperHoldingOverlayPriceLabel/);
 assert.match(chartPanelSource, /className="chart-holding-price-tooltip"/);
 assert.match(chartPanelSource, /role="tooltip"/);
+assert.match(chartPanelSource, /ref=\{holdingPriceMarkerRef\}/);
+assert.match(chartPanelSource, /syncPaperHoldingPriceMarkerPosition/);
 
 const chartFeatureStyles = readFileSync(
   resolve(process.cwd(), "src/chart-features.css"),
@@ -123,3 +140,6 @@ const chartFeatureStyles = readFileSync(
 );
 assert.match(chartFeatureStyles, /\.chart-holding-price-marker:hover \.chart-holding-price-tooltip/);
 assert.match(chartFeatureStyles, /\.chart-holding-price-marker:focus-visible \.chart-holding-price-tooltip/);
+assert.match(chartFeatureStyles, /left: var\(--chart-holding-axis-left\)/);
+assert.match(chartFeatureStyles, /width: var\(--chart-holding-axis-width\)/);
+assert.doesNotMatch(chartFeatureStyles, /\.chart-holding-price-marker\s*\{[^}]*\n\s*right:\s*4px/s);

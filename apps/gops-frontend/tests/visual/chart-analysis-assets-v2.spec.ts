@@ -11,6 +11,7 @@ let watchlistSymbols: string[] = [];
 let watchlistWrites: string[][] = [];
 let nearbyIntervalFallback = false;
 let analysisAssetStorageUnavailable = false;
+let showPaperHolding = false;
 
 test.beforeEach(async ({ page }, testInfo) => {
   postedBuildRequest = null;
@@ -22,7 +23,9 @@ test.beforeEach(async ({ page }, testInfo) => {
   watchlistWrites = [];
   nearbyIntervalFallback = false;
   analysisAssetStorageUnavailable = false;
+  showPaperHolding = false;
   await page.routeWebSocket("**/ws/charts**", () => undefined);
+  await page.routeWebSocket("**/ws/paper/account**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillApi(route));
   const layout = testInfo.title.includes("chart questions keep current commentary")
     ? chartQuestionLayout()
@@ -533,6 +536,31 @@ test("analysis asset storage failure is distinct from an absent asset", async ({
     .not.toContainText("현재 주기의 저장 자산이 없습니다.");
 });
 
+test("average purchase price marker stays in the right-side scale lane", async ({ page }, testInfo) => {
+  showPaperHolding = true;
+  await page.goto("/?symbol=NVDA");
+  const chart = page.locator(".chart-panel").first();
+  const marker = chart.locator(".chart-holding-price-marker");
+  await expect(marker).toBeVisible();
+  await expect(marker).toHaveCSS("left", /px/);
+  await expect(marker).toHaveCSS("width", /px/);
+
+  const chartBox = await chart.boundingBox();
+  const markerBox = await marker.boundingBox();
+  expect(chartBox).not.toBeNull();
+  expect(markerBox).not.toBeNull();
+  if (chartBox && markerBox) {
+    expect(markerBox.x).toBeGreaterThan(chartBox.x + chartBox.width - 160);
+    expect(markerBox.x + markerBox.width).toBeLessThanOrEqual(chartBox.x + chartBox.width + 1);
+  }
+
+  await marker.focus();
+  const tooltip = marker.locator(".chart-holding-price-tooltip");
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveCSS("opacity", "1");
+  await chart.screenshot({ path: testInfo.outputPath("average-purchase-price-marker.png") });
+});
+
 test("pattern symbol panel filters active patterns and opens the matching chart interval", async ({ page }) => {
   densePatternCoverage = true;
   await page.goto("/?symbol=NVDA");
@@ -566,6 +594,7 @@ async function fulfillApi(route: Route): Promise<void> {
   let payload: unknown = {};
   let status = 200;
   if (url.pathname === "/api/auth/me") payload = { authEnabled: false, user: null };
+  else if (url.pathname === "/api/paper/account") payload = paperAccountFixture(showPaperHolding);
   else if (url.pathname === "/api/account/holdings") payload = {
     status: "ok",
     source: "kis",
@@ -639,6 +668,44 @@ async function fulfillApi(route: Route): Promise<void> {
   else if (url.pathname === "/api/charts/volume-profile-bins") payload = { bins: [] };
   else if (url.pathname === "/api/market/heatmap") payload = { items: [] };
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(payload) });
+}
+
+function paperAccountFixture(withHolding: boolean) {
+  const position = {
+    symbol: "NVDA",
+    qty: 18,
+    reserved_qty: 0,
+    available_qty: 18,
+    average_price: 164.8,
+    current_price: 167.59,
+    market_value: 3_016.62,
+    cost_basis: 2_966.4,
+    unrealized_pnl: 50.22,
+    unrealized_pnl_rate: 1.69,
+    realized_pnl: 0,
+    price_source: "live_trade"
+  };
+  return {
+    source: "paper",
+    execution_mode: "paper",
+    account: {
+      generation: 1,
+      currency: "USD",
+      starting_cash: 100_000,
+      cash_balance: 97_328.44,
+      reserved_cash: 0,
+      available_cash: 97_328.44,
+      market_value: withHolding ? position.market_value : 0,
+      equity: withHolding ? 100_050.76 : 100_000,
+      unrealized_pnl: withHolding ? position.unrealized_pnl : 0,
+      realized_pnl: 0,
+      total_pnl: withHolding ? position.unrealized_pnl : 0,
+      total_pnl_rate: withHolding ? 0.05 : 0,
+      started_at: "2026-07-01T00:00:00Z"
+    },
+    positions: withHolding ? [position] : [],
+    open_orders: []
+  };
 }
 
 function chartAnalysisReport(requestBody: Record<string, unknown>): Record<string, unknown> {
