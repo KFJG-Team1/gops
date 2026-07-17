@@ -104,6 +104,12 @@ import {
   type ChartEventsResponse
 } from "../chart/chartEvents";
 import {
+  chartTradeMarkerLayoutKey,
+  chartTradeMarkersForScene,
+  syncChartTradeMarkerPositions,
+  type ChartTradeMarker
+} from "../chart/chartTradeMarkers";
+import {
   buildDraftPreviewDrawing,
   buildSingleAnchorPreviewDrawing,
   buildDraggedAnchors,
@@ -186,10 +192,12 @@ import {
 } from "../chart/viewport";
 import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
 import { ChartEventOverlay } from "./ChartEventOverlay";
+import { ChartTradeOverlay } from "./ChartTradeOverlay";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ContextualAgentAskButton } from "./ContextualAgentAskButton";
 import type { ThemeColorToken } from "../theme/colors";
 import { usePaperAccount } from "../orders/PaperAccountProvider";
+import { useChartTradeHistory } from "../orders/ChartTradeHistoryProvider";
 
 function iconButtonClass(active = false): string {
   return active ? "icon-button active" : "icon-button";
@@ -435,6 +443,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   toolbarAfterViewControls
 }: ChartPanelProps, ref) {
   const { snapshot: paperAccountSnapshot } = usePaperAccount();
+  const { fills: chartTradeFills } = useChartTradeHistory();
   const [previousClose, setPreviousClose] = useState<number | null>(null);
   const [activeExpansions, setActiveExpansions] = useState<SemanticExpansion[]>([]);
   const [hoveredSemanticNodeId, setHoveredSemanticNodeId] = useState<string | undefined>();
@@ -477,6 +486,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [patternBadge, setPatternBadge] = useState<PatternBadgeLayout | null>(null);
   const [chartEvents, setChartEvents] = useState<ChartEventsResponse | null>(null);
   const [chartEventMarkers, setChartEventMarkers] = useState<ChartEventMarker[]>([]);
+  const [chartTradeMarkers, setChartTradeMarkers] = useState<ChartTradeMarker[]>([]);
   const [chartEventUpcomingStyle, setChartEventUpcomingStyle] = useState<CSSProperties>();
   const effectiveSpotlightDrawingIds = useMemo(() => [...new Set([
     ...spotlightDrawingIds,
@@ -629,6 +639,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const pendingViewportAnchorRef = useRef<{ key: string; anchor: ViewportAnchor } | null>(null);
   const overlayKeyRef = useRef("");
   const chartEventMarkerKeyRef = useRef("");
+  const chartTradeMarkerKeyRef = useRef("");
   const chartEventUpcomingStyleKeyRef = useRef("");
   const chartEventsRef = useRef<ChartEventsResponse | null>(null);
   const chartEventCoverageRef = useRef<ChartEventCoverage | null>(null);
@@ -2069,24 +2080,45 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       overlayKeyRef.current = key;
       setExpansionOverlays(overlays);
     }
-    const nextEventMarkers = chartEventMarkersForScene(scene, chartEvents, {
-      earnings: earningsEventsVisible,
-      news: newsEventsVisible
-    });
+    const markerCoordinateSpace = chartWrapRef.current
+      ? { width: chartWrapRef.current.clientWidth, height: chartWrapRef.current.clientHeight }
+      : scene;
+    const markerScaleX = scene.width > 0 ? markerCoordinateSpace.width / scene.width : 1;
+    const markerScaleY = scene.height > 0 ? markerCoordinateSpace.height / scene.height : 1;
+    const nextEventMarkers = chartEventMarkersForScene(
+      scene,
+      chartEvents,
+      {
+        earnings: earningsEventsVisible,
+        news: newsEventsVisible
+      },
+      markerCoordinateSpace
+    );
     syncChartEventMarkerPositions(chartWrapRef.current, nextEventMarkers);
     const nextEventMarkerKey = chartEventMarkerLayoutKey(nextEventMarkers);
     if (nextEventMarkerKey !== chartEventMarkerKeyRef.current) {
       chartEventMarkerKeyRef.current = nextEventMarkerKey;
       setChartEventMarkers(nextEventMarkers);
     }
-    const upcomingRight = Math.max(8, scene.width - scene.plot.right + 8);
-    const upcomingBottom = Math.max(30, scene.height - scene.plot.bottom + 3);
+    const nextTradeMarkers = chartTradeMarkersForScene(
+      scene,
+      chartTradeFills,
+      markerCoordinateSpace
+    );
+    syncChartTradeMarkerPositions(chartWrapRef.current, nextTradeMarkers);
+    const nextTradeMarkerKey = chartTradeMarkerLayoutKey(nextTradeMarkers);
+    if (nextTradeMarkerKey !== chartTradeMarkerKeyRef.current) {
+      chartTradeMarkerKeyRef.current = nextTradeMarkerKey;
+      setChartTradeMarkers(nextTradeMarkers);
+    }
+    const upcomingRight = Math.max(8, (scene.width - scene.plot.right + 8) * markerScaleX);
+    const upcomingBottom = Math.max(30, (scene.height - scene.plot.bottom + 3) * markerScaleY);
     const upcomingStyleKey = `${Math.round(upcomingRight)}:${Math.round(upcomingBottom)}`;
     if (upcomingStyleKey !== chartEventUpcomingStyleKeyRef.current) {
       chartEventUpcomingStyleKeyRef.current = upcomingStyleKey;
       setChartEventUpcomingStyle({ right: upcomingRight, bottom: upcomingBottom });
     }
-  }, [activeAnalysisAsset, analysisTraceDiagnosticOverlay, chartEvents, chartTradeSetupSnapshot, earningsEventsVisible, effectiveSpotlightDrawingIds, newsEventsVisible]);
+  }, [activeAnalysisAsset, analysisTraceDiagnosticOverlay, chartEvents, chartTradeFills, chartTradeSetupSnapshot, earningsEventsVisible, effectiveSpotlightDrawingIds, newsEventsVisible]);
 
   const toggleAgentSemanticUnitSelection = useCallback((unit: SemanticRenderUnit) => {
     if (unit.kind !== "candle") {
@@ -2908,6 +2940,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           earningsVisible={earningsEventsVisible}
           upcomingStyle={chartEventUpcomingStyle}
         />
+        <ChartTradeOverlay markers={chartTradeMarkers} />
         {tradePlanOverlay && (
           <div ref={tradePlanOverlayRef} className="chart-trade-plan-price-overlay" data-drawing-id={tradePlanOverlay.drawingId}>
             <svg aria-hidden="true">

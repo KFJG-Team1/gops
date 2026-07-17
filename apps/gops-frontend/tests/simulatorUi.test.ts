@@ -102,10 +102,13 @@ assert.match(controlSource, /setSimulatorSpeed/);
 assert.match(controlSource, /시뮬레이션 재생/);
 assert.match(chartPanelSource, /simulationAwareNowMs\(Date\.now\(\)\)/);
 assert.match(apiSource, /\/api\/simulator\/speed/);
+assert.match(apiSource, /\/api\/simulator\/quote/);
 assert.doesNotMatch(apiSource, /\/api\/simulator\/phase|\/api\/simulator\/orders\/basket/);
 assert.match(bottomCommandBarSource, /<SimulatorControl \/>/);
 assert.match(bottomCommandBarSource, /notification\.id < 0/);
 assert.doesNotMatch(newsPanelSource, /시뮬레이션 뉴스 API 응답 오류/);
+assert.doesNotMatch(newsPanelSource, /시뮬레이션 시각 기준 뉴스 데이터가 없어/);
+assert.match(newsPanelSource, /simulatorMode === "simulation" \? "\/api\/market\/news\/latest"/);
 
 const chartCommentarySource = readFileSync(
   fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)),
@@ -160,7 +163,12 @@ const geopoliticalToastStyle = stylesSource.slice(
 assert.equal((geopoliticalToastStyle.match(/border-color: transparent;/g) ?? []).length, 2);
 assert.match(stylesSource, /\.workspace-notification-row\.is-geopolitical-risk/);
 assert.match(paperClientSource, /\/api\/paper\/symbols\/search/);
-assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*executionMode\)/);
+assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*effectiveExecutionMode\)/);
+assert.match(quickOrderSource, /latestSimulatorStatus/);
+assert.match(quickOrderSource, /fetchSimulatorQuote/);
+assert.match(quickOrderSource, /effectiveExecutionMode/);
+assert.match(quickOrderSource, /simulatorStatusEvent/);
+assert.match(quickOrderSource, /order\.simulation[^]*requestPortfolioRefresh\(\)/);
 assert.doesNotMatch(quickOrderSource, />가상 빠른 주문</);
 assert.doesNotMatch(quickOrderSource, /프리셋 선택/);
 assert.match(quickOrderSource, /executionMode === "paper" \? "회사명 검색" : "종목 검색"/);

@@ -78,15 +78,21 @@ const chartWithHolding = {
   streamState: "idle",
   holdingOverlay: { symbol: "AMD", quantity: 20, averagePrice: 90 }
 } satisfies ChartState;
+const candleOnlyScene = buildChartScene({ ...chartWithHolding, holdingOverlay: null }, 640, 360);
 const holdingScene = buildChartScene(chartWithHolding, 640, 360);
-assert.ok(holdingScene.scales.minPrice <= 90);
-assert.ok(holdingScene.scales.maxPrice >= 102);
+assert.deepEqual(
+  [holdingScene.scales.minPrice, holdingScene.scales.maxPrice],
+  [candleOnlyScene.scales.minPrice, candleOnlyScene.scales.maxPrice]
+);
 
 const extremeHoldingScene = buildChartScene({
   ...chartWithHolding,
   holdingOverlay: { symbol: "AMD", quantity: 20, averagePrice: 1 }
 }, 640, 360);
-assert.ok(extremeHoldingScene.scales.minPrice > 10);
+assert.deepEqual(
+  [extremeHoldingScene.scales.minPrice, extremeHoldingScene.scales.maxPrice],
+  [candleOnlyScene.scales.minPrice, candleOnlyScene.scales.maxPrice]
+);
 
 const chartCanvasSource = readFileSync(
   resolve(process.cwd(), "src/chart/ChartCanvas.tsx"),

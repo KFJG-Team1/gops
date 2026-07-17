@@ -17,6 +17,7 @@ import {
   orderWebSocketUrl,
   parseRiskDetail,
   previewOrderRisk,
+  resolveQuickOrderExecutionMode,
   submitOrderRequest,
   type OrderExecutionMode,
   type OrderRequestPayload,
@@ -29,11 +30,19 @@ import {
   baseQuickOrderIntents,
   deltaTone,
   imbalanceCandidates,
+  normalizeSimulatorQuickOrderQuote,
   normalizedDelta,
   quoteIsUsable,
   type QuickOrderIntent,
   type QuickOrderQuote
 } from "../orders/quickOrderModel";
+import {
+  fetchSimulatorQuote,
+  latestSimulatorStatus,
+  requestPortfolioRefresh,
+  simulatorStatusEvent,
+  type SimulatorStatus
+} from "../simulator/simulatorApi";
 
 type QuickOrderPanelProps = {
   symbol: string;
@@ -85,6 +94,22 @@ export function QuickOrderPanel({
   const [submitting, setSubmitting] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [chartPriceSource, setChartPriceSource] = useState<string | null>(null);
+  const [simulatorStatus, setSimulatorStatus] = useState<SimulatorStatus | null>(() => latestSimulatorStatus());
+  const simulatorMode = simulatorStatus?.mode ?? "live";
+  const simulationActive = simulatorMode === "simulation";
+  const effectiveExecutionMode = resolveQuickOrderExecutionMode(executionMode, simulatorMode);
+  const simulatorSymbols = useMemo(
+    () => simulatorStatus?.symbols.map((item) => item.symbol.trim().toUpperCase()).filter(Boolean) ?? [],
+    [simulatorStatus?.symbols]
+  );
+
+  useEffect(() => {
+    const handleStatus = (event: Event) => {
+      setSimulatorStatus((event as CustomEvent<SimulatorStatus>).detail ?? null);
+    };
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
+  }, []);
 
   useEffect(() => {
     setSelectedSymbol(symbol.trim().toUpperCase());
@@ -110,6 +135,10 @@ export function QuickOrderPanel({
   }, [chartPriceSelection, onSymbolChange]);
 
   useEffect(() => {
+    if (simulationActive) {
+      setSupportedSymbols([]);
+      return undefined;
+    }
     const controller = new AbortController();
     fetchOrderFlowSymbols(controller.signal)
       .then((response) => {
@@ -118,21 +147,25 @@ export function QuickOrderPanel({
       })
       .catch(() => setSupportedSymbols([]));
     return () => controller.abort();
-  }, []);
+  }, [simulationActive]);
 
   const orderFlowSupported = supportedSymbols.includes(selectedSymbol);
-  const supported = executionMode === "paper" || orderFlowSupported;
+  const supported = simulationActive
+    ? simulatorSymbols.includes(selectedSymbol)
+    : executionMode === "paper" || orderFlowSupported;
   const quickOrderSymbolOptions = useMemo(() => {
     const allOptions = [...symbolOptions, ...paperSymbolOptions];
     const symbolMeta = new Map(allOptions.map((item) => [item.symbol.toUpperCase(), item]));
-    const candidates = executionMode === "paper"
+    const candidates = simulationActive
+      ? [selectedSymbol, ...simulatorSymbols]
+      : executionMode === "paper"
       ? [selectedSymbol, ...allOptions.map((item) => item.symbol)]
       : supportedSymbols.length ? supportedSymbols : [selectedSymbol];
     return Array.from(new Set(candidates.map((candidate) => candidate.toUpperCase()))).map((normalized) => {
       const meta = symbolMeta.get(normalized);
       return { symbol: normalized, name: meta?.name || normalized };
     });
-  }, [executionMode, paperSymbolOptions, selectedSymbol, supportedSymbols, symbolOptions]);
+  }, [executionMode, paperSymbolOptions, selectedSymbol, simulationActive, simulatorSymbols, supportedSymbols, symbolOptions]);
   const visibleSymbolOptions = useMemo(() => {
     const query = symbolSearchQuery.trim().toUpperCase();
     return quickOrderSymbolOptions
@@ -155,7 +188,7 @@ export function QuickOrderPanel({
   }, [symbolSearchOpen]);
 
   useEffect(() => {
-    if (executionMode !== "paper" || !symbolSearchOpen) return;
+    if (executionMode !== "paper" || simulationActive || !symbolSearchOpen) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       searchPaperSymbols(symbolSearchQuery, controller.signal)
@@ -170,7 +203,16 @@ export function QuickOrderPanel({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [executionMode, symbolSearchOpen, symbolSearchQuery]);
+  }, [executionMode, simulationActive, symbolSearchOpen, symbolSearchQuery]);
+
+  useEffect(() => {
+    if (!simulationActive || simulatorSymbols.length === 0 || simulatorSymbols.includes(selectedSymbol)) return;
+    const nextSymbol = simulatorSymbols[0];
+    setSelectedSymbol(nextSymbol);
+    setSymbolSearchQuery("");
+    setSymbolSearchOpen(false);
+    onSymbolChange?.(nextSymbol);
+  }, [onSymbolChange, selectedSymbol, simulationActive, simulatorSymbols]);
 
   useEffect(() => {
     setIntent(null);
@@ -178,6 +220,7 @@ export function QuickOrderPanel({
     setRisk(undefined);
     setMinutes(new Map());
     setQuote(null);
+    if (simulationActive) return;
     if (!orderFlowSupported) return;
     const controller = new AbortController();
     fetchOrderFlowIntraday(selectedSymbol, controller.signal)
@@ -191,7 +234,47 @@ export function QuickOrderPanel({
         setQuote(null);
       });
     return () => controller.abort();
-  }, [orderFlowSupported, selectedSymbol]);
+  }, [orderFlowSupported, selectedSymbol, simulationActive]);
+
+  useEffect(() => {
+    if (!simulationActive) return undefined;
+    setMinutes(new Map());
+    setQuote(null);
+    if (!supported) {
+      setStreamState("idle");
+      return undefined;
+    }
+    let disposed = false;
+    let timer: number | undefined;
+    let controller: AbortController | null = null;
+    const refresh = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      try {
+        const nextQuote = normalizeSimulatorQuickOrderQuote(
+          await fetchSimulatorQuote(selectedSymbol, controller.signal)
+        );
+        if (!disposed) {
+          setQuote(nextQuote);
+          setStreamState(nextQuote ? "live" : "idle");
+        }
+      } catch {
+        if (!disposed && !controller.signal.aborted) {
+          setQuote(null);
+          setStreamState("idle");
+        }
+      } finally {
+        if (!disposed) timer = window.setTimeout(refresh, 1_000);
+      }
+    };
+    setStreamState("connecting");
+    void refresh();
+    return () => {
+      disposed = true;
+      controller?.abort();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [selectedSymbol, simulationActive, simulatorStatus?.runId, supported]);
 
   useEffect(() => {
     if (!chartPriceSelection
@@ -210,6 +293,7 @@ export function QuickOrderPanel({
   }, [chartPriceSelection, selectedSymbol]);
 
   useEffect(() => {
+    if (simulationActive) return undefined;
     if (!supported) {
       setStreamState("idle");
       return;
@@ -222,7 +306,7 @@ export function QuickOrderPanel({
     const onState = (state: StreamState) => setStreamState(state);
     const demoCleanup = orderFlowSupported ? subscribeOrderFlowDemoTicks(selectedSymbol, onEvent, onState) : undefined;
     return demoCleanup ?? openChartSocket(selectedSymbol, "1m", onEvent, onState);
-  }, [orderFlowSupported, selectedSymbol, supported]);
+  }, [orderFlowSupported, selectedSymbol, simulationActive, supported]);
 
   const baseIntents = useMemo(() => baseQuickOrderIntents(quote), [quote]);
   const imbalances = useMemo(() => imbalanceCandidates(minutes, quote, priceBinSize), [minutes, priceBinSize, quote]);
@@ -244,7 +328,7 @@ export function QuickOrderPanel({
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setRiskLoading(true);
-      previewOrderRisk(orderPayload(selectedSymbol, exchange, qty, { ...intent, price }), controller.signal, executionMode)
+      previewOrderRisk(orderPayload(selectedSymbol, exchange, qty, { ...intent, price }), controller.signal, effectiveExecutionMode)
         .then(setRisk)
         .catch(() => setRisk(undefined))
         .finally(() => setRiskLoading(false));
@@ -253,7 +337,7 @@ export function QuickOrderPanel({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [exchange, executionMode, intent, marketDataReady, price, qty, selectedSymbol, supported]);
+  }, [effectiveExecutionMode, exchange, intent, marketDataReady, price, qty, selectedSymbol, supported]);
 
   useEffect(() => {
     if (!intent || price === null || !marketDataReady) {
@@ -262,12 +346,12 @@ export function QuickOrderPanel({
     }
     const controller = new AbortController();
     const params = new URLSearchParams({ symbol: selectedSymbol, exchange, price: price.toFixed(2) });
-    fetch(`${orderBalancePath(executionMode)}?${params.toString()}`, { signal: controller.signal })
+    fetch(`${orderBalancePath(effectiveExecutionMode)}?${params.toString()}`, { signal: controller.signal })
       .then(async (response) => response.ok ? response.json() : Promise.reject())
       .then(setBalance)
       .catch(() => setBalance(undefined));
     return () => controller.abort();
-  }, [exchange, executionMode, intent, marketDataReady, price, selectedSymbol]);
+  }, [effectiveExecutionMode, exchange, intent, marketDataReady, price, selectedSymbol]);
 
   useEffect(() => () => {
     socketsRef.current.forEach((socket) => socket.close());
@@ -341,14 +425,14 @@ export function QuickOrderPanel({
     const pendingToastId = `pending-${idempotencyKey}`;
     showToast({ id: pendingToastId, tone: "pending", message: `${selectedSymbol} 주문 전송 중` }, false);
     try {
-      const order = await submitOrderRequest(orderPayload(selectedSymbol, exchange, qty, { ...intent, price }), idempotencyKey, undefined, executionMode);
+      const order = await submitOrderRequest(orderPayload(selectedSymbol, exchange, qty, { ...intent, price }), idempotencyKey, undefined, effectiveExecutionMode);
       removeToast(pendingToastId);
       showToast({ id: order.order_id, tone: "info", message: `${selectedSymbol} 주문이 접수되었습니다.` });
       if (order.simulation) {
         showToast({ id: `${order.order_id}-sim`, tone: "success", message: "모의 체결가는 재생 엔진 기준입니다." });
-      } else {
-        trackOrder(order);
+        requestPortfolioRefresh();
       }
+      trackOrder(order);
     } catch (error) {
       removeToast(pendingToastId);
       const detail = (error as Error & { detail?: unknown }).detail;
@@ -368,7 +452,7 @@ export function QuickOrderPanel({
       oldest[1].close();
       socketsRef.current.delete(oldest[0]);
     }
-    const socket = new WebSocket(orderWebSocketUrl(order.order_id, executionMode));
+    const socket = new WebSocket(orderWebSocketUrl(order.order_id, effectiveExecutionMode));
     socketsRef.current.set(order.order_id, socket);
     socket.onmessage = (event) => {
       const payload = JSON.parse(event.data) as OrderSocketPayload;
@@ -378,6 +462,7 @@ export function QuickOrderPanel({
       }
       const status = payload.order?.status?.toLowerCase();
       if (!status || !terminalStatuses.has(status)) return;
+      if (payload.order?.simulation) requestPortfolioRefresh();
       showToast({
         id: `${order.order_id}-${status}`,
         tone: status === "filled" ? "success" : "error",
@@ -622,7 +707,7 @@ export function QuickOrderPanel({
             {risk.verdict === "resize" && risk.adjustedQty && <button type="button" onClick={() => updateQty(Number(risk.adjustedQty))}>적용</button>}
           </div>
         )}
-        {disabledReason && !HIDDEN_STATE_MESSAGES.has(disabledReason) && <div className="quick-order-state-note" data-blocked="true">{disabledReason}</div>}
+        {disabledReason && (simulationActive || !HIDDEN_STATE_MESSAGES.has(disabledReason)) && <div className="quick-order-state-note" data-blocked="true">{disabledReason}</div>}
       </div>
 
       <div className="quick-order-toasts" aria-live="polite" aria-atomic="false">

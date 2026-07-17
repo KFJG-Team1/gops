@@ -1,4 +1,4 @@
-export type GlossaryCategory = "indicator" | "structure" | "volume" | "pattern" | "candle" | "general";
+export type GlossaryCategory = "indicator" | "structure" | "volume" | "pattern" | "candle" | "fundamental" | "general";
 
 export type GlossaryEntry = {
   id: string;
@@ -191,17 +191,122 @@ export const extraGlossary: GlossaryEntry[] = [
     category: "general"
   },
   {
+    id: "market_cap",
+    term: "시가총액",
+    aliases: ["시가총액", "market cap", "market capitalization"],
+    description: "현재 주가에 발행주식수를 곱한 값으로, 시장이 평가하는 기업 전체 가치입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "shares_outstanding",
+    term: "발행주식수",
+    aliases: ["발행주식수", "발행 주식수", "shares outstanding"],
+    description: "회사가 발행해 투자자가 보유하고 있는 전체 주식 수입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "revenue",
+    term: "매출",
+    aliases: ["매출", "매출액", "revenue"],
+    description: "회사가 제품이나 서비스를 판매해 벌어들인 총금액으로, 비용을 빼기 전 값입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "operating_income",
+    term: "영업이익",
+    aliases: ["영업이익", "영업 이익", "operating income"],
+    description: "회사의 주된 사업에서 매출과 영업비용을 반영하고 남은 이익입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "net_income",
+    term: "순이익",
+    aliases: ["순이익", "순 이익", "net income"],
+    description: "영업비용과 이자, 세금 등을 모두 반영하고 최종적으로 남은 이익입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "operating_cash_flow",
+    term: "영업현금흐름",
+    aliases: ["영업현금흐름", "영업 현금흐름", "영업활동 현금흐름", "operating cash flow"],
+    description: "회사의 주된 사업 활동에서 실제로 들어오고 나간 현금을 보여주는 값입니다.",
+    category: "fundamental"
+  },
+  {
     id: "free_cash_flow",
     term: "잉여현금흐름",
-    aliases: ["잉여현금흐름", "FCF", "free cash flow"],
-    description: "영업으로 번 현금에서 설비 투자 지출을 뺀, 회사가 자유롭게 쓸 수 있는 현금입니다.",
-    category: "general"
+    aliases: ["잉여현금흐름", "잉여 현금흐름", "FCF", "free cash flow"],
+    description: "영업으로 번 현금에서 사업을 유지하고 늘리는 데 필요한 투자를 뺀 뒤 남은 현금입니다.",
+    category: "fundamental"
   },
   {
     id: "gross_margin_percentile",
     term: "섹터 백분위",
     aliases: ["섹터 백분위", "백분위", "percentile"],
     description: "같은 섹터 기업들 사이에서 이 수치가 어느 위치인지 0~100으로 나타낸 값입니다. 상위 5%는 100개 중 5등 안이라는 뜻입니다.",
+    category: "general"
+  },
+  {
+    id: "debt_ratio",
+    term: "부채비율",
+    aliases: ["부채비율", "부채 비율", "debt ratio"],
+    description: "부채를 자기자본과 비교한 값으로, 기업이 자본에 비해 어느 정도 부채를 사용하고 있는지 보여줍니다.",
+    category: "fundamental"
+  },
+  {
+    id: "eps",
+    term: "EPS",
+    aliases: ["EPS", "주당순이익", "earnings per share"],
+    description: "기업의 순이익을 주식 수로 나눈 값으로, 주식 한 주가 벌어들인 이익을 뜻합니다.",
+    category: "fundamental"
+  },
+  {
+    id: "per",
+    term: "PER",
+    aliases: ["PER", "주가수익비율", "price earnings ratio"],
+    description: "현재 주가가 주당순이익의 몇 배인지 보여주는 값으로, 이익에 비해 주가가 어느 수준인지 비교할 때 씁니다.",
+    category: "fundamental"
+  },
+  {
+    id: "pbr",
+    term: "PBR",
+    aliases: ["PBR", "주가순자산비율", "price to book ratio"],
+    description: "현재 기업가치가 자기자본의 몇 배인지 보여주는 값입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "psr",
+    term: "PSR",
+    aliases: ["PSR", "주가매출비율", "price to sales ratio"],
+    description: "현재 기업가치가 연간 매출의 몇 배인지 보여주는 값입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "fcf_yield",
+    term: "FCF Yield",
+    aliases: ["FCF Yield", "잉여현금흐름 수익률", "free cash flow yield"],
+    description: "기업가치에 비해 잉여현금흐름이 얼마나 발생하는지 비율로 나타낸 값입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "roa",
+    term: "ROA",
+    aliases: ["ROA", "총자산이익률", "return on assets"],
+    description: "기업이 보유한 전체 자산을 사용해 얼마나 많은 이익을 냈는지 보여줍니다.",
+    category: "fundamental"
+  },
+  {
+    id: "roic",
+    term: "ROIC",
+    aliases: ["ROIC", "투하자본수익률", "return on invested capital"],
+    description: "사업에 실제로 투입된 자본으로 얼마나 효율적으로 영업이익을 만들었는지 보여줍니다.",
+    category: "fundamental"
+  },
+  {
+    id: "sp500",
+    term: "S&P 500",
+    aliases: ["S&P 500", "S&P500"],
+    description: "미국의 대표적인 대형 상장기업 500곳의 주가 흐름을 모아 보여주는 지수입니다.",
     category: "general"
   }
 ];

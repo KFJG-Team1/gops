@@ -5,10 +5,17 @@ import {
   baseQuickOrderIntents,
   deltaTone,
   imbalanceCandidates,
+  normalizeSimulatorQuickOrderQuote,
   normalizeQuickOrderPrice,
   normalizedDelta,
   quoteIsUsable
 } from "../src/orders/quickOrderModel";
+import {
+  orderBalancePath,
+  orderRiskPath,
+  orderSubmitPath,
+  resolveQuickOrderExecutionMode
+} from "../src/orders/orderClient";
 
 const quote = { bidPrice: 100, askPrice: 100.01, bidSize: 4, askSize: 6, timestamp: "2026-07-13T11:59:59.000Z" };
 
@@ -48,5 +55,21 @@ const positive = new Map([[minute.eventMinute, {
 }]]);
 assert.equal(normalizedDelta(positive), 0.6);
 assert.equal(deltaTone(normalizedDelta(positive)), "buy");
+
+assert.deepEqual(normalizeSimulatorQuickOrderQuote({
+  symbol: "NVDA",
+  bid: 207.45,
+  ask: 207.47,
+  runId: "run-1"
+}), {
+  bidPrice: 207.45,
+  askPrice: 207.47
+});
+assert.equal(resolveQuickOrderExecutionMode("paper", "simulation"), "simulation");
+assert.equal(resolveQuickOrderExecutionMode("kis", "simulation"), "simulation");
+assert.equal(resolveQuickOrderExecutionMode("paper", "live"), "paper");
+assert.equal(orderSubmitPath("simulation"), "/api/orders");
+assert.equal(orderRiskPath("simulation"), "/api/risk/pretrade");
+assert.equal(orderBalancePath("simulation"), "/api/orders/balance");
 
 console.log("quick order tests passed");

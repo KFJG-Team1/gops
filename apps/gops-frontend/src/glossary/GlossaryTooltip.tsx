@@ -6,24 +6,37 @@ type TooltipSnapshot = {
   entry: GlossaryEntry | null;
   x: number;
   y: number;
+  pinned: boolean;
 };
 
-const hiddenSnapshot: TooltipSnapshot = { entry: null, x: 0, y: 0 };
+const hiddenSnapshot: TooltipSnapshot = { entry: null, x: 0, y: 0, pinned: false };
 let snapshot = hiddenSnapshot;
 let showTimer: number | null = null;
 const listeners = new Set<(next: TooltipSnapshot) => void>();
 
 export function scheduleGlossaryTooltip(entry: GlossaryEntry, x: number, y: number): void {
+  if (snapshot.pinned) {
+    return;
+  }
   cancelShowTimer();
   showTimer = window.setTimeout(() => {
     showTimer = null;
-    publish({ entry, x, y });
+    publish({ entry, x, y, pinned: false });
   }, 150);
 }
 
-export function hideGlossaryTooltip(): void {
+export function toggleGlossaryTooltip(entry: GlossaryEntry, x: number, y: number): void {
   cancelShowTimer();
-  if (snapshot.entry) {
+  if (snapshot.pinned && snapshot.entry?.id === entry.id) {
+    publish(hiddenSnapshot);
+    return;
+  }
+  publish({ entry, x, y, pinned: true });
+}
+
+export function hideGlossaryTooltip(force = false): void {
+  cancelShowTimer();
+  if (snapshot.entry && (force || !snapshot.pinned)) {
     publish(hiddenSnapshot);
   }
 }
@@ -35,11 +48,27 @@ export function GlossaryTooltip() {
 
   useEffect(() => {
     listeners.add(setCurrent);
-    const hideOnScroll = () => hideGlossaryTooltip();
+    const hideOnScroll = () => hideGlossaryTooltip(true);
+    const hideOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".glossary-term")) {
+        return;
+      }
+      hideGlossaryTooltip(true);
+    };
+    const hideOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        hideGlossaryTooltip(true);
+      }
+    };
     window.addEventListener("scroll", hideOnScroll, true);
+    document.addEventListener("pointerdown", hideOnOutsidePointer);
+    document.addEventListener("keydown", hideOnEscape);
     return () => {
       listeners.delete(setCurrent);
       window.removeEventListener("scroll", hideOnScroll, true);
+      document.removeEventListener("pointerdown", hideOnOutsidePointer);
+      document.removeEventListener("keydown", hideOnEscape);
     };
   }, []);
 

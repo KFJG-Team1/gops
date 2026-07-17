@@ -17,6 +17,7 @@ import "./watchlistAgentCommand.test";
 import "./analysisAssetsCache.test";
 import "./notificationInboxState.test";
 import "./paperHoldingPrice.test";
+import "./chartTradeMarkers.test";
 import { getChartAgentAccess } from "../../chart-engine/src/agentAccess";
 import { normalizeAgentChatResponse } from "../../chart-engine/src/agentChat";
 import { isChartDataRenderable } from "../../chart-engine/src/renderability";
@@ -96,6 +97,7 @@ import {
   isChartRightAxisPoint,
   isPriceAxisPricePanePoint,
   resolveCrosshairTimeTarget,
+  slotCenterToX,
   viewportAnchorRatioAtX,
   viewportSlotWidth
 } from "../src/chart/scene";
@@ -166,6 +168,7 @@ import {
   applyPanelResizeWithYield,
   canPlaceGridRect,
   createInitialTiledPanelState,
+  createTiledPanelStateFromSpec,
   detectResizablePanelBoundaries,
   layoutHasGapsOrOverlaps,
   gridRectForPanelDrag,
@@ -616,8 +619,26 @@ const dailyEventScene = buildFrontendChartScene(frontendChartState({
 const dailyEventMarkers = chartEventMarkersForScene(dailyEventScene, chartEventsFixture, { earnings: true, news: true });
 assert.equal(dailyEventMarkers.length, 2);
 assert.equal(dailyEventMarkers[0].label, "E");
-assert.equal(dailyEventMarkers[1].label, "N 3");
-assert.notEqual(dailyEventMarkers[0].x, dailyEventMarkers[1].x);
+assert.equal(dailyEventMarkers[1].label, "N");
+const dailyEventCandle = dailyEventScene.semantic.units.find((unit) => (
+  unit.kind === "candle"
+  && unit.depth === 0
+  && unit.timestamp === "2026-07-15T04:00:00.000Z"
+));
+assert.ok(dailyEventCandle);
+const dailyEventCandleX = slotCenterToX(dailyEventScene, dailyEventCandle.slotCenter);
+assert.equal(dailyEventMarkers[0].x, dailyEventCandleX);
+assert.equal(dailyEventMarkers[1].x, dailyEventCandleX);
+assert.notEqual(dailyEventMarkers[0].top, dailyEventMarkers[1].top);
+const scaledEventMarkers = chartEventMarkersForScene(
+  dailyEventScene,
+  chartEventsFixture,
+  { earnings: true, news: true },
+  { width: dailyEventScene.width / 0.8, height: dailyEventScene.height / 0.8 }
+);
+assert.equal(scaledEventMarkers[0].x, dailyEventCandleX / 0.8);
+assert.equal(scaledEventMarkers[1].x, dailyEventCandleX / 0.8);
+assert.equal(scaledEventMarkers[0].top, dailyEventMarkers[0].top / 0.8);
 const movingEventElement = {
   dataset: { chartEventId: dailyEventMarkers[0].id },
   style: { left: "0px", top: "0px", visibility: "" }
@@ -1225,7 +1246,7 @@ assert.ok(expandedIndicatorChild?.kind === "candle");
 if (expandedIndicatorChild?.kind === "candle") {
   const expandedRsiLookup = createIndicatorPointLookup(expandedIndicatorScene.chart.indicatorSeries, "rsi:14", expandedIndicatorScene.chart.interval);
   assert.equal(expandedRsiLookup(expandedIndicatorChild)?.value, 40);
-  assert.ok(expandedIndicatorScene.scales.minPrice <= 90);
+  assert.ok(expandedIndicatorScene.scales.minPrice > 90);
 }
 
 const semanticFutureCandles = Array.from(
@@ -1460,6 +1481,122 @@ assert.ok(compactTickPixelGaps.every((gap) => Math.abs(gap - compactTickPixelGap
 assert.ok(Math.abs(compactTickYs[0] - compactPriceDensityScene.plot.priceBottom) < 0.000001);
 assert.ok(Math.abs(compactTickYs.at(-1)! - compactPriceDensityScene.plot.top) < 0.000001);
 
+const visibleCandleScaleSource = [
+  testCandle("2026-07-09T13:30:00.000Z", 100),
+  testCandle("2026-07-09T13:31:00.000Z", 101)
+] as CandleDto[];
+const visibleCandleScaleBaseline = buildFrontendChartScene(frontendChartState({
+  interval: "1m",
+  candles: visibleCandleScaleSource,
+  visibleCount: visibleCandleScaleSource.length,
+  layers: { candles: true, volume: false }
+}), 800, 360);
+const visibleCandleScaleWithOverlays = buildFrontendChartScene(frontendChartState({
+  interval: "1m",
+  candles: visibleCandleScaleSource.map((candle) => ({
+    ...candle,
+    ma5: 10_000,
+    ma20: 1,
+    ma60: 5_000
+  })),
+  visibleCount: visibleCandleScaleSource.length,
+  layers: {
+    candles: true,
+    volume: false,
+    ma5: true,
+    ma20: true,
+    ma60: true,
+    "sma:120": true,
+    "bollinger:20:2": true
+  },
+  indicatorSeries: {
+    "sma:120": visibleCandleScaleSource.map((candle) => ({ timestamp: candle.timestamp, value: 20_000 })),
+    "bollinger:20:2": visibleCandleScaleSource.map((candle) => ({
+      timestamp: candle.timestamp,
+      upper: 30_000,
+      lower: 0.5
+    }))
+  },
+  holdingOverlay: { symbol: "AAPL", quantity: 10, averagePrice: 1 },
+  streamState: "live",
+  liveTrade: { price: 40_000, timestamp: "2026-07-09T13:31:30.000Z" },
+  drawings: [testDrawing({
+    id: "chart-plan:AAPL:1m:visible-candle-scale:risk",
+    sourceProposalId: "chart-plan:AAPL:1m:visible-candle-scale",
+    type: "riskRewardBox",
+    anchors: [
+      { timestamp: visibleCandleScaleSource[0].timestamp, price: 100, paneId: "price", symbol: "AAPL" },
+      { timestamp: visibleCandleScaleSource[1].timestamp, price: 1, paneId: "price", symbol: "AAPL" },
+      { timestamp: visibleCandleScaleSource[1].timestamp, price: 50_000, paneId: "price", symbol: "AAPL" }
+    ],
+    style: { colorToken: "proposal", zoneSplit: true, labelPlacement: "axis" }
+  })]
+}), 800, 360);
+assert.deepEqual(
+  {
+    minPrice: visibleCandleScaleWithOverlays.scales.minPrice,
+    maxPrice: visibleCandleScaleWithOverlays.scales.maxPrice,
+    priceTicks: visibleCandleScaleWithOverlays.scales.priceTicks
+  },
+  {
+    minPrice: visibleCandleScaleBaseline.scales.minPrice,
+    maxPrice: visibleCandleScaleBaseline.scales.maxPrice,
+    priceTicks: visibleCandleScaleBaseline.scales.priceTicks
+  },
+  "price scale must depend only on visible candle highs and lows"
+);
+
+const engineVisibleCandleScaleDocument = {
+  ...createChartDocument("chart-doc-visible-candle-scale", "AAPL", "1m"),
+  viewport: { visibleCount: 2, rightOffset: 0 }
+};
+const engineVisibleCandleScaleBaseline = buildRenderScene({
+  state: "ready",
+  document: engineVisibleCandleScaleDocument,
+  candles: visibleCandleScaleSource,
+  width: 800,
+  height: 360
+});
+const engineVisibleCandleScaleWithOverlays = buildRenderScene({
+  state: "ready",
+  document: {
+    ...engineVisibleCandleScaleDocument,
+    drawings: [{
+      id: "engine-visible-candle-scale-risk",
+      type: "riskRewardBox",
+      anchors: [
+        { timestamp: visibleCandleScaleSource[0].timestamp, price: 100 },
+        { timestamp: visibleCandleScaleSource[1].timestamp, price: 1 },
+        { timestamp: visibleCandleScaleSource[1].timestamp, price: 50_000 }
+      ],
+      style: { zoneSplit: true },
+      visible: true,
+      createdBy: "user",
+      createdAt: "2026-07-09T13:31:00.000Z",
+      updatedAt: "2026-07-09T13:31:00.000Z"
+    }]
+  },
+  candles: visibleCandleScaleSource.map((candle) => ({
+    ...candle,
+    ma5: 10_000,
+    ma20: 1,
+    ma60: 5_000
+  })),
+  width: 800,
+  height: 360
+});
+assert.deepEqual(
+  {
+    minPrice: engineVisibleCandleScaleWithOverlays.scales.minPrice,
+    maxPrice: engineVisibleCandleScaleWithOverlays.scales.maxPrice
+  },
+  {
+    minPrice: engineVisibleCandleScaleBaseline.scales.minPrice,
+    maxPrice: engineVisibleCandleScaleBaseline.scales.maxPrice
+  },
+  "shared chart scene must ignore moving averages and drawings when autoscaling"
+);
+
 const lowerNiceBoundaryScale = resolvePriceScale([100, 107.27], compactPricePaneHeight);
 const upperNiceBoundaryScale = resolvePriceScale([100, 107.28], compactPricePaneHeight);
 const lowerNiceBoundarySpan = lowerNiceBoundaryScale.domainMax - lowerNiceBoundaryScale.domainMin;
@@ -1510,8 +1647,10 @@ const idleLivePriceScaleScene = buildFrontendChartScene(frontendChartState({
   streamState: "idle",
   liveTrade: { price: 120, timestamp: "2026-07-10T13:30:30.000Z" }
 }), 800, 360);
-assert.ok(livePriceScaleScene.scales.maxPrice > 120);
-assert.ok(idleLivePriceScaleScene.scales.maxPrice < 110);
+assert.deepEqual(
+  [livePriceScaleScene.scales.minPrice, livePriceScaleScene.scales.maxPrice],
+  [idleLivePriceScaleScene.scales.minPrice, idleLivePriceScaleScene.scales.maxPrice]
+);
 const fourDigitPriceScene = buildFrontendChartScene(frontendChartState({
   candles: [{ ...semanticFutureCandles[0], open: 1350, high: 1356.22, low: 1340, close: 1355 } as CandleDto],
   visibleCount: 1
@@ -2165,7 +2304,7 @@ const guardedSmaScene = buildFrontendChartScene(frontendChartState({
   }
 }), 600, 320);
 assert.ok(guardedSmaScene.scales.minPrice >= 0);
-assert.ok(guardedSmaScene.scales.maxPrice > 100);
+assert.ok(guardedSmaScene.scales.maxPrice < 1);
 assert.ok(guardedSmaScene.scales.priceTicks.every((tick) => tick >= 0));
 const invalidOverlayScale = resolvePriceScale([0.18, 0.23, Number.NaN, Number.POSITIVE_INFINITY, 0, -1], 240);
 assert.ok(invalidOverlayScale.domainMax < 1);
@@ -2202,7 +2341,7 @@ const nearbySmaScene = buildFrontendChartScene(frontendChartState({
     "sma:120": [{ timestamp: narrowPriceCandle.timestamp, value: 208 }]
   }
 }), 600, 320);
-assert.ok(nearbySmaScene.scales.minPrice <= 208);
+assert.ok(nearbySmaScene.scales.minPrice > 208);
 assert.ok(nearbySmaScene.scales.priceTicks.every((tick) => tick >= 0));
 const bidAskNarrowPriceScene = buildFrontendChartScene(frontendChartState({
   chartType: "bidask",
@@ -3637,13 +3776,14 @@ const proposalPriceRangeState = frontendChartState({
   })]
 });
 const proposalPriceRangeScene = buildFrontendChartScene(proposalPriceRangeState, 640, 360);
-assert.ok(proposalPriceRangeScene.scales.maxPrice >= 150);
-assert.ok(proposalPriceRangeScene.scales.minPrice <= 80);
 const hiddenProposalPriceRangeScene = buildFrontendChartScene({
   ...proposalPriceRangeState,
   drawings: proposalPriceRangeState.drawings.map((drawing) => ({ ...drawing, visible: false }))
 }, 640, 360);
-assert.ok(hiddenProposalPriceRangeScene.scales.maxPrice < 120);
+assert.deepEqual(
+  [proposalPriceRangeScene.scales.minPrice, proposalPriceRangeScene.scales.maxPrice],
+  [hiddenProposalPriceRangeScene.scales.minPrice, hiddenProposalPriceRangeScene.scales.maxPrice]
+);
 const extremeProposalPriceRangeScene = buildFrontendChartScene({
   ...proposalPriceRangeState,
   drawings: proposalPriceRangeState.drawings.map((drawing) => ({
@@ -3651,8 +3791,10 @@ const extremeProposalPriceRangeScene = buildFrontendChartScene({
     anchors: drawing.anchors.map((anchor, index) => index === 2 ? { ...anchor, price: 10_000 } : anchor)
   }))
 }, 640, 360);
-assert.ok(extremeProposalPriceRangeScene.scales.minPrice >= 0);
-assert.ok(extremeProposalPriceRangeScene.scales.maxPrice > 10_000);
+assert.deepEqual(
+  [extremeProposalPriceRangeScene.scales.minPrice, extremeProposalPriceRangeScene.scales.maxPrice],
+  [hiddenProposalPriceRangeScene.scales.minPrice, hiddenProposalPriceRangeScene.scales.maxPrice]
+);
 assert.equal(
   extremeProposalPriceRangeScene.scales.priceTicks.length,
   priceTickCountForHeight(extremeProposalPriceRangeScene.plot.priceBottom - extremeProposalPriceRangeScene.plot.top)
@@ -4646,20 +4788,25 @@ const companyAnalysisLayout = buildPresetLayout(companyAnalysisPreset, { width: 
 assert.ok(companyAnalysisLayout);
 assert.deepEqual(
   companyAnalysisLayout.slots.map((slot) => companyAnalysisLayout.contents[slot.contentId]?.kind),
-  ["companyCompare", "chart", "company", "watchlistNews"]
+  ["company", "companyJournal", "newsList"]
 );
-assert.deepEqual(companyAnalysisLayout.slots[0]?.gridRect, { col: 1, row: 1, colSpan: 8, rowSpan: 4 });
+assert.deepEqual(companyAnalysisLayout.slots[0]?.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 6 });
+const legacyCompanyAnalysisLayout = serializeTiledPanelState(createTiledPanelStateFromSpec([
+  { kind: "chart", gridRect: { col: 1, row: 1, colSpan: 6, rowSpan: 3 } },
+  { kind: "company", gridRect: { col: 7, row: 1, colSpan: 2, rowSpan: 3 } },
+  { kind: "watchlistNews", gridRect: { col: 1, row: 4, colSpan: 8, rowSpan: 2 } }
+], { width: 1280, height: 720 }, { symbol: "NVDA" }));
 const migratedCompanyAnalysisLayout = buildPresetLayout(
   {
     ...companyAnalysisPreset,
-    layout: serializeTiledPanelState(createInitialTiledPanelState({ width: 1280, height: 720 }, { symbol: "NVDA" }))
+    layout: legacyCompanyAnalysisLayout
   },
   { width: 1280, height: 720 },
   { symbol: "NVDA" }
 );
 assert.ok(migratedCompanyAnalysisLayout);
 assert.equal(
-  migratedCompanyAnalysisLayout.slots.some((slot) => migratedCompanyAnalysisLayout.contents[slot.contentId]?.kind === "companyCompare"),
+  migratedCompanyAnalysisLayout.slots.some((slot) => migratedCompanyAnalysisLayout.contents[slot.contentId]?.kind === "companyJournal"),
   true
 );
 const recommendationReference = stockRecommendationReference({

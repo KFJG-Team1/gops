@@ -7,6 +7,7 @@ import {
   newsDailySummaryReference,
   type AgentReference
 } from "../agent/agentReferences";
+import { GlossaryText } from "../glossary/GlossaryText";
 import { NewsFlipCard, type NewsFlipCardItem } from "./NewsFlipCard";
 import { ContextualAgentAskButton } from "./ContextualAgentAskButton";
 import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
@@ -81,13 +82,6 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
   const [simulatorMode, setSimulatorMode] = useState(() => latestSimulatorStatus()?.mode ?? "live");
 
   const loadNews = useCallback(async (signal?: AbortSignal, showRefreshing = false) => {
-    if (simulatorMode === "simulation") {
-      setPayload(null);
-      setLoading(false);
-      setRefreshing(false);
-      setError("시뮬레이션 시각 기준 뉴스 데이터가 없어 표시하지 않습니다.");
-      return;
-    }
     if (showRefreshing) {
       setRefreshing(true);
     } else {
@@ -96,7 +90,8 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
     setError(undefined);
     try {
       const params = new URLSearchParams({ symbol, limit: "30", locale: "ko-KR" });
-      const response = await fetch(`/api/market/news/daily?${params.toString()}`, { signal });
+      const endpoint = simulatorMode === "simulation" ? "/api/market/news/latest" : "/api/market/news/daily";
+      const response = await fetch(`${endpoint}?${params.toString()}`, { signal });
       const parsedPayload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(`뉴스 API 응답 오류 ${response.status}`);
@@ -235,7 +230,7 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
                       </span>
                     )}
                   </div>
-                  <p className="market-news-summary"><span>{item.summary}</span></p>
+                  <p className="market-news-summary"><span><GlossaryText text={item.summary} /></span></p>
                   {item.sources.length > 0 && (
                     <div className="market-news-source-row">
                       <span>출처</span>
@@ -285,13 +280,13 @@ export function NewsPanel({ symbol, initialPayload, sourcePanelId, selectedAgent
                 <div className="market-news-main">
                   {item.url ? (
                     <a href={item.url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
-                      <span className="market-news-text-highlight">{item.title}</span>
+                      <span className="market-news-text-highlight"><GlossaryText text={item.title} /></span>
                       <ExternalLink size={12} aria-hidden="true" />
                     </a>
                   ) : (
-                    <strong><span className="market-news-text-highlight">{item.title}</span></strong>
+                    <strong><span className="market-news-text-highlight"><GlossaryText text={item.title} /></span></strong>
                   )}
-                  {item.summary && <p><span>{item.summary}</span></p>}
+                  {item.summary && <p><span><GlossaryText text={item.summary} /></span></p>}
                 </div>
                 <div className="market-news-meta">
                   <span className={`news-impact ${item.impactDirection ?? "unknown"}`}>{impactDirectionText(item.impactDirection)}</span>

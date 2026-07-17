@@ -80,6 +80,11 @@ export type ChartEventCoverage = {
   to: string;
 };
 
+export type ChartEventMarkerCoordinateSpace = {
+  width: number;
+  height: number;
+};
+
 type SceneCandleUnit = Extract<ChartScene["semantic"]["units"][number], { kind: "candle" }>;
 
 const marketDateFormatter = new Intl.DateTimeFormat("en-CA", {
@@ -191,7 +196,8 @@ export function normalizeChartEventsResponse(payload: unknown): ChartEventsRespo
 export function chartEventMarkersForScene(
   scene: ChartScene,
   response: ChartEventsResponse | null,
-  visibility: { earnings: boolean; news: boolean }
+  visibility: { earnings: boolean; news: boolean },
+  coordinateSpace: ChartEventMarkerCoordinateSpace = scene
 ): ChartEventMarker[] {
   if (!response || scene.chart.chartType === "bidask") {
     return [];
@@ -228,7 +234,7 @@ export function chartEventMarkersForScene(
         type: "news",
         marketDate: event.date,
         baseX,
-        label: `N ${event.articleCount}`,
+        label: "N",
         impactDirection: event.impactDirection,
         event
       });
@@ -240,19 +246,20 @@ export function chartEventMarkersForScene(
     const key = `${marker.marketDate}:${Math.round(marker.baseX)}`;
     groups.set(key, [...(groups.get(key) ?? []), marker]);
   });
-  const top = Math.max(scene.plot.top + 4, scene.plot.bottom - 28);
+  const scaleX = coordinateScale(coordinateSpace.width, scene.width);
+  const scaleY = coordinateScale(coordinateSpace.height, scene.height);
+  const bottomMarkerTop = Math.max(scene.plot.top + 4, scene.plot.bottom - 28);
   return Array.from(groups.values()).flatMap((group) => {
     const ordered = [...group].sort((left, right) => left.type === right.type ? left.id.localeCompare(right.id) : left.type === "earnings" ? -1 : 1);
     return ordered.map((marker, index) => ({
       id: marker.id,
       type: marker.type,
       marketDate: marker.marketDate,
-      x: clamp(
-        marker.baseX + (index - (ordered.length - 1) / 2) * 28,
-        scene.plot.left + 16,
-        scene.plot.right - 16
-      ),
-      top,
+      x: marker.baseX * scaleX,
+      top: Math.max(
+        scene.plot.top + 4,
+        bottomMarkerTop - (ordered.length - index - 1) * 28
+      ) * scaleY,
       label: marker.label,
       impactDirection: marker.impactDirection,
       event: marker.event
@@ -346,8 +353,10 @@ function isUpcomingEarningsEvent(value: unknown): value is UpcomingEarningsEvent
   return typeof event.eventAt === "string" && Number.isFinite(event.daysRemaining);
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value));
+function coordinateScale(localSize: number, sceneSize: number): number {
+  return Number.isFinite(localSize) && localSize > 0 && Number.isFinite(sceneSize) && sceneSize > 0
+    ? localSize / sceneSize
+    : 1;
 }
 
 function timestampInRange(timestamp: string, from: string, to: string): boolean {

@@ -40,6 +40,16 @@ export default defineConfig(({ mode }) => {
             if (id.includes("/apps/chart-engine/")) {
               return "chart-engine";
             }
+            if (
+              id.includes("/src/components/CompanySummaryPanel")
+              || id.includes("/src/components/CompanyJournalPanel")
+              || id.includes("/src/components/NewsPanel")
+              || id.includes("/src/components/NewsFlipCard")
+              || id.includes("/src/components/PortfolioHoldingsPanel")
+              || id.includes("/src/components/portfolioHoldingsApi")
+            ) {
+              return "feature-dashboard";
+            }
             if (id.includes("/src/market/sp500Universe.seed")) {
               return "market-universe";
             }

@@ -494,6 +494,11 @@ export function OrderTicket({
       }
       if (payload.order) {
         setOrder(payload.order);
+        const status = payload.order.status.toLowerCase();
+        if (payload.order.simulation && ["filled", "rejected", "cancelled", "canceled"].includes(status)) {
+          requestPortfolioRefresh();
+          socket.close();
+        }
       }
     };
   };
@@ -570,9 +575,8 @@ export function OrderTicket({
       setOrder(payload);
       if (payload.simulation) {
         requestPortfolioRefresh();
-      } else {
-        connectSocket(payload.order_id);
       }
+      connectSocket(payload.order_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "주문 요청에 실패했습니다.");
     } finally {

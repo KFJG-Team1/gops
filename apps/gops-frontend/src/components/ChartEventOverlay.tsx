@@ -102,12 +102,17 @@ export function ChartEventOverlay({
 
   const selectedStyle = useMemo(() => {
     void positionRevision;
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!selected || !rect) return undefined;
+    const container = containerRef.current;
+    const rect = container?.getBoundingClientRect();
+    if (!selected || !container || !rect) return undefined;
+    const scaleX = container.clientWidth > 0 ? rect.width / container.clientWidth : 1;
+    const scaleY = container.clientHeight > 0 ? rect.height / container.clientHeight : 1;
+    const anchorX = rect.left + selected.anchorX * scaleX;
+    const anchorTop = rect.top + selected.anchorTop * scaleY;
     const width = Math.min(360, Math.max(280, window.innerWidth - 24));
-    const left = Math.max(12, Math.min(window.innerWidth - width - 12, rect.left + selected.anchorX - width / 2));
-    const preferredTop = rect.top + selected.anchorTop - 10;
-    const top = preferredTop > 260 ? preferredTop : Math.min(window.innerHeight - 24, rect.top + selected.anchorTop + 38);
+    const left = Math.max(12, Math.min(window.innerWidth - width - 12, anchorX - width / 2));
+    const preferredTop = anchorTop - 10;
+    const top = preferredTop > 260 ? preferredTop : Math.min(window.innerHeight - 24, anchorTop + 38);
     return {
       left,
       top,
@@ -118,12 +123,12 @@ export function ChartEventOverlay({
 
   const openUpcoming = () => {
     const upcoming = response?.upcomingEarnings;
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!upcoming || !rect) return;
+    const container = containerRef.current;
+    if (!upcoming || !container) return;
     setSelected({
       event: upcomingAsEarningsEvent(response?.symbol ?? "", upcoming),
-      anchorX: Math.max(40, rect.width - 110),
-      anchorTop: Math.max(44, rect.height - 28),
+      anchorX: Math.max(40, container.clientWidth - 110),
+      anchorTop: Math.max(44, container.clientHeight - 28),
       upcoming
     });
   };
@@ -141,7 +146,9 @@ export function ChartEventOverlay({
               style={{ left: marker.x, top: marker.top }}
               data-chart-event-id={marker.id}
               data-chart-event-trigger="true"
-              aria-label={marker.type === "earnings" ? `${marker.marketDate} 실적 이벤트` : `${marker.marketDate} 뉴스 ${marker.label.slice(2)}건`}
+              aria-label={marker.event.type === "earnings"
+                ? `${marker.marketDate} 실적 이벤트`
+                : `${marker.marketDate} 뉴스 ${marker.event.articleCount}건`}
               aria-expanded={selected?.event.id === marker.id}
               aria-controls={popoverId}
               onPointerDown={(event) => event.stopPropagation()}

@@ -31,7 +31,7 @@ export default defineConfig({
     { name: "mobile", use: { viewport: { width: 390, height: 844 } } }
   ],
   webServer: {
-    command: "npm run dev -- --host 127.0.0.1 --port 4173",
+    command: `"${process.execPath}" node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4173`,
     url: "http://127.0.0.1:4173",
     reuseExistingServer: false,
     timeout: 120_000

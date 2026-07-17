@@ -5,6 +5,7 @@ import { AppErrorBoundary } from "./AppErrorBoundary";
 import { AuthProvider } from "./auth/AuthProvider";
 import { NotificationPreferencesProvider } from "./alerts/notificationPreferences";
 import { PaperAccountProvider } from "./orders/PaperAccountProvider";
+import { ChartTradeHistoryProvider } from "./orders/ChartTradeHistoryProvider";
 import { syncChartEngineThemeFromCss } from "./theme/colors";
 import "./styles.css";
 import "./chart-features.css";
@@ -16,9 +17,11 @@ createRoot(document.getElementById("root")!).render(
     <AppErrorBoundary>
       <AuthProvider>
         <PaperAccountProvider>
-          <NotificationPreferencesProvider>
-            <App />
-          </NotificationPreferencesProvider>
+          <ChartTradeHistoryProvider>
+            <NotificationPreferencesProvider>
+              <App />
+            </NotificationPreferencesProvider>
+          </ChartTradeHistoryProvider>
         </PaperAccountProvider>
       </AuthProvider>
     </AppErrorBoundary>

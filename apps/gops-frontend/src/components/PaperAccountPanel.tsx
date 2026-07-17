@@ -1,12 +1,11 @@
 import { LoaderCircle, LogIn, XCircle } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { OrderSnapshot } from "../orders/orderClient";
 import { useAuth } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
 import {
-  cancelPaperOrder,
-  fetchPaperOrders
+  cancelPaperOrder
 } from "../orders/paperTradingClient";
 import { usePaperAccount } from "../orders/PaperAccountProvider";
 import { PriceConditionPanel } from "./PriceConditionPanel";
@@ -21,24 +20,19 @@ type PaperAccountPanelProps = {
 
 export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: PaperAccountPanelProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
-  const { snapshot, loading, error: accountError, refresh } = usePaperAccount();
-  const [history, setHistory] = useState<OrderSnapshot[]>([]);
+  const {
+    snapshot,
+    loading,
+    error: accountError,
+    refresh,
+    orders: history,
+    ordersLoading: historyLoading,
+    ordersError: historyError,
+    refreshOrders: refreshHistory
+  } = usePaperAccount();
   const [tab, setTab] = useState<AccountTab>("holdings");
-  const [historyLoading, setHistoryLoading] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [cancellingOrderId, setCancellingOrderId] = useState<string>();
-
-  const refreshHistory = useCallback(async () => {
-    if (authEnabled && !user) return;
-    setHistoryLoading(true);
-    try {
-      setHistory(await fetchPaperOrders());
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "거래내역을 불러오지 못했습니다.");
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [authEnabled, user]);
 
   useEffect(() => {
     if (tab === "history") void refreshHistory();
@@ -148,7 +142,9 @@ export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: Pap
         </>
       ) : null}
 
-      {(actionError || accountError) && <div className="paper-account-error">{actionError || accountError}</div>}
+      {(actionError || historyError || accountError) && (
+        <div className="paper-account-error">{actionError || historyError || accountError}</div>
+      )}
     </section>
   );
 }

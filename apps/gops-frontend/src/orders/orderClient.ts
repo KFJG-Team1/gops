@@ -1,5 +1,5 @@
 export type OrderSide = "buy" | "sell";
-export type OrderExecutionMode = "kis" | "paper";
+export type OrderExecutionMode = "kis" | "paper" | "simulation";
 
 export type OrderRequestPayload = {
   market: "overseas";
@@ -44,13 +44,18 @@ export type OrderSnapshot = {
   price?: string | number;
   limit_price?: string | number;
   fill_price?: string | number | null;
+  filled_price?: string | number | null;
   created_at?: string;
   filled_at?: string | null;
+  virtualSubmittedAt?: string;
+  virtualFilledAt?: string | null;
   cancelled_at?: string | null;
   generation?: number;
-  execution_mode?: "paper";
+  execution_mode?: "paper" | "simulation";
+  order_type?: "market" | "limit";
   reason?: string | null;
   simulation?: boolean;
+  runId?: string;
   risk?: RiskVerdict;
 };
 
@@ -85,6 +90,21 @@ export function orderBalancePath(executionMode: OrderExecutionMode = "kis"): str
   return executionMode === "paper" ? "/api/paper/account/balance" : "/api/orders/balance";
 }
 
+export function orderSubmitPath(executionMode: OrderExecutionMode = "kis"): string {
+  return executionMode === "paper" ? "/api/paper/orders" : "/api/orders";
+}
+
+export function orderRiskPath(executionMode: OrderExecutionMode = "kis"): string {
+  return executionMode === "paper" ? "/api/paper/risk/pretrade" : "/api/risk/pretrade";
+}
+
+export function resolveQuickOrderExecutionMode(
+  configuredMode: OrderExecutionMode,
+  simulatorMode: "live" | "simulation"
+): OrderExecutionMode {
+  return simulatorMode === "simulation" ? "simulation" : configuredMode;
+}
+
 export function parseRiskDetail(detail: unknown): RiskVerdict | undefined {
   if (!detail || typeof detail !== "object" || !("risk" in detail)) {
     return undefined;
@@ -102,7 +122,7 @@ export async function submitOrderRequest(
   signal?: AbortSignal,
   executionMode: OrderExecutionMode = "kis"
 ): Promise<OrderSnapshot> {
-  const response = await fetch(executionMode === "paper" ? "/api/paper/orders" : "/api/orders", {
+  const response = await fetch(orderSubmitPath(executionMode), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -125,7 +145,7 @@ export async function previewOrderRisk(
   signal?: AbortSignal,
   executionMode: OrderExecutionMode = "kis"
 ): Promise<RiskVerdict> {
-  const response = await fetch(executionMode === "paper" ? "/api/paper/risk/pretrade" : "/api/risk/pretrade", {
+  const response = await fetch(orderRiskPath(executionMode), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

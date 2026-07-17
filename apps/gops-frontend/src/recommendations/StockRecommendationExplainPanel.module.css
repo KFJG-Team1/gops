@@ -38,17 +38,6 @@
   border-bottom: 1px solid var(--report-rule);
 }
 
-.replayBanner {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--panel-gap);
-  border: 1px solid #235a7a;
-  padding: 7px 9px;
-  background: #1e303a;
-  color: #cceeff;
-  font: var(--type-caption);
-}
-
 .identity {
   min-width: 0;
   gap: var(--panel-gap);
@@ -189,6 +178,69 @@
   color: var(--report-ink);
   font: inherit;
 }
+
+.sentenceEvidenceList,
+.planList {
+  border-top: 1px solid var(--report-rule);
+}
+
+.sentenceEvidenceRow {
+  display: grid;
+  grid-template-columns: minmax(105px, 0.28fr) minmax(0, 1fr);
+  gap: var(--panel-gap);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--report-rule);
+}
+
+.sentenceEvidenceRow span,
+.counterEvidence span {
+  color: var(--report-muted);
+  font: var(--type-caption);
+}
+
+.sentenceEvidenceRow p,
+.counterEvidence p {
+  margin: 0;
+  color: var(--report-ink);
+  font: var(--type-body-md);
+  line-height: 1.5;
+}
+
+.counterEvidence {
+  display: grid;
+  grid-template-columns: minmax(105px, 0.28fr) minmax(0, 1fr);
+  gap: var(--panel-gap);
+  margin-top: var(--panel-gap);
+  border-left: 2px solid #ffbf47;
+  padding: 8px 0 8px var(--panel-gap);
+}
+
+.planList {
+  margin: 0;
+}
+
+.planList > div {
+  display: grid;
+  grid-template-columns: minmax(95px, 0.7fr) minmax(0, 1.3fr);
+  gap: var(--panel-padding);
+  padding: 9px 0;
+  border-bottom: 1px solid var(--report-rule);
+}
+
+.planList dt,
+.planList dd {
+  margin: 0;
+  font: var(--type-caption);
+}
+
+.planList dt { color: var(--report-muted); }
+.planList dd {
+  color: var(--report-ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.planList .stopRow dd { color: #ff7a3d; }
 
 .contentGrid {
   display: grid;
@@ -465,7 +517,16 @@
 
   .scoreBlock {
     width: 100%;
+    max-width: none;
   }
+
+  .sentenceEvidenceRow,
+  .counterEvidence,
+  .planList > div {
+    grid-template-columns: 1fr;
+  }
+
+  .planList dd { text-align: left; }
 
   .secondaryColumn {
     border-top: 1px solid var(--report-rule);

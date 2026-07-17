@@ -1,10 +1,7 @@
 import type { CandleDto, ChartInterval, ChartLayerKey, ChartState, DrawingAnchor } from "./types";
-import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indicatorSeries";
 import {
   buildBidAskPriceGrid,
   ORDER_FLOW_CHART_FOOTER_HEIGHT,
-  orderFlowMinutesForBucket,
-  orderFlowWindowMinutesForInterval,
   type BidAskPriceGrid
 } from "./orderFlow";
 import { normalizeViewport, type ChartViewport, type ViewportClampOptions } from "./viewport";
@@ -23,9 +20,6 @@ const volumeScalePadding = 1.18;
 const fourDigitPriceAxisWidth = 68;
 const fourDigitPriceLabelLength = "1356.22".length;
 const priceAxisLabelContentWidth = 60;
-const holdingOverlayRangeMultiplier = 4;
-const holdingOverlayMidPriceGuardRatio = 0.5;
-const minimumHoldingOverlayPriceStep = 0.01;
 
 export function formatPriceAxisValue(value: number, decimalPlaces = 2): string {
   if (!Number.isFinite(value)) {
@@ -767,22 +761,16 @@ type PriceDomain = {
 
 function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight: number): PriceDomain {
   const candleUnits = units.filter((unit): unit is Extract<SemanticRenderUnit, { kind: "candle" }> => unit.kind === "candle");
-  const carryPrices = units
-    .map((unit) => unit.kind === "time-gap" ? unit.carryPrice : undefined)
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const visibleCandlePrices = candleUnits.flatMap((unit) => [
+    unit.candle.high,
+    unit.candle.low
+  ]).filter(isPositivePrice);
   if (chart.chartType === "bidask") {
-    const windowMinutes = orderFlowWindowMinutesForInterval(chart.interval);
-    const orderFlowPrices = chart.orderFlow
-      ? candleUnits.flatMap((unit) => (
-        orderFlowMinutesForBucket(chart.orderFlow?.minutes ?? [], unit.timestamp, windowMinutes)
-          .flatMap((minute) => minute.bins.map((level) => level.priceBin))
-      ))
-      : [];
-    const values = candleUnits.flatMap((unit) => [
-      unit.candle.high,
-      unit.candle.low
-    ]).concat(carryPrices, orderFlowPrices);
-    const bidAskPriceGrid = buildBidAskPriceGrid(values, chart.orderFlow?.priceBinSize ?? 0.01, plotHeight);
+    const bidAskPriceGrid = buildBidAskPriceGrid(
+      visibleCandlePrices,
+      chart.orderFlow?.priceBinSize ?? 0.01,
+      plotHeight
+    );
     return {
       min: bidAskPriceGrid.domainMin,
       max: bidAskPriceGrid.domainMax,
@@ -790,41 +778,7 @@ function priceDomain(units: SemanticRenderUnit[], chart: ChartState, plotHeight:
       bidAskPriceGrid
     };
   }
-  const baseValues = candleUnits.flatMap((unit) => [
-    unit.candle.high,
-    unit.candle.low
-  ])
-    .concat(carryPrices)
-    .filter(isPositivePrice);
-  const overlayValues = candleUnits.flatMap((unit) => [
-    (chart.layers["sma:5"] ?? chart.layers.ma5) ? unit.candle.ma5 : undefined,
-    (chart.layers["sma:20"] ?? chart.layers.ma20) ? unit.candle.ma20 : undefined,
-    (chart.layers["sma:60"] ?? chart.layers.ma60) ? unit.candle.ma60 : undefined
-  ])
-    .concat(indicatorDomainValues(chart, "sma:5", Boolean(chart.layers["sma:5"] ?? chart.layers.ma5), candleUnits))
-    .concat(indicatorDomainValues(chart, "sma:20", Boolean(chart.layers["sma:20"] ?? chart.layers.ma20), candleUnits))
-    .concat(indicatorDomainValues(chart, "sma:60", Boolean(chart.layers["sma:60"] ?? chart.layers.ma60), candleUnits))
-    .concat(indicatorDomainValues(chart, "sma:120", Boolean(chart.layers["sma:120"]), candleUnits))
-    .concat(indicatorDomainValues(chart, "ema:20", Boolean(chart.layers["ema:20"]), candleUnits))
-    .concat(indicatorDomainValues(chart, "wma:20", Boolean(chart.layers["wma:20"]), candleUnits))
-    .concat(bollingerDomainValues(chart, "bollinger:20:2", Boolean(chart.layers["bollinger:20:2"]), candleUnits))
-    .concat(proposalDomainValues(chart))
-    .filter(isPositivePrice);
-  const holdingPrice = holdingDomainValues(baseValues, chart.holdingOverlay?.averagePrice);
-  const livePrice = chart.streamState === "live" && isPositivePrice(chart.liveTrade?.price)
-    ? [chart.liveTrade.price]
-    : [];
-  return priceDomainFromValues(baseValues.concat(overlayValues, holdingPrice, livePrice), plotHeight);
-}
-
-function proposalDomainValues(chart: ChartState): number[] {
-  return chart.drawings
-    .filter((drawing) => drawing.visible !== false
-      && drawing.type === "riskRewardBox"
-      && drawing.style.zoneSplit === true
-      && (drawing.id.startsWith("chart-plan:") || drawing.sourceProposalId?.startsWith("chart-plan:")))
-    .flatMap((drawing) => drawing.anchors.map((anchor) => anchor.price))
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return priceDomainFromValues(visibleCandlePrices, plotHeight);
 }
 
 function priceDomainFromValues(source: Array<number | undefined>, plotHeight: number): { min: number; max: number; ticks: number[] } {
@@ -836,65 +790,8 @@ function priceDomainFromValues(source: Array<number | undefined>, plotHeight: nu
   };
 }
 
-function holdingDomainValues(baseValues: number[], averagePrice: number | undefined): number[] {
-  if (!isPositivePrice(averagePrice)) {
-    return [];
-  }
-  if (!baseValues.length) {
-    return [averagePrice];
-  }
-  const baseMin = Math.min(...baseValues);
-  const baseMax = Math.max(...baseValues);
-  const midPrice = (baseMin + baseMax) / 2;
-  const baseRange = Math.max(
-    baseMax - baseMin,
-    midPrice * 0.01,
-    minimumHoldingOverlayPriceStep
-  );
-  const guard = Math.max(
-    baseRange * holdingOverlayRangeMultiplier,
-    midPrice * holdingOverlayMidPriceGuardRatio
-  );
-  return averagePrice >= Math.max(0, baseMin - guard) && averagePrice <= baseMax + guard
-    ? [averagePrice]
-    : [];
-}
-
 function isPositivePrice(value: number | undefined | null): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
-
-function indicatorDomainValues(
-  chart: ChartState,
-  layerId: string,
-  enabled: boolean,
-  units: Extract<SemanticRenderUnit, { kind: "candle" }>[]
-): number[] {
-  if (!enabled) {
-    return [];
-  }
-  const valueForUnit = createIndicatorValueLookup(chart.indicatorSeries, layerId, chart.interval);
-  return units
-    .map((unit) => valueForUnit(unit))
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-}
-
-function bollingerDomainValues(
-  chart: ChartState,
-  layerId: string,
-  enabled: boolean,
-  units: Extract<SemanticRenderUnit, { kind: "candle" }>[]
-): number[] {
-  if (!enabled) {
-    return [];
-  }
-  const pointForUnit = createIndicatorPointLookup(chart.indicatorSeries, layerId, chart.interval);
-  return units
-    .flatMap((unit) => {
-      const point = pointForUnit(unit);
-      return [point?.upper, point?.lower];
-    })
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
 function volumeDomain(maxVolume: number): { max: number; ticks: number[] } {

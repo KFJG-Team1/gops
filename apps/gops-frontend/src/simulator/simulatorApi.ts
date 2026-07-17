@@ -33,6 +33,13 @@ export type SimulatorStatus = {
   detail?: string;
 };
 
+export type SimulatorQuote = {
+  symbol: string;
+  bid: number;
+  ask: number;
+  runId?: string | null;
+};
+
 export const simulatorStatusEvent = "gops:simulator-status";
 export const simulatorActivePollIntervalMs = 1_000;
 export const simulatorIdlePollIntervalMs = 30_000;
@@ -107,6 +114,11 @@ export function simulationAwareNowMs(
 
 export async function fetchSimulatorStatus(signal?: AbortSignal): Promise<SimulatorStatus> {
   return requestJson<SimulatorStatus>("/api/simulator/status", { signal });
+}
+
+export async function fetchSimulatorQuote(symbol: string, signal?: AbortSignal): Promise<SimulatorQuote> {
+  const params = new URLSearchParams({ symbol: symbol.trim().toUpperCase() });
+  return requestJson<SimulatorQuote>(`/api/simulator/quote?${params.toString()}`, { signal });
 }
 
 export async function setSimulatorMode(mode: SimulatorMode): Promise<SimulatorStatus> {
