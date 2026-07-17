@@ -124,10 +124,22 @@
 }
 
 .verdictLabel {
-  color: var(--report-action);
+  color: var(--report-muted);
   text-transform: var(--type-label-md-text-transform);
   letter-spacing: var(--type-label-md-letter-spacing);
   font: var(--type-label-md);
+}
+
+.verdictLabel[data-action="buy"] {
+  color: var(--coinbase-semantic-up);
+}
+
+.verdictLabel[data-action="conditional_buy"] {
+  color: var(--color-caution);
+}
+
+.verdictLabel[data-action="not_suitable"] {
+  color: var(--coinbase-semantic-down);
 }
 
 .verdictCopy h3,

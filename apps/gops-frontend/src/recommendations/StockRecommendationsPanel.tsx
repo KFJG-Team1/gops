@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronRight, LoaderCircle, RefreshCcw, Settings } from "lucide-react";
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   agentReferenceKey,
   stockRecommendationReference,
@@ -466,7 +466,6 @@ function RecommendationRow({
       aria-pressed={selected}
       tabIndex={active || className === "is-next" ? 0 : -1}
       onClick={onClick}
-      style={{ "--stock-rec-tab-text-width": `${Math.max(3, item.symbol.length)}ch` } as CSSProperties}
     >
       <span className="stock-rec-file-tab-label">
         <StockLogo symbol={item.symbol} companyName={companyName} size="lg" className="stock-rec-file-tab-logo" />
@@ -554,16 +553,35 @@ function recommendationVisibleReasons(item: StockRecommendationItem) {
   if (!item.decision) {
     return [{ type: "decision_unavailable", text: "직접 매수 판단 데이터가 준비되지 않았습니다." }];
   }
-  if (item.algorithmVersion === "deterministic-evidence-v3" && item.explanation) {
-    return [{ type: "v3_narrative", text: item.explanation.primary.headline }];
+  const evidenceLabels = item.keyEvidence
+    .filter((evidence) => evidence.assessment === "strong")
+    .slice(0, 2)
+    .map((evidence) => compactEvidenceLabel(evidence.code, evidence.label));
+  const focus = evidenceLabels.join(" · ");
+
+  if (item.action === "buy") {
+    return [{ type: "buy_summary", text: focus ? `${focus} 강점` : "핵심 매수 기준 충족" }];
   }
-  if (item.counterEvidence?.sentence) {
-    return [{ type: item.counterEvidence.code, text: item.counterEvidence.sentence }];
+  if (item.action === "conditional_buy") {
+    return [{ type: "conditional_buy_summary", text: focus ? `${focus} 확인 후 접근` : "추가 조건 확인 후 접근" }];
   }
-  if (item.keyEvidence.length > 0) {
-    return [{ type: item.keyEvidence[0].code, text: item.keyEvidence[0].interpretation }];
+
+  const cautionLabel = item.counterEvidence?.label?.trim();
+  if (item.action === "not_suitable") {
+    return [{ type: "not_suitable_summary", text: `${cautionLabel || "매수 기준"} 미충족` }];
   }
-  return item.reasons.slice(0, 2);
+  return [{ type: "watch_summary", text: `${cautionLabel || focus || "핵심 조건"} 추가 확인` }];
+}
+
+function compactEvidenceLabel(code: string, fallback: string) {
+  const labels: Record<string, string> = {
+    market_strength: "시장 대비 흐름",
+    participation: "거래 참여",
+    execution_structure: "가격 구조",
+    execution_quality: "체결 여건",
+    quality_stability: "안정성·품질"
+  };
+  return labels[code] ?? fallback.trim();
 }
 
 function isAbortError(value: unknown) {

@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { WatchlistSymbol } from "@gops/chart-engine/symbols";
 import type { AgentReference } from "../agent/agentReferences";
 import { rememberChartCommentaryState } from "../agent/chartCommentaryHistory";
+import type { CompanyCompareSelectionState } from "../companyCompare/companyCompareSelection";
 import type { OrderFlowResolutionSelection, OrderFlowWindow } from "../chart/orderFlow";
 import type { AnalysisAssetInterval } from "../chart/analysisAssetsApi";
 import type { ChartPriceSelection } from "../chart/chartTradeAutomation";
@@ -115,6 +116,8 @@ type PanelContentRendererProps = {
   chartLiveTrade?: TradeTickData;
   chartDataResetRevision: number;
   chartAddActive: boolean;
+  companyCompareSelections: CompanyCompareSelectionState;
+  onCompanyCompareSymbolsChange: (baseSymbol: string, symbols: string[]) => void;
   selectedAgentReferenceKeys: string[];
   emphasizedAgentReferenceKeys: string[];
   emphasizeChartSelection: boolean;
@@ -169,6 +172,8 @@ export function PanelContentRenderer({
   chartLiveTrade,
   chartDataResetRevision,
   chartAddActive,
+  companyCompareSelections,
+  onCompanyCompareSymbolsChange,
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
   emphasizeChartSelection,
@@ -255,7 +260,7 @@ export function PanelContentRenderer({
 
   if (content.kind === "compare") {
     const baseSymbol = readCompareBaseSymbol(content, symbol);
-    const comparisonSymbols = readCompareSymbols(content, baseSymbol);
+    const comparisonSymbols = companyCompareSelections[baseSymbol] ?? readCompareSymbols(content, baseSymbol);
     const range = readCompareRange(content);
     return (
       <ChartComparisonPanel
@@ -264,26 +269,25 @@ export function PanelContentRenderer({
         symbols={symbols}
         range={range}
         onRangeChange={(nextRange) => onUpdatePanelProps(content.id, { range: nextRange })}
-        onAddSymbol={(nextSymbol) => onUpdatePanelProps(content.id, {
-          symbols: normalizeCompareSymbols([baseSymbol, ...comparisonSymbols, nextSymbol])
-        })}
-        onRemoveSymbol={(nextSymbol) => onUpdatePanelProps(content.id, {
-          symbols: normalizeCompareSymbols([baseSymbol, ...comparisonSymbols.filter((item) => item.toUpperCase() !== nextSymbol.toUpperCase())])
-        })}
+        onAddSymbol={(nextSymbol) => onCompanyCompareSymbolsChange(baseSymbol, [...comparisonSymbols, nextSymbol])}
+        onRemoveSymbol={(nextSymbol) => onCompanyCompareSymbolsChange(
+          baseSymbol,
+          comparisonSymbols.filter((item) => item.toUpperCase() !== nextSymbol.toUpperCase())
+        )}
       />
     );
   }
 
   if (content.kind === "companyCompare") {
     const baseSymbol = readCompanyCompareBaseSymbol(content, symbol);
-    const compareSymbols = readCompanyCompareSymbols(content, baseSymbol);
+    const compareSymbols = companyCompareSelections[baseSymbol] ?? readCompanyCompareSymbols(content, baseSymbol);
     return (
       <Suspense fallback={<div className="workspace-panel-placeholder" role="status">기업 비교 패널을 불러오는 중입니다</div>}>
         <CompanyComparePanel
           baseSymbol={baseSymbol}
           compareSymbols={compareSymbols}
           symbols={symbols}
-          onCompareSymbolsChange={(nextSymbols) => onUpdatePanelProps(content.id, { compareSymbols: nextSymbols })}
+          onCompareSymbolsChange={(nextSymbols) => onCompanyCompareSymbolsChange(baseSymbol, nextSymbols)}
         />
       </Suspense>
     );

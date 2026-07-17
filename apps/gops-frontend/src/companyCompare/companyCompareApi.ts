@@ -30,12 +30,21 @@ export type CompanyCompareSection = {
   metrics: CompanyCompareMetric[];
 };
 
+export type CompanyCompareBusinessSegment = {
+  name: string;
+  detail: string;
+};
+
 export type CompanyCompareQualitativeItem = {
   kind: "10k-business" | "10k-risk" | "ontology-theme" | "ontology-relationship" | "news-event";
   symbol?: string | null;
   title: string;
   summary: string;
   details: string[];
+  structure?: string | null;
+  segments?: CompanyCompareBusinessSegment[];
+  revenueModel?: string[];
+  platform?: string | null;
   sourceRef: string;
   observedAt?: string | null;
   url?: string | null;

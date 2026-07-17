@@ -76,9 +76,9 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     title: "기업 성향 비교",
     agentPanelType: "companyCompare",
     minSpan: { colSpan: 2, rowSpan: 2 },
-    readableMinSpan: { colSpan: 4, rowSpan: 3 },
-    minSizePx: { width: 620, height: 360 },
-    defaultSpan: { colSpan: 6, rowSpan: 4 },
+    readableMinSpan: { colSpan: 3, rowSpan: 2 },
+    minSizePx: { width: 420, height: 220 },
+    defaultSpan: { colSpan: 3, rowSpan: 2 },
     defaultLayoutWeight: 76,
     insertable: true
   },

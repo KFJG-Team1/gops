@@ -12,7 +12,7 @@ import {
 import { useAuth } from "./auth/AuthProvider";
 import { submitAlertCommand } from "./alerts/alertApi";
 import { PresetDock } from "./components/PresetDock";
-import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migratePortfolioInvestmentSnapshot, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
+import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migrateCompanyComparePanelSnapshot, migratePortfolioInvestmentSnapshot, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
 import { useLayoutPresets } from "./layout/useLayoutPresets";
 import {
   chartRuntimeReducer,
@@ -51,6 +51,14 @@ import { BottomCommandBar } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
+import {
+  loadCompanyCompareSelections,
+  migratePanelCompareSelections,
+  normalizeCompanyCompareSymbols,
+  normalizeCompanySymbol,
+  persistCompanyCompareSelections,
+  type CompanyCompareSelectionState
+} from "./companyCompare/companyCompareSelection";
 import type { SemanticSelectionSnapshot } from "./chart/semanticTimeline";
 import type { AnalysisAssetInterval } from "./chart/analysisAssetsApi";
 import {
@@ -199,7 +207,9 @@ function initialPanelState(): TiledPanelState {
     const stored = window.localStorage.getItem(panelLayoutStorageKey);
     if (stored) {
       const restored = restoreTiledPanelStateSnapshot(
-        migratePortfolioInvestmentSnapshot(JSON.parse(stored)),
+        migrateCompanyComparePanelSnapshot(
+          migratePortfolioInvestmentSnapshot(JSON.parse(stored))
+        ),
         viewport,
         responsiveLayout.metrics
       );
@@ -482,6 +492,9 @@ export function App() {
   const [semanticSelection, setSemanticSelection] = useState<SemanticSelectionSnapshot | null>(null);
   const [pendingPlacementPick, setPendingPlacementPick] = useState<PendingPlacementPick | null>(null);
   const [agentReferences, setAgentReferences] = useState<AgentReference[]>([]);
+  const [companyCompareSelections, setCompanyCompareSelections] = useState<CompanyCompareSelectionState>(
+    loadCompanyCompareSelections
+  );
   const [selectedRecommendation, setSelectedRecommendation] = useState<StockRecommendationSelection | null>(null);
   const selectedRecommendationRef = useRef<StockRecommendationSelection | null>(null);
   const [agentInput, setAgentInput] = useState("");
@@ -525,6 +538,36 @@ export function App() {
 
   const dismissAgentNotice = useCallback((noticeId: string) => {
     setAgentNotice((current) => current?.id === noticeId ? null : current);
+  }, []);
+
+  useEffect(() => {
+    const fallbackBase = mainView.mode === "chart" ? mainView.symbol : "";
+    setCompanyCompareSelections((current) => (
+      migratePanelCompareSelections(current, panelState, fallbackBase)
+    ));
+  }, [mainView, panelState]);
+
+  useEffect(() => {
+    persistCompanyCompareSelections(companyCompareSelections);
+  }, [companyCompareSelections]);
+
+  const handleCompanyCompareSymbolsChange = useCallback((baseSymbol: string, values: string[]) => {
+    const base = normalizeCompanySymbol(baseSymbol);
+    if (!base) {
+      return;
+    }
+    setCompanyCompareSelections((current) => {
+      const nextValues = normalizeCompanyCompareSymbols(base, values);
+      const currentValues = current[base] ?? [];
+      if (
+        Object.prototype.hasOwnProperty.call(current, base)
+        && currentValues.length === nextValues.length
+        && currentValues.every((value, index) => value === nextValues[index])
+      ) {
+        return current;
+      }
+      return { ...current, [base]: nextValues };
+    });
   }, []);
 
   useEffect(() => {
@@ -1196,6 +1239,8 @@ export function App() {
       setAgentInput((current) => current.trim() ? current : "이 봉 분석해줘");
     } else if (agentReferences.some((reference) => reference.type.startsWith("news."))) {
       setAgentInput((current) => current.trim() ? current : "이 뉴스 설명해줘");
+    } else if (agentReferences.some((reference) => reference.type.startsWith("compare.") || reference.type === "financial.metric")) {
+      setAgentInput((current) => current.trim() ? current : "이 비교 차이를 설명해줘");
     } else if (agentReferences.some((reference) => reference.type === "chart.pattern" || reference.type === "chart.drawing")) {
       setAgentInput((current) => current.trim() ? current : "이 패턴 설명해줘");
     }
@@ -1937,6 +1982,8 @@ export function App() {
             marketItems={treeMapItems}
             chartRuntime={chartRuntime}
             chartDataResetRevision={chartDataResetRevision}
+            companyCompareSelections={companyCompareSelections}
+            onCompanyCompareSymbolsChange={handleCompanyCompareSymbolsChange}
             selectedAgentReferenceKeys={selectedAgentReferenceKeys}
             emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
             emphasizeChartSelection={emphasizeChartSelection}
