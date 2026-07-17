@@ -93,7 +93,6 @@ export function QuickOrderPanel({
   const [balance, setBalance] = useState<Balance>();
   const [submitting, setSubmitting] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [chartPriceSource, setChartPriceSource] = useState<string | null>(null);
   const [simulatorStatus, setSimulatorStatus] = useState<SimulatorStatus | null>(() => latestSimulatorStatus());
   const simulatorMode = simulatorStatus?.mode ?? "live";
   const simulationActive = simulatorMode === "simulation";
@@ -130,7 +129,6 @@ export function QuickOrderPanel({
     setSelectedSymbol(normalizedSymbol);
     setSymbolSearchQuery("");
     setSymbolSearchOpen(false);
-    setChartPriceSource(`${normalizedSymbol} 차트에서 $${chartPriceSelection.formattedPrice} 적용`);
     onSymbolChange?.(normalizedSymbol);
   }, [chartPriceSelection, onSymbolChange]);
 
@@ -577,8 +575,6 @@ export function QuickOrderPanel({
           {symbolPicker}
         </header>
       )}
-
-      {chartPriceSource && <p className="order-chart-price-source" role="status">{chartPriceSource}</p>}
 
       <div className="quick-order-quote-grid" role="group" aria-label="주문 가격 선택">
         <button type="button" className={`quick-order-quote buy ${intent?.source === "best-bid" ? "selected" : ""}`} aria-pressed={intent?.source === "best-bid"} disabled={Boolean(disabledReason)} onClick={() => bidIntent && selectIntent(bidIntent)}>

@@ -9,6 +9,12 @@ export type AnalysisLayerVisibility = Record<AnalysisLayerKey, boolean>;
 export type ChartCommandTarget = ChartCommand["target"];
 export const chartAnalysisLayerToggleEventName = "gops:chart-analysis-layer-toggle";
 
+export type InterpretationFinalDrawing = {
+  drawingId: string;
+  category: "levels" | "trend" | "pattern";
+  tone: "support" | "resistance" | "trend" | "pattern";
+};
+
 export type ChartAnalysisLayerToggleRequest = {
   chartDocumentId: string;
   layer: "proposal";
@@ -81,9 +87,37 @@ export function hasAnalysisLayerDrawings(asset: ChartAnalysisAsset | null, layer
     return Boolean(
       (trace && (trace.levelCandidates.length || trace.trendCandidates.length || trace.patternCandidates.length))
       || asset.geometry.evidence?.length
+      || interpretationFinalDrawings(asset).length
     );
   }
   return asset.geometry.drawings.some((drawing) => analysisLayerOfDrawing(drawing, asset) === layer);
+}
+
+export function interpretationFinalDrawings(asset: ChartAnalysisAsset): InterpretationFinalDrawing[] {
+  return asset.geometry.drawings.flatMap<InterpretationFinalDrawing>((drawing) => {
+    if (drawing.id.includes(":sma-cross:")) return [];
+    const layer = analysisLayerOfDrawing(drawing, asset);
+    if (layer !== "levels" && layer !== "trend" && layer !== "pattern") return [];
+    if (layer === "trend") return [{ drawingId: drawing.id, category: layer, tone: "trend" as const }];
+    if (layer === "pattern") return [{ drawingId: drawing.id, category: layer, tone: "pattern" as const }];
+    return [{
+      drawingId: drawing.id,
+      category: layer,
+      tone: levelRoleOfDrawing(drawing, asset)
+    }];
+  });
+}
+
+function levelRoleOfDrawing(
+  drawing: DrawingEntity,
+  asset: ChartAnalysisAsset
+): "support" | "resistance" {
+  if (drawing.style?.colorToken === "evidenceResistance") return "resistance";
+  if (drawing.style?.colorToken === "evidenceSupport") return "support";
+  const matches = (id: string) => drawing.id === id || drawing.id.endsWith(`:${id}`);
+  if (asset.geometry.resistances.some((level) => matches(level.id))) return "resistance";
+  if (asset.geometry.supports.some((level) => matches(level.id))) return "support";
+  return /resist|저항/i.test(drawing.label ?? "") ? "resistance" : "support";
 }
 
 export function analysisAssetApplyCommands(

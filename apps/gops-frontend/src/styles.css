@@ -24862,16 +24862,6 @@ textarea:focus,
   display: none !important;
 }
 
-.order-chart-price-source {
-  margin: 0 12px;
-  border: 1px solid color-mix(in srgb, var(--color-signal) 30%, transparent);
-  border-radius: 6px;
-  padding: 5px 8px;
-  background: color-mix(in srgb, var(--color-signal) 9%, transparent);
-  color: var(--color-signal);
-  font: var(--type-caption);
-}
-
 .trade-automation-dialog-backdrop {
   position: fixed;
   z-index: 10000;

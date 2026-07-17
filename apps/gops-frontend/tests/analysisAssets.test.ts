@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { executeChartCommandGroup, makeChartCommand } from "../../chart-engine/src/commands";
-import { analysisAssetApplyCommands, analysisLayerOfDrawing, analysisLayerToggleCommands, defaultAnalysisLayerVisibility, hasAnalysisLayerDrawings, isChartAssetDrawing } from "../src/chart/analysisLayerController";
+import { analysisAssetApplyCommands, analysisLayerOfDrawing, analysisLayerToggleCommands, defaultAnalysisLayerVisibility, hasAnalysisLayerDrawings, interpretationFinalDrawings, isChartAssetDrawing } from "../src/chart/analysisLayerController";
 import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
 import { analysisTraceDataMode, analysisTraceLevelPrice, buildAnalysisTraceOverlay, selectInterpretationCandidates, type AnalysisTraceOverlayCandidate } from "../src/chart/analysisTraceOverlay";
 import { analysisAssetFreshness, analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
@@ -215,6 +215,11 @@ assert.deepEqual(projectedLevelAsset?.geometry.drawings[0]?.style.lineDash, unde
 assert.equal(projectedLevelAsset?.geometry.drawings[0]?.style.colorToken, "evidenceSupport");
 assert.equal(projectedLevelAsset?.geometry.drawings[0]?.style.lineWidth, 2.5);
 assert.equal(projectedLevelAsset?.geometry.drawings[0]?.style.labelPlacement, "axis");
+assert.deepEqual(interpretationFinalDrawings(projectedLevelAsset!), [{
+  drawingId: support.id,
+  category: "levels",
+  tone: "support"
+}]);
 assert.deepEqual(projectedLevelAsset?.geometry.drawings[0]?.anchors.map((anchor) => anchor.price), [245.7, 245.7]);
 assert.deepEqual(
   projectedLevelAsset?.geometry.drawings[0]?.anchors.map((anchor) => anchor.timestamp),
@@ -310,14 +315,27 @@ assert.equal(analysisLayerOfDrawing(proposalDrawing), "proposal");
 assert.equal(hasAnalysisLayerDrawings(asset, "pattern"), true);
 assert.equal(hasAnalysisLayerDrawings(asset, "trend"), false, "stored SMA values do not make the Geometry trend layer available");
 assert.equal(hasAnalysisLayerDrawings(resolved, "trend"), true, "the resolved SMA cross event remains in the trend layer");
-assert.equal(hasAnalysisLayerDrawings(asset, "interpretation"), false);
+assert.equal(hasAnalysisLayerDrawings(asset, "interpretation"), true, "final Geometry drawings make interpretation useful without trace candidates");
 assert.equal(hasAnalysisLayerDrawings(asset, "proposal"), false);
+assert.deepEqual(
+  interpretationFinalDrawings(resolved!).map(({ drawingId, category, tone }) => ({ drawingId, category, tone })),
+  [
+    { drawingId: upper.id, category: "pattern", tone: "pattern" },
+    { drawingId: lower.id, category: "pattern", tone: "pattern" }
+  ],
+  "final interpretation underlays exclude the resolved SMA cross marker"
+);
+const finalOnlyOverlay = buildAnalysisTraceOverlay(asset, { visible: true });
+assert.equal(finalOnlyOverlay?.showCandidateLines, true);
+assert.deepEqual(finalOnlyOverlay?.finalDrawings.map((drawing) => drawing.drawingId), [upper.id, lower.id]);
+assert.equal(analysisTraceDataMode(asset), "legacy");
 const splitLayerAsset: ChartAnalysisAsset = {
   ...asset,
   geometry: { ...asset.geometry, drawings: [upper, proposalDrawing] },
   indicators: { ...asset.indicators, cross: { status: "none" } }
 };
 assert.equal(hasAnalysisLayerDrawings(splitLayerAsset, "proposal"), true);
+assert.deepEqual(interpretationFinalDrawings(splitLayerAsset).map((drawing) => drawing.drawingId), [upper.id]);
 const splitCommands = analysisAssetApplyCommands(
   target,
   [],
@@ -364,6 +382,8 @@ assert.deepEqual(focusedTrace?.candidates[0]?.touchPivotIds, ["touch-1", "touch-
 assert.deepEqual(focusedTrace?.candidates[0]?.reactionPivotIds, ["touch-2"]);
 assert.deepEqual(focusedTrace?.pivots.map((pivot) => pivot.id).sort(), ["pivot-1", "touch-1", "touch-2"]);
 assert.equal(buildAnalysisTraceOverlay(traceAsset, { visible: true })?.candidates.length, 0);
+assert.deepEqual(buildAnalysisTraceOverlay(traceAsset, { visible: true })?.markerCandidates.map((candidate) => candidate.id), ["level-candidate-1"]);
+assert.deepEqual(buildAnalysisTraceOverlay(traceAsset, { visible: true })?.finalDrawings.map((drawing) => drawing.drawingId), [upper.id, lower.id]);
 const baseTrace = traceAsset.geometry.analysisTrace!;
 const baseLevelCandidate = baseTrace.levelCandidates[0]!;
 const candidatesOnlyAsset: ChartAnalysisAsset = {
@@ -426,6 +446,8 @@ const candidatesOnlyAsset: ChartAnalysisAsset = {
 const candidatesOnlyOverlay = buildAnalysisTraceOverlay(candidatesOnlyAsset, { visible: true });
 assert.equal(hasAnalysisLayerDrawings(candidatesOnlyAsset, "interpretation"), true);
 assert.equal(candidatesOnlyOverlay?.candidates.length, 1);
+assert.deepEqual(candidatesOnlyOverlay?.markerCandidates.map((candidate) => candidate.id), ["level-candidate-1", "level-candidate-qualified"]);
+assert.deepEqual(candidatesOnlyOverlay?.finalDrawings, []);
 assert.equal(candidatesOnlyOverlay?.storedCandidateCount, 3);
 assert.equal(candidatesOnlyOverlay?.showCandidateLines, true);
 assert.equal(

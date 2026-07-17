@@ -275,7 +275,6 @@ export function OrderTicket({
   const [simulationMode, setSimulationMode] = useState(false);
   const [risk, setRisk] = useState<RiskVerdict | undefined>();
   const [riskLoading, setRiskLoading] = useState(false);
-  const [chartPriceSource, setChartPriceSource] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const symbolSearchInputRef = useRef<HTMLInputElement | null>(null);
   const appliedChartPriceSelectionRef = useRef<string | null>(null);
@@ -311,7 +310,6 @@ export function OrderTicket({
     setError((current) => current && isSymbolOrPriceValidationError(current) ? undefined : current);
     setSymbolSearchQuery("");
     setSymbolSearchOpen(false);
-    setChartPriceSource(`${symbol} 차트에서 $${chartPriceSelection.formattedPrice} 적용`);
   }, [chartPriceSelection, chartSymbols, paperSymbolOptions, symbolOptions]);
 
   useEffect(() => {
@@ -691,8 +689,6 @@ export function OrderTicket({
           {symbolPicker}
         </header>
       )}
-
-      {chartPriceSource && <p className="order-chart-price-source" role="status">{chartPriceSource}</p>}
 
       <section className="order-ticket-section order-side-section" aria-label="주문 유형 선택">
         <div className="order-side-control" role="group" aria-label="매수 매도 선택">

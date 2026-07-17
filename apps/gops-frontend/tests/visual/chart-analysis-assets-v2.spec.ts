@@ -106,10 +106,8 @@ test("five analysis layers render independently with commentary focus and cards"
 
   await interpretationToggle.click();
   await expect(page.getByRole("button", { name: "해석 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page).toHaveScreenshot("chart-assets-interpretation-all-candidates.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
 
   await evidenceStep.hover();
-  await expect(page).toHaveScreenshot("chart-assets-spotlight.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
   await evidenceStep.focus();
   await expect(evidenceStep).toBeFocused();
 
@@ -140,6 +138,41 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(patternStep).toHaveAttribute("aria-pressed", "true");
   await patternStep.press("Enter");
   await expect(patternStep).toHaveAttribute("aria-pressed", "false");
+});
+
+test("interpretation alone keeps broad final underlays and shortlisted candidates", async ({ page }) => {
+  await page.goto("/?symbol=NVDA");
+  const chart = page.locator(".chart-panel");
+  await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+  await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
+  await page.getByRole("button", { name: "지지·저항 분석 레이어 끄기" }).click();
+  await page.getByRole("button", { name: "추세 분석 레이어 끄기" }).click();
+  await page.getByRole("button", { name: "패턴 분석 레이어 끄기" }).click();
+  await expect(page.getByRole("button", { name: "해석 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await expect(chart.locator(".chart-primary-pattern-badge")).toHaveCount(0);
+  await expect(chart).toHaveScreenshot("chart-assets-interpretation-only-underlays.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
+});
+
+test("final analysis strokes sit above their interpretation underlays", async ({ page }) => {
+  await page.goto("/?symbol=NVDA");
+  const chart = page.locator(".chart-panel");
+  await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+  await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
+  await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "추세 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "패턴 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
+  await expect(chart.locator(".chart-primary-pattern-badge")).toHaveText("상승 삼각형 · 돌파 확인");
+  await expect(chart).toHaveScreenshot("chart-assets-interpretation-with-final-strokes.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
+});
+
+test("commentary focus preserves the focused interpretation stroke and dims the rest", async ({ page }) => {
+  await page.goto("/?symbol=NVDA");
+  const chart = page.locator(".chart-panel");
+  await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+  await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
+  await page.locator(".chart-commentary-focus button").first().hover();
+  await expect(chart).toHaveScreenshot("chart-assets-interpretation-focused-underlays.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
 });
 
 test("proposal toggle is disabled when the asset has no proposal drawings", async ({ page }) => {
@@ -311,8 +344,7 @@ test("price axis selection accepts a natural reservation buy command and creates
   await canvas.click({ position: axisPoint });
 
   const quickOrder = page.locator(".quick-order-panel");
-  const source = quickOrder.locator(".order-chart-price-source");
-  await expect(source).toContainText("NVDA 차트에서 $");
+  await expect(quickOrder.locator(".order-chart-price-source")).toHaveCount(0);
   const selectedPrice = await quickOrder.getByLabel("빠른 주문 가격 직접 입력").inputValue();
   expect(Number(selectedPrice)).toBeGreaterThan(0);
   await expect(quickOrder.getByLabel("주문 수량 직접 입력")).toHaveValue("3");
@@ -393,7 +425,7 @@ test("price axis and proposal labels share order selection while scenario contro
   await expect(targetLabel).toHaveAttribute("data-source-drawing-ids", /triangle-upper.*triangle-lower|triangle-lower.*triangle-upper/);
   await targetLabel.press("Enter");
   await expect(quickOrder.getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("198.00");
-  await expect(quickOrder.locator(".order-chart-price-source")).toContainText("NVDA 차트에서 $198.00");
+  await expect(quickOrder.locator(".order-chart-price-source")).toHaveCount(0);
   await targetLabel.blur();
   await expect(chart.locator(".chart-primary-pattern-badge")).toHaveCount(0);
 
@@ -415,8 +447,7 @@ test("price axis targets the last interacted panel when multiple order panels ex
   expect(canvasBox).not.toBeNull();
   if (!canvasBox) return;
   await canvas.click({ position: { x: canvasBox.width - 10, y: canvasBox.height * .46 } });
-  await expect(orderPanels.nth(0).locator(".order-chart-price-source")).toHaveCount(0);
-  await expect(orderPanels.nth(1).locator(".order-chart-price-source")).toContainText("NVDA 차트에서 $");
+  await expect(page.locator(".order-chart-price-source")).toHaveCount(0);
   await expect(orderPanels.nth(0).getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("");
   await expect(orderPanels.nth(1).getByLabel("빠른 주문 가격 직접 입력")).not.toHaveValue("");
   await expect(orderPanels.nth(0).getByLabel("주문 수량 직접 입력")).toHaveValue("1");

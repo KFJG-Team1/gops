@@ -323,6 +323,8 @@ type DrawingRenderBatch = {
   fullDrawingIds: ReadonlySet<string>;
 };
 
+const interpretationUnderlayIdPrefix = "interpretation-underlay:";
+
 function drawingRenderBatch(
   scene: ChartScene,
   drawings: DrawingEntity[],
@@ -340,6 +342,42 @@ function drawingRenderBatch(
     renderItems,
     fullDrawingIds: new Set(renderItems.filter((item) => item.kind === "full").map((item) => item.drawing.id))
   };
+}
+
+function interpretationFinalDrawingBatch(
+  scene: ChartScene,
+  overlay: AnalysisTraceOverlay,
+  spotlight: ReadonlySet<string> | null
+): DrawingRenderBatch | null {
+  if (!overlay.showCandidateLines || !overlay.finalDrawings.length) return null;
+  const descriptorById = new Map(overlay.finalDrawings.map((item) => [item.drawingId, item]));
+  const drawings = scene.chart.drawings.flatMap((drawing) => {
+    const descriptor = descriptorById.get(drawing.id);
+    if (!descriptor) return [];
+    const opacity = 0.48 * (spotlight && !spotlight.has(drawing.id) ? 0.65 : 1);
+    const colorToken: ThemeColorToken = descriptor.tone === "support"
+      ? "evidenceSupport"
+      : descriptor.tone === "resistance"
+        ? "evidenceResistance"
+        : descriptor.tone === "pattern" ? "evidencePattern" : "evidenceTrend";
+    return [{
+      ...drawing,
+      id: `${interpretationUnderlayIdPrefix}${drawing.id}`,
+      label: undefined,
+      visible: true,
+      style: {
+        ...drawing.style,
+        colorToken,
+        color: undefined,
+        fillOpacity: 0,
+        labelPlacement: "none" as const,
+        lineDash: [],
+        lineWidth: interpretationLineWidth(descriptor.category),
+        opacity
+      }
+    }];
+  });
+  return drawings.length ? drawingRenderBatch(scene, drawings, false) : null;
 }
 
 function drawBaseChart(
@@ -370,11 +408,20 @@ function drawBaseChart(
   const drawDimmedBase = (draw: () => void) => withCanvasAlpha(context, spotlight ? 0.78 : 1, draw);
   const drawingBatch = drawingRenderBatch(scene, scene.chart.drawings, false, spotlight);
   const previewDrawingBatch = drawingRenderBatch(scene, previewDrawings, true);
+  const interpretationDrawingBatch = analysisTraceOverlay
+    ? interpretationFinalDrawingBatch(scene, analysisTraceOverlay, spotlight)
+    : null;
   const layers: Array<() => void> = [
     () => drawExpansionRanges(context, scene),
     () => drawTimeGrid(context, scene),
     () => drawGrid(context, scene),
     () => drawTimePeriodDividers(context, scene),
+    () => analysisTraceOverlay && drawPlotClipped(context, scene, () => {
+      if (interpretationDrawingBatch) {
+        drawDrawings(context, scene, interpretationDrawingBatch, false);
+      }
+      drawAnalysisTraceLines(context, scene, analysisTraceOverlay);
+    }),
     () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, drawingBatch, false, spotlight)),
     () => drawPlotClipped(context, scene, () => drawDrawingFills(context, scene, previewDrawingBatch, true)),
     () => drawDimmedBase(() => drawAgentVisualOverlays(context, scene, agentVisualOverlays)),
@@ -389,7 +436,7 @@ function drawBaseChart(
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawLineIndicator(context, scene, "wma:20", Boolean(scene.chart.layers["wma:20"]), colors.caution))),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawBollinger(context, scene, "bollinger:20:2", Boolean(scene.chart.layers["bollinger:20:2"])))),
     () => basePriceLayerVisible(scene) && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawBasePriceLayer(context, scene))),
-    () => analysisTraceOverlay && drawPlotClipped(context, scene, () => drawAnalysisTraceOverlay(context, scene, analysisTraceOverlay)),
+    () => analysisTraceOverlay && drawPlotClipped(context, scene, () => drawAnalysisTraceMarkers(context, scene, analysisTraceOverlay)),
     () => standardLayersVisible && drawPlotClipped(context, scene, () => drawDimmedBase(() => drawComparisons(context, scene))),
     () => standardLayersVisible && drawDimmedBase(() => drawBelowIndicatorPanes(context, scene)),
     () => standardLayersVisible && drawPaneSeparators(context, scene),
@@ -767,17 +814,85 @@ function drawAgentVisualOverlays(context: CanvasRenderingContext2D, scene: Chart
   context.restore();
 }
 
-function drawAnalysisTraceOverlay(
+function drawAnalysisTraceLines(
+  context: CanvasRenderingContext2D,
+  scene: ChartScene,
+  overlay: AnalysisTraceOverlay
+): void {
+  if (!overlay.showCandidateLines) return;
+  const transform = createCoordinateTransform(scene);
+  const pivotById = new Map(overlay.pivots.map((pivot) => [pivot.id, pivot]));
+  const focusedCandidateIds = new Set(overlay.focusedCandidateIds);
+
+  overlay.candidates.forEach((candidate) => {
+    const selected = candidate.selected === true;
+    const disposition = candidate.disposition
+      ?? (selected ? "selected" : candidate.hardPass ? "qualified_not_selected" : "rejected");
+    const color = traceCandidateColor(candidate);
+    const anchors = candidate.anchors.length
+      ? candidate.anchors
+      : candidate.anchorPivotIds.map((id) => pivotById.get(id)).filter((pivot): pivot is NonNullable<typeof pivot> => Boolean(pivot));
+    const points = anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
+    const levelPrice = candidate.category === "levels"
+      ? analysisTraceLevelPrice(candidate, overlay.pivots)
+      : null;
+    const levelY = levelPrice === null ? points[0]?.y : transform.priceToY(levelPrice);
+    const baseAlpha = disposition === "rejected" ? 0.38 : 0.48;
+    const focusMultiplier = overlay.focused && !focusedCandidateIds.has(candidate.id) ? 0.65 : 1;
+    context.save();
+    context.strokeStyle = color;
+    context.globalAlpha = baseAlpha * focusMultiplier;
+    context.lineWidth = interpretationLineWidth(candidate.category);
+    context.setLineDash([]);
+    if (typeof levelY === "number" && Number.isFinite(levelY) && candidate.category === "levels") {
+      line(context, scene.plot.left, levelY, scene.plot.right, levelY);
+    } else if ((candidate.render?.drawingType === "trendParallelLines" || candidate.kind === "channel") && points.length >= 3) {
+      const base = projectTrendLine(points[0], points[1], scene.plot, "ray");
+      line(context, base[0].x, base[0].y, base[1].x, base[1].y);
+      const baseSpanX = points[1].x - points[0].x;
+      const baseYAtOffset = Math.abs(baseSpanX) < 0.0001
+        ? points[0].y
+        : points[0].y + ((points[2].x - points[0].x) / baseSpanX) * (points[1].y - points[0].y);
+      const offsetY = points[2].y - baseYAtOffset;
+      const parallel = projectTrendLine(
+        { x: points[0].x, y: points[0].y + offsetY },
+        { x: points[1].x, y: points[1].y + offsetY },
+        scene.plot,
+        "ray"
+      );
+      line(context, parallel[0].x, parallel[0].y, parallel[1].x, parallel[1].y);
+    } else if ((candidate.render?.drawingType === "trendLine" || candidate.category === "trend") && points.length >= 2) {
+      const projected = projectTrendLine(points[0], points[1], scene.plot, "ray");
+      line(context, projected[0].x, projected[0].y, projected[1].x, projected[1].y);
+    } else if (candidate.render?.drawingType === "segments" && candidate.render.segments?.length) {
+      candidate.render.segments.forEach(([startIndex, endIndex]) => {
+        const start = points[startIndex], end = points[endIndex];
+        if (start && end) line(context, start.x, start.y, end.x, end.y);
+      });
+    } else {
+      for (let index = 0; index + 1 < points.length; index += 2) {
+        line(context, points[index].x, points[index].y, points[index + 1].x, points[index + 1].y);
+      }
+    }
+    context.restore();
+  });
+}
+
+function interpretationLineWidth(category: AnalysisTraceOverlayCandidate["category"]): number {
+  if (category === "pattern") return 5.5;
+  if (category === "levels") return 4.5;
+  return 4;
+}
+
+function drawAnalysisTraceMarkers(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
   overlay: AnalysisTraceOverlay
 ): void {
   const transform = createCoordinateTransform(scene);
-  const pivotById = new Map(overlay.pivots.map((pivot) => [pivot.id, pivot]));
   const pivotColor = new Map<string, string>();
   const touchIds = new Set<string>();
   const reactionIds = new Set<string>();
-  const focusedCandidateIds = new Set(overlay.focusedCandidateIds);
   const rememberPivotColor = (id: string, color: string, selected: boolean) => {
     if (selected || !pivotColor.has(id)) pivotColor.set(id, color);
   };
@@ -788,63 +903,6 @@ function drawAnalysisTraceOverlay(
     candidate.anchorPivotIds.forEach((id) => { rememberPivotColor(id, color, selected); });
     candidate.touchPivotIds.forEach((id) => { touchIds.add(id); rememberPivotColor(id, color, selected); });
     candidate.reactionPivotIds.forEach((id) => { reactionIds.add(id); rememberPivotColor(id, color, selected); });
-  });
-
-  overlay.candidates.forEach((candidate) => {
-    const selected = candidate.selected === true;
-    const disposition = candidate.disposition
-      ?? (selected ? "selected" : candidate.hardPass ? "qualified_not_selected" : "rejected");
-    const categoryColor = traceCandidateColor(candidate);
-    const color = disposition === "rejected" ? colors.axis : categoryColor;
-    candidate.anchorPivotIds.forEach((id) => { rememberPivotColor(id, categoryColor, selected); });
-    const anchors = candidate.anchors.length
-      ? candidate.anchors
-      : candidate.anchorPivotIds.map((id) => pivotById.get(id)).filter((pivot): pivot is NonNullable<typeof pivot> => Boolean(pivot));
-    const points = anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
-    const levelPrice = candidate.category === "levels"
-      ? analysisTraceLevelPrice(candidate, overlay.pivots)
-      : null;
-    const levelY = levelPrice === null ? points[0]?.y : transform.priceToY(levelPrice);
-    if (overlay.showCandidateLines) {
-      const baseAlpha = disposition === "selected" ? 0.58 : disposition === "qualified_not_selected" ? 0.42 : 0.30;
-      const focusMultiplier = overlay.focused && !focusedCandidateIds.has(candidate.id) ? 0.45 : 1;
-      context.save();
-      context.strokeStyle = color;
-      context.globalAlpha = baseAlpha * focusMultiplier;
-      context.lineWidth = disposition === "selected" ? 1.75 : disposition === "qualified_not_selected" ? 1.25 : 1;
-      context.setLineDash(disposition === "selected" ? [] : disposition === "qualified_not_selected" ? [6, 4] : [3, 4]);
-      if (typeof levelY === "number" && Number.isFinite(levelY) && candidate.category === "levels") {
-        line(context, scene.plot.left, levelY, scene.plot.right, levelY);
-      } else if ((candidate.render?.drawingType === "trendParallelLines" || candidate.kind === "channel") && points.length >= 3) {
-        const base = projectTrendLine(points[0], points[1], scene.plot, "ray");
-        line(context, base[0].x, base[0].y, base[1].x, base[1].y);
-        const baseSpanX = points[1].x - points[0].x;
-        const baseYAtOffset = Math.abs(baseSpanX) < 0.0001
-          ? points[0].y
-          : points[0].y + ((points[2].x - points[0].x) / baseSpanX) * (points[1].y - points[0].y);
-        const offsetY = points[2].y - baseYAtOffset;
-        const parallel = projectTrendLine(
-          { x: points[0].x, y: points[0].y + offsetY },
-          { x: points[1].x, y: points[1].y + offsetY },
-          scene.plot,
-          "ray"
-        );
-        line(context, parallel[0].x, parallel[0].y, parallel[1].x, parallel[1].y);
-      } else if ((candidate.render?.drawingType === "trendLine" || candidate.category === "trend") && points.length >= 2) {
-        const projected = projectTrendLine(points[0], points[1], scene.plot, "ray");
-        line(context, projected[0].x, projected[0].y, projected[1].x, projected[1].y);
-      } else if (candidate.render?.drawingType === "segments" && candidate.render.segments?.length) {
-        candidate.render.segments.forEach(([startIndex, endIndex]) => {
-          const start = points[startIndex], end = points[endIndex];
-          if (start && end) line(context, start.x, start.y, end.x, end.y);
-        });
-      } else {
-        for (let index = 0; index + 1 < points.length; index += 2) {
-          line(context, points[index].x, points[index].y, points[index + 1].x, points[index + 1].y);
-        }
-      }
-      context.restore();
-    }
   });
 
   overlay.pivots.forEach((pivot) => {

@@ -4579,6 +4579,10 @@ const orderFlowRendererBlock = panelContentRendererSource.slice(
 assert.match(orderFlowRendererBlock, /symbol=\{readOrderFlowSymbol\(content\)\}/);
 assert.doesNotMatch(orderFlowRendererBlock, /semanticSelection|defaultToPinnedSymbol|readPanelSymbol/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
+const chartCanvasLayerSource = chartCanvasSource.slice(
+  chartCanvasSource.indexOf("const layers: Array<() => void>"),
+  chartCanvasSource.indexOf("layers.forEach((drawLayer)")
+);
 const treeMapCanvasSource = readFileSync(fileURLToPath(new URL("../src/treemap/TreeMapCanvas.tsx", import.meta.url)), "utf-8");
 const orderFlowRenderSource = readFileSync(fileURLToPath(new URL("../src/chart/orderFlowRender.ts", import.meta.url)), "utf-8");
 const semanticTimelineSource = readFileSync(fileURLToPath(new URL("../src/chart/semanticTimeline.ts", import.meta.url)), "utf-8");
@@ -4615,6 +4619,18 @@ assert.match(chartCanvasSource, /className="chart-canvas-layer chart-canvas-base
 assert.match(chartCanvasSource, /className="chart-canvas chart-canvas-layer chart-canvas-overlay"/);
 assert.match(chartCanvasSource, /scheduleOverlayDrawRef\.current\(\)/);
 assert.match(chartCanvasSource, /const drawingBatch = drawingRenderBatch\(scene, scene\.chart\.drawings, false, spotlight\)/);
+assert.match(chartCanvasSource, /function interpretationFinalDrawingBatch/);
+assert.match(chartCanvasSource, /lineWidth: interpretationLineWidth\(descriptor\.category\)/);
+assert.match(chartCanvasSource, /fillOpacity: 0/);
+assert.match(chartCanvasSource, /labelPlacement: "none"/);
+assert.match(chartCanvasSource, /function interpretationLineWidth[\s\S]*pattern"\) return 5\.5[\s\S]*levels"\) return 4\.5[\s\S]*return 4/);
+assert.match(chartCanvasSource, /const baseAlpha = disposition === "rejected" \? 0\.38 : 0\.48/);
+assert.match(chartCanvasSource, /context\.setLineDash\(\[\]\)/);
+assert.ok(chartCanvasLayerSource.indexOf("drawGrid(context, scene)") < chartCanvasLayerSource.indexOf("drawAnalysisTraceLines"));
+assert.ok(chartCanvasLayerSource.indexOf("drawAnalysisTraceLines") < chartCanvasLayerSource.indexOf("drawDrawingFills"));
+assert.ok(chartCanvasLayerSource.indexOf("drawAnalysisTraceLines") < chartCanvasLayerSource.indexOf("drawBasePriceLayer"));
+assert.ok(chartCanvasLayerSource.indexOf("drawBasePriceLayer") < chartCanvasLayerSource.indexOf("drawAnalysisTraceMarkers"));
+assert.ok(chartCanvasLayerSource.indexOf("drawAnalysisTraceMarkers") < chartCanvasLayerSource.lastIndexOf("drawDrawings"));
 assert.match(orderFlowRenderSource, /projectOrderFlowChartRows/);
 assert.match(orderFlowRenderSource, /drawChartCandle/);
 assert.doesNotMatch(orderFlowRenderSource, /ChartColumnTier|packedChartPriceMapper|isLive/);
@@ -4674,10 +4690,10 @@ assert.match(
 );
 assert.match(
   chartCanvasSource,
-  /const categoryColor = traceCandidateColor\(candidate\);[\s\S]*const color = disposition === "rejected" \? colors\.axis : categoryColor/,
-  "near-miss candidate lines use the neutral axis token while qualified competitors keep their category color"
+  /const color = traceCandidateColor\(candidate\);[\s\S]*const baseAlpha = disposition === "rejected" \? 0\.38 : 0\.48/,
+  "qualified and near-miss interpretation lines keep their category color and differ by opacity"
 );
-assert.match(chartCanvasSource, /disposition === "qualified_not_selected" \? 0\.42 : 0\.30/);
+assert.match(chartCanvasSource, /const baseAlpha = disposition === "rejected" \? 0\.38 : 0\.48/);
 assert.match(
   chartCanvasSource,
   /analysisTraceLevelPrice\(candidate, overlay\.pivots\)[\s\S]*candidate\.category === "levels"[\s\S]*line\(context, scene\.plot\.left, levelY, scene\.plot\.right, levelY\)/,

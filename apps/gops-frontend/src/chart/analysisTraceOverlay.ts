@@ -4,6 +4,7 @@ import type {
   GeometryTraceCandidate,
   GeometryTracePivot
 } from "./analysisAssetsApi";
+import { interpretationFinalDrawings, type InterpretationFinalDrawing } from "./analysisLayerController";
 
 export type AnalysisTraceOverlayCandidate = GeometryTraceCandidate & {
   category: "levels" | "trend" | "pattern";
@@ -16,6 +17,7 @@ export type AnalysisTraceOverlayCandidate = GeometryTraceCandidate & {
 export type AnalysisTraceOverlay = {
   candidates: AnalysisTraceOverlayCandidate[];
   markerCandidates: AnalysisTraceOverlayCandidate[];
+  finalDrawings: InterpretationFinalDrawing[];
   pivots: GeometryTracePivot[];
   focused: boolean;
   focusedCandidateIds: string[];
@@ -29,7 +31,7 @@ export type AnalysisTraceDataMode = AnalysisTraceOverlay["dataMode"] | "none";
 export function analysisTraceDataMode(asset: ChartAnalysisAsset | null): AnalysisTraceDataMode {
   if (!asset) return "none";
   const trace = asset.geometry.analysisTrace;
-  if (!trace) return asset.geometry.evidence?.length ? "legacy" : "none";
+  if (!trace) return asset.geometry.evidence?.length || interpretationFinalDrawings(asset).length ? "legacy" : "none";
   return trace.version === "geometry-analysis-trace-v2" && trace.completeness?.complete
     ? "complete"
     : "bounded";
@@ -66,13 +68,14 @@ export function buildAnalysisTraceOverlay(
   const evidenceFilter = new Set(options.evidenceRefs ?? []);
   const focused = candidateFilter.size > 0 || evidenceFilter.size > 0;
   if (!options.visible && !focused) return null;
+  const finalDrawings = interpretationFinalDrawings(asset);
 
   const trace = asset.geometry.analysisTrace;
   if (!trace) {
     const pivots = legacyPivots(asset).filter((pivot) => !focused || evidenceFilter.has(pivot.id));
-    return pivots.length ? {
-      candidates: [], markerCandidates: [], pivots, focused, focusedCandidateIds: [],
-      showCandidateLines: false, dataMode: "legacy", storedCandidateCount: 0
+    return pivots.length || (options.visible && finalDrawings.length) ? {
+      candidates: [], markerCandidates: [], finalDrawings, pivots, focused, focusedCandidateIds: [],
+      showCandidateLines: options.visible, dataMode: "legacy", storedCandidateCount: 0
     } : null;
   }
 
@@ -90,8 +93,11 @@ export function buildAnalysisTraceOverlay(
     ? allCandidates.filter((candidate) => candidateFilter.has(candidate.id))
     : allCandidates;
   const displayedCandidates = options.visible ? selectInterpretationCandidates(allCandidates) : [];
+  const selectedCandidates = options.visible
+    ? allCandidates.filter((candidate) => candidate.selected === true)
+    : [];
   const candidates = options.visible ? displayedCandidates : focusedCandidates;
-  const markerCandidates = focused ? focusedCandidates : displayedCandidates;
+  const markerCandidates = focused ? focusedCandidates : [...selectedCandidates, ...displayedCandidates];
   const referencedPivotIds = new Set(evidenceFilter);
   markerCandidates.forEach((candidate) => {
     candidate.anchorPivotIds.forEach((id) => referencedPivotIds.add(id));
@@ -106,9 +112,10 @@ export function buildAnalysisTraceOverlay(
     ...(typeof touch.outcome === "string" ? { outcome: touch.outcome } : {})
   })));
   const pivots = [...new Map([...tracePivots, ...touchPivots].map((pivot) => [pivot.id, pivot])).values()];
-  return candidates.length || pivots.length || (options.visible && allCandidates.length) ? {
+  return candidates.length || pivots.length || (options.visible && (allCandidates.length || finalDrawings.length)) ? {
     candidates,
     markerCandidates,
+    finalDrawings,
     pivots,
     focused,
     focusedCandidateIds: [...candidateFilter],
