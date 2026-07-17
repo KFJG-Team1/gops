@@ -25894,8 +25894,8 @@ textarea:focus,
   text-transform: var(--type-body-lg-text-transform);
   letter-spacing: var(--type-body-lg-letter-spacing);
   font: var(--type-body-lg);
-  font-size: clamp(16px, 1.05cqw, 20px);
-  font-weight: 500;
+  font-size: clamp(20px, 1.3cqw, 25px);
+  font-weight: 600;
   line-height: 1.48;
 }
 
@@ -26011,8 +26011,11 @@ textarea:focus,
 .company-journal-evidence {
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: clamp(10px, 1.4cqw, 18px);
+  scrollbar-gutter: stable;
   container-name: company-journal-evidence;
   container-type: inline-size;
 }
@@ -26021,9 +26024,9 @@ textarea:focus,
 .company-journal-evidence > .market-news-panel,
 .company-journal-earnings-evidence {
   width: 100%;
-  height: 100%;
+  height: auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .company-journal-evidence > .company-summary-panel {
@@ -26036,7 +26039,7 @@ textarea:focus,
   display: grid;
   align-content: start;
   gap: 14px;
-  overflow: auto;
+  overflow: visible;
   padding-right: 4px;
   scrollbar-gutter: stable;
 }
@@ -26229,80 +26232,66 @@ textarea:focus,
 .company-journal-evidence .company-financial-chart-card,
 .company-journal-evidence .company-valuation-column,
 .company-journal-evidence .company-analysis-page {
-  height: 100%;
+  height: auto;
   min-height: 0;
 }
 
 .company-journal-evidence .company-single-fundamental-section {
-  overflow-y: scroll;
-  overflow-x: hidden;
-  scrollbar-gutter: stable;
+  overflow: visible;
 }
 
 .company-journal-evidence .company-valuation-dashboard,
 .company-journal-evidence .company-stability-dashboard,
 .company-journal-evidence .company-journal-earnings-evidence {
-  overflow-y: scroll;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  height: auto;
+  overflow: visible;
 }
 
-.workspace-panel-frame .company-journal-evidence :is(
-  .company-single-fundamental-section,
-  .company-valuation-dashboard,
-  .company-stability-dashboard,
-  .company-journal-earnings-evidence
-),
-.workspace-panel-frame .company-journal-reading {
+.workspace-panel-frame .company-journal-panel :is(
+  .company-journal-body,
+  .company-journal-evidence,
+  .company-journal-reading
+) {
   -ms-overflow-style: auto !important;
   scrollbar-gutter: stable !important;
   scrollbar-width: thin !important;
   scrollbar-color: color-mix(in srgb, var(--color-muted) 54%, var(--coinbase-panel)) transparent;
 }
 
-.workspace-panel-frame .company-journal-evidence :is(
-  .company-single-fundamental-section,
-  .company-valuation-dashboard,
-  .company-stability-dashboard,
-  .company-journal-earnings-evidence
-)::-webkit-scrollbar,
-.workspace-panel-frame .company-journal-reading::-webkit-scrollbar {
+.workspace-panel-frame .company-journal-panel :is(
+  .company-journal-body,
+  .company-journal-evidence,
+  .company-journal-reading
+)::-webkit-scrollbar {
   display: block !important;
   width: 9px !important;
   height: 9px !important;
 }
 
-.workspace-panel-frame .company-journal-evidence :is(
-  .company-single-fundamental-section,
-  .company-valuation-dashboard,
-  .company-stability-dashboard,
-  .company-journal-earnings-evidence
-)::-webkit-scrollbar-track,
-.workspace-panel-frame .company-journal-reading::-webkit-scrollbar-track {
+.workspace-panel-frame .company-journal-panel :is(
+  .company-journal-body,
+  .company-journal-evidence,
+  .company-journal-reading
+)::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.workspace-panel-frame .company-journal-evidence :is(
-  .company-single-fundamental-section,
-  .company-valuation-dashboard,
-  .company-stability-dashboard,
-  .company-journal-earnings-evidence
-)::-webkit-scrollbar-thumb,
-.workspace-panel-frame .company-journal-reading::-webkit-scrollbar-thumb {
+.workspace-panel-frame .company-journal-panel :is(
+  .company-journal-body,
+  .company-journal-evidence,
+  .company-journal-reading
+)::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-muted) 54%, var(--coinbase-panel));
   background-clip: padding-box;
 }
 
-.workspace-panel-frame .company-journal-evidence :is(
-  .company-single-fundamental-section,
-  .company-valuation-dashboard,
-  .company-stability-dashboard,
-  .company-journal-earnings-evidence
-)::-webkit-scrollbar-thumb:hover,
-.workspace-panel-frame .company-journal-reading::-webkit-scrollbar-thumb:hover {
+.workspace-panel-frame .company-journal-panel :is(
+  .company-journal-body,
+  .company-journal-evidence,
+  .company-journal-reading
+)::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--color-muted) 76%, var(--color-text));
   background-clip: padding-box;
 }
