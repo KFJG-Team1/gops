@@ -109,6 +109,7 @@ assert.match(bottomCommandBarSource, /notification\.id < 0/);
 assert.doesNotMatch(newsPanelSource, /시뮬레이션 뉴스 API 응답 오류/);
 assert.doesNotMatch(newsPanelSource, /시뮬레이션 시각 기준 뉴스 데이터가 없어/);
 assert.match(newsPanelSource, /simulatorMode === "simulation" \? "\/api\/market\/news\/latest"/);
+assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, chart\.interval\)/);
 
 const chartCommentarySource = readFileSync(
   fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)),
