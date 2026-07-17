@@ -1,4 +1,4 @@
-import { CalendarClock, ExternalLink, X } from "lucide-react";
+import { ExternalLink, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -244,23 +244,27 @@ export function ChartEventOverlay({
           aria-labelledby={selectedTitleId}
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <header>
+          <header className="chart-event-popover-header">
             <span className="chart-event-popover-badge" aria-hidden="true">
               <span>{selected.event.type === "earnings" ? "E" : "N"}</span>
             </span>
             <div className="chart-event-popover-title">
-              <small>{selected.event.type === "earnings" ? "FUNDAMENTALS" : "MARKET NEWS"}</small>
               <strong id={selectedTitleId}>
                 {selected.event.type === "earnings" ? "실적 및 펀더멘탈" : "뉴스 브리핑"}
               </strong>
+              <span
+                className="chart-event-popover-help"
+                role="img"
+                aria-label="저장된 실제 이벤트 데이터만 표시합니다"
+              >?</span>
             </div>
             <button className="chart-event-popover-close" type="button" aria-label="이벤트 상세 닫기" onClick={() => setSelected(null)}>
               <X size={16} />
             </button>
           </header>
           {selected.event.type === "earnings"
-            ? <EarningsEventContent event={selected.event} upcoming={selected.upcoming} />
-            : <NewsEventContent event={selected.event} />}
+            ? <EarningsEventContent event={selected.event} upcoming={selected.upcoming} onDisclosureToggle={() => setPositionRevision((current) => current + 1)} />
+            : <NewsEventContent event={selected.event} onDisclosureToggle={() => setPositionRevision((current) => current + 1)} />}
         </article>,
         window.document.body
       )}
@@ -268,93 +272,127 @@ export function ChartEventOverlay({
   );
 }
 
-function EarningsEventContent({ event, upcoming }: { event: ChartEarningsEvent; upcoming?: UpcomingEarningsEvent }) {
+function EarningsEventContent({
+  event,
+  upcoming,
+  onDisclosureToggle,
+}: {
+  event: ChartEarningsEvent;
+  upcoming?: UpcomingEarningsEvent;
+  onDisclosureToggle: () => void;
+}) {
   const session = earningsSessionLabel(event.session);
-  const highlightTone = metricTone(event.eps.surprisePercent);
-  const highlightValue = upcoming ? `D-${upcoming.daysRemaining}` : formatSignedPercent(event.eps.surprisePercent);
+  const surpriseTone = metricTone(event.eps.surprisePercent);
   return (
     <div className="chart-event-popover-body">
-      <div className="chart-event-context-strip">
-        <span><CalendarClock size={13} aria-hidden="true" />{koreaDateTime.format(new Date(event.eventAt))}</span>
-        <strong>{session}</strong>
+      <div className="chart-event-meta-grid">
+        <span>날짜</span>
+        <strong>{koreaDateTime.format(new Date(event.eventAt))}</strong>
+        <span>{upcoming ? "발표 상태" : "발표 시점"}</span>
+        <strong>{upcoming ? `D-${upcoming.daysRemaining} · ${session}` : session}</strong>
       </div>
-      <section className={`chart-event-highlight ${highlightTone}`} aria-label="실적 핵심 결과">
-        <div>
-          <small>{upcoming ? "발표까지" : "EPS 서프라이즈율"}</small>
-          <strong>{highlightValue}</strong>
-        </div>
-        <span>{earningsResultLabel(event, Boolean(upcoming))}</span>
-      </section>
-      {upcoming && <p className="chart-event-upcoming-note">예상 EPS를 기준으로 발표를 기다리고 있습니다.</p>}
-      <section className="chart-event-section" aria-label="EPS 세부 지표">
-        <div className="chart-event-section-label">
-          <span>EPS 결과</span>
-          <small>주당순이익</small>
-        </div>
-        <dl className="chart-event-detail-list">
-          <div><dt>발표</dt><dd>{formatEps(event.eps.actual)}</dd></div>
-          <div><dt>시장 예상</dt><dd>{formatEps(event.eps.estimate)}</dd></div>
-          <div className={metricTone(event.eps.surprise)}><dt>예상 대비</dt><dd>{formatSignedEps(event.eps.surprise)}</dd></div>
+      <section className="chart-event-metric-group" aria-label="EPS 세부 지표">
+        <span className="chart-event-metric-kicker">실적</span>
+        <dl className="chart-event-metric-list">
+          <EventMetricRow label="발표" value={formatEps(event.eps.actual)} />
+          <EventMetricRow label="시장 예상" value={formatEps(event.eps.estimate)} />
+          <EventMetricRow
+            label={upcoming ? "상태" : "서프라이즈"}
+            value={upcoming ? earningsResultLabel(event, true) : formatEarningsSurprise(event)}
+            tone={surpriseTone}
+            accent
+          />
         </dl>
       </section>
-      <footer className="chart-event-source-footer">
-        <span>DATA SOURCE</span>
-        <strong>{event.source}</strong>
-        <time dateTime={event.sourceAsOf}>기준 {koreaDateTime.format(new Date(event.sourceAsOf))}</time>
-      </footer>
+      <details className="chart-event-disclosure" onToggle={onDisclosureToggle}>
+        <summary>데이터 기준을 확인하세요</summary>
+        <div className="chart-event-disclosure-body">
+          {upcoming && <p className="chart-event-upcoming-note">예상 EPS를 기준으로 발표를 기다리고 있습니다.</p>}
+          <footer className="chart-event-source-footer">
+            <span>DATA SOURCE</span>
+            <strong>{event.source}</strong>
+            <time dateTime={event.sourceAsOf}>기준 {koreaDateTime.format(new Date(event.sourceAsOf))}</time>
+          </footer>
+        </div>
+      </details>
     </div>
   );
 }
 
-function NewsEventContent({ event }: { event: ChartNewsDay }) {
+function NewsEventContent({
+  event,
+  onDisclosureToggle,
+}: {
+  event: ChartNewsDay;
+  onDisclosureToggle: () => void;
+}) {
   return (
     <div className="chart-event-popover-body">
-      <div className="chart-event-context-strip">
-        <span><CalendarClock size={13} aria-hidden="true" />{dateLabel.format(new Date(`${event.date}T12:00:00Z`))}</span>
-        <strong>기사 {event.articleCount}건 종합</strong>
+      <div className="chart-event-meta-grid">
+        <span>날짜</span>
+        <strong>{dateLabel.format(new Date(`${event.date}T12:00:00Z`))}</strong>
+        <span>수집 기사</span>
+        <strong>{event.articleCount}건</strong>
       </div>
-      <section className={`chart-event-highlight is-${event.impactDirection}`} aria-label="뉴스 영향 요약">
-        <div>
-          <small>MARKET IMPACT</small>
-          <strong>{newsImpactLabel(event.impactDirection)}</strong>
-        </div>
-        <span>{newsSentimentLabel(event.sentiment)}</span>
+      <section className="chart-event-metric-group" aria-label="뉴스 영향 요약">
+        <span className="chart-event-metric-kicker">뉴스 영향</span>
+        <dl className="chart-event-metric-list">
+          <EventMetricRow label="시장 영향" value={newsImpactLabel(event.impactDirection)} />
+          <EventMetricRow
+            label="투자 심리"
+            value={newsSentimentLabel(event.sentiment)}
+            tone={`is-${event.impactDirection}`}
+            accent
+          />
+        </dl>
       </section>
-      <section className="chart-event-section">
-        <div className="chart-event-section-label">
-          <span>핵심 요약</span>
-          <small>일별 뉴스 브리핑</small>
+      <details className="chart-event-disclosure" onToggle={onDisclosureToggle}>
+        <summary>요약을 읽어보세요</summary>
+        <div className="chart-event-disclosure-body">
+          <p className="chart-event-news-summary">{event.summary || "저장된 일별 요약이 없습니다."}</p>
+          {event.keyPoints.length > 0 && (
+            <div className="chart-event-disclosure-block">
+              <strong>주요 포인트</strong>
+              <ul className="chart-event-key-points">
+                {event.keyPoints.map((point) => <li key={point}>{point}</li>)}
+              </ul>
+            </div>
+          )}
+          {event.sources.length > 0 && (
+            <div className="chart-event-disclosure-block">
+              <strong>원문 기사</strong>
+              <nav className="chart-event-source-links" aria-label="뉴스 원문">
+                {event.sources.slice(0, 3).map((source) => (
+                  <a key={source.articleId ?? source.url} href={source.url} target="_blank" rel="noreferrer">
+                    <span>{source.name || "원문"}</span>
+                    <strong>{source.title}</strong>
+                    <ExternalLink size={14} aria-hidden="true" />
+                  </a>
+                ))}
+              </nav>
+            </div>
+          )}
         </div>
-        <p className="chart-event-news-summary">{event.summary || "저장된 일별 요약이 없습니다."}</p>
-      </section>
-      {event.keyPoints.length > 0 && (
-        <section className="chart-event-section">
-          <div className="chart-event-section-label">
-            <span>주요 포인트</span>
-            <small>{event.keyPoints.length}개</small>
-          </div>
-          <ul className="chart-event-key-points">
-            {event.keyPoints.map((point) => <li key={point}>{point}</li>)}
-          </ul>
-        </section>
-      )}
-      {event.sources.length > 0 && (
-        <section className="chart-event-section">
-          <div className="chart-event-section-label">
-            <span>원문 기사</span>
-            <small>새 창에서 열기</small>
-          </div>
-          <nav className="chart-event-source-links" aria-label="뉴스 원문">
-            {event.sources.slice(0, 3).map((source) => (
-              <a key={source.articleId ?? source.url} href={source.url} target="_blank" rel="noreferrer">
-                <span>{source.name || "원문"}</span>
-                <strong>{source.title}</strong>
-                <ExternalLink size={14} aria-hidden="true" />
-              </a>
-            ))}
-          </nav>
-        </section>
-      )}
+      </details>
+    </div>
+  );
+}
+
+function EventMetricRow({
+  label,
+  value,
+  tone = "",
+  accent = false
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className={`chart-event-metric-row ${tone} ${accent ? "is-accent" : ""}`.trim()}>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
     </div>
   );
 }
@@ -415,6 +453,12 @@ function formatSignedEps(value: number | null): string {
 function formatSignedPercent(value: number | null): string {
   if (value === null) return "—";
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function formatEarningsSurprise(event: ChartEarningsEvent): string {
+  const surprise = formatSignedEps(event.eps.surprise);
+  const percent = formatSignedPercent(event.eps.surprisePercent);
+  return surprise === "—" || percent === "—" ? surprise : `${surprise} (${percent})`;
 }
 
 function metricTone(value: number | null): string {

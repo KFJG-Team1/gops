@@ -62,6 +62,7 @@ assert.match(overlaySource, /chart-event-meta-grid/);
 assert.match(overlaySource, /chart-event-metric-group/);
 assert.match(overlaySource, /chart-event-metric-row/);
 assert.match(overlaySource, /chart-event-disclosure/);
+assert.match(overlaySource, /onDisclosureToggle/);
 assert.match(overlaySource, /chart-event-source-footer/);
 assert.doesNotMatch(overlaySource, /chart-event-metrics/);
 assert.doesNotMatch(overlaySource, /chart-event-context-strip/);
