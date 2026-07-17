@@ -225,35 +225,66 @@ export type ChartAssetCommentaryReference =
   | { id: string; type: "news"; eventId: string; marketDate: string }
   | { id: string; type: "earnings"; eventId: string; eventAt: string };
 
-export type ChartAssetCommentary = {
+type ChartAssetCommentarySourceIdentity = {
+  geometryInputDigest: string;
+  candlesAsOf: string;
+  indicatorsAsOf: string;
+  newsAsOf?: string;
+  earningsAsOf?: string;
+  contextDigest: string;
+};
+
+type ChartAssetCommentaryIndicatorRecommendation = {
+  layer: ChartAssetCommentaryIndicatorLayer;
+  label: string;
+  reason: string;
+  referenceIds: string[];
+};
+
+export type ChartAssetCommentaryV1 = {
   version: "chart-commentary.v1";
   status: "ready";
   generatedAt: string;
   model: string;
-  promptVersion: string;
-  sourceIdentity: {
-    geometryInputDigest: string;
-    candlesAsOf: string;
-    indicatorsAsOf: string;
-    newsAsOf?: string;
-    earningsAsOf?: string;
-    contextDigest: string;
-  };
+  promptVersion: "chart-commentary.ko.v1";
+  sourceIdentity: ChartAssetCommentarySourceIdentity;
   blocks: Array<{
     id: string;
     kind: ChartAssetCommentaryBlockKind;
     text: string;
     referenceIds: string[];
   }>;
-  indicatorRecommendations: Array<{
-    layer: ChartAssetCommentaryIndicatorLayer;
-    label: string;
-    reason: string;
-    referenceIds: string[];
-  }>;
+  indicatorRecommendations: ChartAssetCommentaryIndicatorRecommendation[];
   references: ChartAssetCommentaryReference[];
   limitations: string[];
 };
+
+export type ChartAssetCommentaryLink =
+  | { kind: "drawing"; referenceIds: string[] }
+  | { kind: "indicator"; layer: ChartAssetCommentaryIndicatorLayer; referenceIds: string[] }
+  | { kind: "candle" | "news" | "earnings"; referenceId: string };
+
+export type ChartAssetCommentaryV2 = {
+  version: "chart-commentary.v2";
+  status: "ready";
+  generatedAt: string;
+  model: string;
+  promptVersion: "chart-commentary.ko.v2";
+  sourceIdentity: ChartAssetCommentarySourceIdentity;
+  paragraphs: Array<{
+    id: string;
+    segments: Array<{
+      id: string;
+      text: string;
+      link?: ChartAssetCommentaryLink;
+    }>;
+  }>;
+  indicatorRecommendations: ChartAssetCommentaryIndicatorRecommendation[];
+  references: ChartAssetCommentaryReference[];
+  limitations: string[];
+};
+
+export type ChartAssetCommentary = ChartAssetCommentaryV1 | ChartAssetCommentaryV2;
 
 export type ChartAnalysisAsset = {
   assetVersion: "geometry";
@@ -460,14 +491,12 @@ function normalizeCommentary(value: unknown, asset: {
   drawingIds: Set<string>;
 }): ChartAssetCommentary | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const source = value as Partial<ChartAssetCommentary>;
-  const identity = source.sourceIdentity;
+  const source = value as Record<string, any>;
+  const identity = source.sourceIdentity as Record<string, any> | undefined;
   if (
-    source.version !== "chart-commentary.v1"
-    || source.status !== "ready"
+    source.status !== "ready"
     || typeof source.generatedAt !== "string"
     || typeof source.model !== "string" || source.model.length === 0
-    || source.promptVersion !== "chart-commentary.ko.v1"
     || !identity
     || identity.geometryInputDigest !== asset.inputDigest
     || identity.candlesAsOf !== asset.asOf
@@ -475,40 +504,116 @@ function normalizeCommentary(value: unknown, asset: {
     || typeof identity.contextDigest !== "string"
     || (identity.newsAsOf !== undefined && typeof identity.newsAsOf !== "string")
     || (identity.earningsAsOf !== undefined && typeof identity.earningsAsOf !== "string")
-    || !Array.isArray(source.blocks)
     || !Array.isArray(source.indicatorRecommendations)
     || !Array.isArray(source.references)
     || !Array.isArray(source.limitations)
   ) return undefined;
-  if (source.blocks.length !== 5 || source.indicatorRecommendations.length > 3) return undefined;
+  if (source.indicatorRecommendations.length > 3) return undefined;
   if (source.references.some((reference) => !validCommentaryReference(reference))) return undefined;
-  const referenceIds = new Set(source.references.map((reference) => reference.id));
+  const references = source.references as ChartAssetCommentaryReference[];
+  const referenceIds = new Set(references.map((reference) => reference.id));
   if (referenceIds.size !== source.references.length) return undefined;
-  if (source.references.some((reference) => (
+  if (references.some((reference) => (
     reference.type === "drawing" && reference.drawingIds.some((id) => !asset.drawingIds.has(id))
   ))) return undefined;
-  const expectedKinds: ChartAssetCommentaryBlockKind[] = [
-    "overview", "drawing_guide", "indicator_context", "event_context", "watch_next"
-  ];
-  if (source.blocks.some((block) => (
-    !block || typeof block.id !== "string" || typeof block.text !== "string"
-    || !["overview", "drawing_guide", "indicator_context", "event_context", "watch_next"].includes(block.kind)
-    || !Array.isArray(block.referenceIds) || block.referenceIds.some((id) => !referenceIds.has(id))
-  ))) return undefined;
-  if (source.blocks.some((block, index) => block.kind !== expectedKinds[index])) return undefined;
   if (source.indicatorRecommendations.some((item) => (
     !item || typeof item.label !== "string" || typeof item.reason !== "string"
     || !commentaryIndicatorLayers.has(item.layer)
-    || !Array.isArray(item.referenceIds) || item.referenceIds.some((id) => !referenceIds.has(id))
+    || !Array.isArray(item.referenceIds) || item.referenceIds.some((id: unknown) => typeof id !== "string" || !referenceIds.has(id))
   ))) return undefined;
   if (source.limitations.some((item) => typeof item !== "string")) return undefined;
-  return source as ChartAssetCommentary;
+
+  if (source.version === "chart-commentary.v1") {
+    if (source.promptVersion !== "chart-commentary.ko.v1" || !Array.isArray(source.blocks) || source.blocks.length !== 5) {
+      return undefined;
+    }
+    const expectedKinds: ChartAssetCommentaryBlockKind[] = [
+      "overview", "drawing_guide", "indicator_context", "event_context", "watch_next"
+    ];
+    if (source.blocks.some((block: any) => (
+      !block || typeof block.id !== "string" || typeof block.text !== "string"
+      || !["overview", "drawing_guide", "indicator_context", "event_context", "watch_next"].includes(block.kind)
+      || !Array.isArray(block.referenceIds) || block.referenceIds.some((id: string) => !referenceIds.has(id))
+    ))) return undefined;
+    if (source.blocks.some((block: any, index: number) => block.kind !== expectedKinds[index])) return undefined;
+    return source as ChartAssetCommentaryV1;
+  }
+
+  if (
+    source.version !== "chart-commentary.v2"
+    || source.promptVersion !== "chart-commentary.ko.v2"
+    || !Array.isArray(source.paragraphs)
+    || source.paragraphs.length !== 3
+  ) return undefined;
+  const referenceById = new Map(references.map((reference) => [reference.id, reference]));
+  const paragraphIds = new Set<string>();
+  const segmentIds = new Set<string>();
+  const linkedReferenceIds = new Set<string>();
+  const linkedIndicatorLayers = new Set<ChartAssetCommentaryIndicatorLayer>();
+  let linkCount = 0;
+  for (const paragraph of source.paragraphs) {
+    if (
+      !paragraph || typeof paragraph.id !== "string" || !paragraph.id.trim()
+      || paragraphIds.has(paragraph.id)
+      || !Array.isArray(paragraph.segments)
+      || paragraph.segments.length < 1 || paragraph.segments.length > 24
+    ) return undefined;
+    paragraphIds.add(paragraph.id);
+    for (const segment of paragraph.segments) {
+      if (
+        !segment || typeof segment.id !== "string" || !segment.id.trim()
+        || segmentIds.has(segment.id)
+        || typeof segment.text !== "string" || !segment.text.trim()
+      ) return undefined;
+      segmentIds.add(segment.id);
+      if (segment.link === undefined) continue;
+      linkCount += 1;
+      if (!validCommentaryLink(segment.link, referenceById, linkedReferenceIds, linkedIndicatorLayers)) return undefined;
+    }
+  }
+  if (linkCount > 8) return undefined;
+  const recommendationLayers = new Set(
+    source.indicatorRecommendations.map((item: { layer: ChartAssetCommentaryIndicatorLayer }) => item.layer)
+  );
+  if (
+    recommendationLayers.size !== source.indicatorRecommendations.length
+    || recommendationLayers.size !== linkedIndicatorLayers.size
+    || [...recommendationLayers].some((layer) => !linkedIndicatorLayers.has(layer))
+  ) return undefined;
+  return source as ChartAssetCommentaryV2;
 }
 
 const commentaryIndicatorLayers = new Set<ChartAssetCommentaryIndicatorLayer>([
   "volume-profile", "volume", "rsi:14", "macd:12:26:9", "bollinger:20:2",
   "sma:20", "sma:60", "sma:120", "ema:20"
 ]);
+
+function validCommentaryLink(
+  value: unknown,
+  references: Map<string, ChartAssetCommentaryReference>,
+  linkedReferenceIds: Set<string>,
+  linkedIndicatorLayers: Set<ChartAssetCommentaryIndicatorLayer>
+): value is ChartAssetCommentaryLink {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const link = value as Partial<ChartAssetCommentaryLink> & Record<string, unknown>;
+  if (link.kind === "drawing" || link.kind === "indicator") {
+    if (!Array.isArray(link.referenceIds) || link.referenceIds.length < 1 || link.referenceIds.length > 3) return false;
+    if (link.referenceIds.some((id) => typeof id !== "string" || linkedReferenceIds.has(id) || !references.has(id))) return false;
+    if (link.kind === "drawing" && link.referenceIds.some((id) => references.get(id)?.type !== "drawing")) return false;
+    if (link.kind === "indicator") {
+      if (!commentaryIndicatorLayers.has(link.layer as ChartAssetCommentaryIndicatorLayer)) return false;
+      if (linkedIndicatorLayers.has(link.layer as ChartAssetCommentaryIndicatorLayer)) return false;
+      linkedIndicatorLayers.add(link.layer as ChartAssetCommentaryIndicatorLayer);
+    }
+    link.referenceIds.forEach((id) => linkedReferenceIds.add(id));
+    return true;
+  }
+  if (link.kind !== "candle" && link.kind !== "news" && link.kind !== "earnings") return false;
+  if (typeof link.referenceId !== "string" || linkedReferenceIds.has(link.referenceId)) return false;
+  if (references.get(link.referenceId)?.type !== link.kind) return false;
+  linkedReferenceIds.add(link.referenceId);
+  return true;
+}
 
 function validCommentaryReference(value: unknown): value is ChartAssetCommentaryReference {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
