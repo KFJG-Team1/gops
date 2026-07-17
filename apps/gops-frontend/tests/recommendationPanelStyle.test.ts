@@ -16,9 +16,11 @@ assert.match(
 );
 assert.match(
   reportStyles,
-  /\.panel\s*\{[\s\S]+?background:\s*#272727;[\s\S]+?color:\s*var\(--report-ink\);/,
-  "the recommendation explanation uses the standard dark panel surface"
+  /\.panel\s*\{[\s\S]+?--report-surface:\s*var\(--color-surface\);[\s\S]+?background:\s*var\(--report-surface\);[\s\S]+?color:\s*var\(--report-ink\);/,
+  "the recommendation explanation uses the shared design-system panel surface"
 );
+assert.deepEqual(reportStyles.match(/#[0-9a-fA-F]{3,8}/g), ["#1b1b1b"], "only the DESIGN.md-approved header overlay color is local");
+assert.doesNotMatch(reportStyles, /rgba?\(/, "recommendation surfaces do not introduce translucent structural colors");
 assert.match(
   reportSource,
   /items\.find\(\(candidate\) => candidate\.symbol === preferred\)/,
@@ -36,18 +38,33 @@ assert.equal(reportSource.includes("결정론적 설명"), false, "provider impl
 assert.equal(panelSource.includes("recommendationVisibleRiskWarnings"), false, "raw risk warnings stay out of recommendation rows");
 assert.equal(apiSource.includes("simulatorStatus.recommendations"), false, "LIVE and SIM use the same recommendation API");
 assert.equal(panelSource.includes("시뮬레이션 시각 기준 추천 데이터가 없어"), false, "SIM no longer suppresses verified recommendations");
-assert.match(reportSource, /핵심 판단 근거/, "direct recommendations show sentence evidence beside the trade plan");
+assert.match(reportSource, /판단 근거와 비교 기준/, "direct recommendations show observed values with their baselines");
+assert.match(reportSource, /유의할 점/, "direct recommendations show structured cautions");
+assert.match(reportSource, /verdictLabel/, "the compact action label is rendered above the narrative headline");
+assert.match(reportSource, /<h3>\{v3\.primary\.headline\}<\/h3>/, "the backend headline is the primary hero copy");
+assert.match(reportSource, /item\.cautions\.map/, "the UI renders only normalized backend cautions");
+assert.match(reportSource, /EvidenceMetricBar/, "observed evidence metrics are rendered as comparison graphics");
+assert.match(reportSource, /EvidenceHelp/, "evidence validity explanations are available from compact help controls");
+assert.equal(reportSource.includes("<p>{evidence.interpretation}</p>"), false, "long validity explanations do not consume the default layout height");
+assert.match(reportSource, /metric\.valuePositionPct/, "the UI uses backend-provided graph positions");
+assert.match(reportSource, /metric\.referencePositionPct/, "each graph shows its explicit comparison baseline");
+assert.match(reportStyles, /\.evidenceMetricTrack[\s\S]+?border-radius:\s*999px;/, "evidence values use compact benchmark tracks");
+assert.match(reportStyles, /\.sentenceEvidenceList[\s\S]+?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/, "wide evidence layouts use two compact columns");
+assert.match(reportStyles, /\.evidenceHelp:focus-within \.evidenceTooltip/, "keyboard focus reveals the evidence explanation tooltip");
+assert.match(reportStyles, /\.verdictCopy h3[\s\S]+?word-break:\s*keep-all;/, "Korean headline words do not split between syllables");
+assert.match(reportStyles, /\.verdictCopy p[\s\S]+?word-break:\s*keep-all;/, "Korean narrative words do not split between syllables");
 assert.match(reportSource, /눌림 진입/, "direct recommendations expose the fixed pullback entry route");
 assert.match(reportSource, /판단 무효화/, "direct recommendations expose the invalidation price");
 assert.match(reportSource, /15:50 ET/, "direct recommendations expose the forced intraday exit");
 assert.match(panelSource, /actionLabel\(item\.action\)/, "recommendation rows label buy, conditional, watch, and unsuitable states");
 assert.equal(reportSource.includes("missingOptionalFactors"), false, "missing optional evidence is not rendered as user-facing risk");
 assert.equal(reportSource.includes("directHero"), false, "the card-style direct recommendation hero is removed");
-assert.equal(reportSource.includes("keyEvidenceCard"), false, "numeric evidence cards are removed");
+assert.equal(reportSource.includes("keyEvidenceCard"), false, "the retired score-only evidence card stays removed");
 assert.equal(panelSource.includes("evidence.primaryValue"), false, "recommendation rows use backend sentences instead of numeric evidence values");
 assert.match(panelSource, /직접 매수 판단 데이터가 준비되지 않았습니다/, "legacy payloads fail safe to observation copy");
 assert.match(apiSource, /normalizedDecision\?\.action === declaredAction/, "direct actions require a matching decision contract");
 assert.match(apiSource, /action: decision\?\.action \?\? "watch"/, "invalid or legacy actions normalize to watch");
+assert.match(apiSource, /cautions: decision \? normalizeCautions\(source\.cautions\) : \[\]/, "cautions require a matching decision contract");
 assert.match(reportStyles, /grid-template-columns:\s*minmax\(0, 1\.45fr\) minmax\(230px, 0\.75fr\)/, "the previous two-column detail layout is restored");
 
 for (const removedCopy of [

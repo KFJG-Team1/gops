@@ -2,6 +2,7 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  CircleHelp,
   RefreshCcw,
   ShieldAlert,
   Sparkles
@@ -12,6 +13,7 @@ import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 import {
   fetchStockRecommendations,
+  type RecommendationEvidenceMetric,
   type StockRecommendationItem,
   type StockRecommendationPayload
 } from "./recommendationApi";
@@ -136,7 +138,18 @@ export function StockRecommendationExplainPanel({
 
       <div className={styles.verdict}>
         <div className={styles.verdictCopy}>
-          <strong>{item.decision?.label ?? "매수 관찰"}</strong>
+          <span className={styles.verdictLabel}>{item.decision?.label ?? "매수 관찰"}</span>
+          {v3 && item.decision ? (
+            <>
+              <h3>{v3.primary.headline}</h3>
+              {v3.primary.body && <p>{v3.primary.body}</p>}
+            </>
+          ) : v3 ? (
+            <>
+              <h3>직접 매수 판단 데이터가 준비되지 않았습니다.</h3>
+              <p>이 응답은 매수 추천으로 표시하지 않고 관찰 상태로만 제공합니다.</p>
+            </>
+          ) : null}
         </div>
         <ScoreBlock score={score} confidence={confidence} v3={Boolean(v3)} />
       </div>
@@ -145,20 +158,10 @@ export function StockRecommendationExplainPanel({
         <div className={styles.primaryColumn}>
           {v3 && item.decision ? (
             <>
-              <section className={`${styles.section} ${styles.narrative}`}>
-                <SectionTitle icon={<Sparkles size={16} />} title="추천 설명" />
-                <h3>{v3.primary.headline}</h3>
-                <p>{v3.primary.body}</p>
-              </section>
               <SentenceEvidence item={item} />
+              <CautionEvidence item={item} />
             </>
-          ) : v3 ? (
-            <section className={`${styles.section} ${styles.narrative}`}>
-              <SectionTitle icon={<Sparkles size={16} />} title="추천 설명" />
-              <h3>직접 매수 판단 데이터가 준비되지 않았습니다.</h3>
-              <p>이 응답은 매수 추천으로 표시하지 않고 관찰 상태로만 제공합니다.</p>
-            </section>
-          ) : <>
+          ) : v3 ? null : <>
           <section className={styles.section}>
             <SectionTitle icon={<BarChart3 size={16} />} title="핵심 신호" />
             <div className={styles.metricList}>
@@ -209,21 +212,85 @@ export function StockRecommendationExplainPanel({
 function SentenceEvidence({ item }: { item: StockRecommendationItem }) {
   return (
     <section className={styles.section}>
-      <SectionTitle icon={<BarChart3 size={16} />} title="핵심 판단 근거" />
+      <SectionTitle icon={<BarChart3 size={16} />} title="판단 근거와 비교 기준" />
       <div className={styles.sentenceEvidenceList}>
         {item.keyEvidence.map((evidence) => (
-          <div className={styles.sentenceEvidenceRow} key={evidence.code}>
-            <span>{evidence.label}</span>
-            <p>{evidence.interpretation}</p>
+          <article className={styles.sentenceEvidenceRow} key={evidence.code}>
+            <div className={styles.evidenceHeading}>
+              <div className={styles.evidenceLabelGroup}>
+                <span>{evidence.label}</span>
+                <EvidenceHelp
+                  id={`evidence-help-${item.symbol}-${evidence.code}`}
+                  label={evidence.label}
+                  explanation={evidence.interpretation}
+                />
+              </div>
+              <strong>{evidence.primaryValue}</strong>
+            </div>
+            {evidence.metrics.length > 0 && (
+              <div className={styles.evidenceMetricGrid}>
+                {evidence.metrics.map((metric) => (
+                  <EvidenceMetricBar key={`${evidence.code}-${metric.label}`} metric={metric} />
+                ))}
+              </div>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EvidenceHelp({ id, label, explanation }: { id: string; label: string; explanation: string }) {
+  if (!explanation) return null;
+  return (
+    <span className={styles.evidenceHelp}>
+      <button type="button" aria-label={`${label} 근거 설명`} aria-describedby={id}>
+        <CircleHelp size={15} aria-hidden="true" />
+      </button>
+      <span className={styles.evidenceTooltip} id={id} role="tooltip">
+        <strong>왜 이 근거를 보나요?</strong>
+        <span>{explanation}</span>
+      </span>
+    </span>
+  );
+}
+
+function EvidenceMetricBar({ metric }: { metric: RecommendationEvidenceMetric }) {
+  const start = Math.min(metric.valuePositionPct, metric.referencePositionPct);
+  const width = Math.max(1.5, Math.abs(metric.valuePositionPct - metric.referencePositionPct));
+  return (
+    <div
+      className={`${styles.evidenceMetric} ${styles[metric.tone]}`}
+      aria-label={`${metric.label} ${metric.value}, ${metric.comparison}`}
+    >
+      <div className={styles.evidenceMetricHeader}>
+        <span>{metric.label}</span>
+        <strong>{metric.value}</strong>
+      </div>
+      <div className={styles.evidenceMetricTrack} aria-hidden="true">
+        <i style={{ left: `${start}%`, width: `${width}%` }} />
+        <b style={{ left: `${metric.referencePositionPct}%` }} />
+        <em style={{ left: `${metric.valuePositionPct}%` }} />
+      </div>
+      <small>{metric.comparison}</small>
+    </div>
+  );
+}
+
+function CautionEvidence({ item }: { item: StockRecommendationItem }) {
+  if (item.cautions.length === 0) return null;
+  return (
+    <section className={styles.section}>
+      <SectionTitle icon={<ShieldAlert size={16} />} title="유의할 점" />
+      <div className={styles.cautionList}>
+        {item.cautions.map((caution) => (
+          <div className={`${styles.cautionRow} ${styles[caution.severity]}`} key={caution.code}>
+            <span>{caution.label}</span>
+            <p>{caution.sentence}</p>
           </div>
         ))}
       </div>
-      {item.counterEvidence && (
-        <div className={styles.counterEvidence}>
-          <span>확인할 점</span>
-          <p>{item.counterEvidence.sentence}</p>
-        </div>
-      )}
     </section>
   );
 }
@@ -257,8 +324,8 @@ function TradePlanDetails({ item }: { item: StockRecommendationItem }) {
 
 function ScoreBlock({ score, confidence, v3 }: { score: number; confidence: number; v3: boolean }) {
   return (
-    <div className={styles.scoreBlock} aria-label={`${v3 ? "V3 종합 점수" : "추천 점수"} ${Math.round(score)}점`}>
-      <span className={styles.scoreLabel}>{v3 ? "V3 종합 점수" : "추천 점수"}</span>
+    <div className={styles.scoreBlock} aria-label={`${v3 ? "종합 점수" : "추천 점수"} ${Math.round(score)}점`}>
+      <span className={styles.scoreLabel}>{v3 ? "종합 점수" : "추천 점수"}</span>
       <div className={styles.scoreValue}>
         <strong>{Math.round(score)}</strong>
         <span>/ 100</span>
