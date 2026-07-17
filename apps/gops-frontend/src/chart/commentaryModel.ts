@@ -38,6 +38,7 @@ export type ChartCommentaryKeyPrice = {
   price: number;
   distancePercent: number | null;
   drawingIds: string[];
+  sourceLabel?: string;
 };
 
 export type ChartCommentaryScenario = {
@@ -50,6 +51,8 @@ export type ChartCommentaryScenario = {
   rewardRiskRatio: number;
   projectionBars: number;
   drawingIds: string[];
+  targetSourceLabel: string;
+  riskSourceLabel: string;
 };
 
 export type ChartCommentaryViewModel = {
@@ -132,11 +135,18 @@ export function buildChartCommentaryViewModel(
   if (setup) {
     const labels = tradePlanPresentation(setup.action);
     keyPrices.push(
-      keyPrice("entry", labels.basis, setup.entryPrice, currentPrice, planDrawingIds),
-      keyPrice("target", labels.target, setup.targetPrice, currentPrice, [setup.drawingIds.plan]),
-      keyPrice("invalidation", labels.risk, setup.stopPrice, currentPrice, [setup.drawingIds.plan])
+      keyPrice("entry", labels.basis, setup.entryPrice, currentPrice, setup.priceSources.entry.drawingIds, setup.priceSources.entry.label),
+      keyPrice("target", labels.target, setup.targetPrice, currentPrice, setup.priceSources.target.drawingIds, setup.priceSources.target.label),
+      keyPrice("invalidation", labels.risk, setup.stopPrice, currentPrice, setup.priceSources.stop.drawingIds, setup.priceSources.stop.label)
     );
   }
+
+  const proposalFocusIds = setup ? [...new Set([
+    ...planDrawingIds,
+    ...setup.priceSources.entry.drawingIds,
+    ...setup.priceSources.target.drawingIds,
+    ...setup.priceSources.stop.drawingIds
+  ])] : [];
 
   return {
     summary: commentarySummary(asset, setup, currentPrice, support, resistance, holding),
@@ -145,12 +155,14 @@ export function buildChartCommentaryViewModel(
       action: setup.action,
       labels: tradePlanPresentation(setup.action),
       status: tradePlanPresentation(setup.action).scenario,
-      confirmation: `${tradePlanPresentation(setup.action).basis} ${formatPrice(setup.entryPrice)} 확인`,
+      confirmation: `${tradePlanPresentation(setup.action).basis} ${formatPrice(setup.entryPrice)} · ${setup.priceSources.entry.label}`,
       targetPrice: setup.targetPrice,
       invalidationPrice: setup.stopPrice,
       rewardRiskRatio: setup.rewardRiskRatio,
       projectionBars: setup.projectionBars,
-      drawingIds: planDrawingIds
+      drawingIds: proposalFocusIds,
+      targetSourceLabel: setup.priceSources.target.label,
+      riskSourceLabel: setup.priceSources.stop.label
     } : null,
     evidence
   };
@@ -184,8 +196,10 @@ function commentarySummary(
   if (setup) {
     const labels = tradePlanPresentation(setup.action);
     sentences.push(labels.risk === "재검토"
-      ? `${formatPrice(setup.entryPrice)}을 ${labels.basis} 기준으로 보고, ${formatPrice(setup.stopPrice)}에서 시나리오를 재검토합니다.`
-      : `${formatPrice(setup.entryPrice)}을 ${labels.basis} 기준으로 보고, ${formatPrice(setup.stopPrice)}을 손절 기준으로 봅니다.`);
+      ? `${formatPrice(setup.entryPrice)} ${setup.priceSources.entry.label}을 ${labels.basis} 기준으로 보고, ${formatPrice(setup.stopPrice)} ${setup.priceSources.stop.label}에서 시나리오를 재검토합니다.`
+      : `${formatPrice(setup.entryPrice)} ${setup.priceSources.entry.label}을 ${labels.basis} 기준으로 보고, ${formatPrice(setup.stopPrice)} ${setup.priceSources.stop.label}을 손절 기준으로 봅니다.`);
+  } else {
+    sentences.push("현재 적격 제안 없음 — 세 가격을 모두 설명할 최종 작도가 부족합니다.");
   }
   if (holding?.averagePrice != null && currentPrice != null) {
     sentences.push(`실계좌 평균 매입가 ${formatPrice(holding.averagePrice)} 대비 현재가는 ${formatSignedPercent(currentPrice, holding.averagePrice)} 구간입니다.`);
@@ -210,14 +224,16 @@ function keyPrice(
   label: string,
   price: number,
   currentPrice: number | null,
-  drawingIds: string[]
+  drawingIds: string[],
+  sourceLabel?: string
 ): ChartCommentaryKeyPrice {
   return {
     id,
     label,
     price,
     distancePercent: currentPrice == null ? null : ((price - currentPrice) / Math.max(0.0000001, Math.abs(currentPrice))) * 100,
-    drawingIds
+    drawingIds,
+    ...(sourceLabel ? { sourceLabel } : {})
   };
 }
 

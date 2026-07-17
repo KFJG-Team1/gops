@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { buildChartScene } from "../src/chart/scene";
-import { buildTradePlanOverlayLayout } from "../src/chart/tradePlanOverlayLayout";
+import { buildTradePlanOverlayLayout, scaleTradePlanOverlayLayout, tradePlanOverlayContentKey } from "../src/chart/tradePlanOverlayLayout";
+import type { ChartTradeSetup } from "../src/chart/chartTradeSetup";
 import type { ChartState, DrawingEntity } from "../src/chart/types";
 
 const candles = Array.from({ length: 60 }, (_, index) => ({
@@ -44,16 +45,36 @@ const chart: ChartState = {
   comparisons: [],
   streamState: "idle"
 };
-const layout = buildTradePlanOverlayLayout(buildChartScene(chart, 800, 420), drawing);
+const setup: ChartTradeSetup = {
+  version: "chart-trade-setup-v1", action: "buy_candidate", sourceKind: "conditional", sourceInterval: "1D",
+  entryPrice: 100, entryTrigger: 100, targetPrice: 100.1, stopPrice: 99.9, rewardRiskRatio: 1,
+  signalAt: null, signalIndex: 59, patternId: "levels", patternKind: null, projectionBars: 10,
+  reasons: ["prices_from_selected_h_lines"], drawingIds: { plan: drawing.id, signal: `${drawing.id}:signal` },
+  priceSources: {
+    entry: { label: "저항선", drawingIds: ["level-entry"], derivation: "level" },
+    target: { label: "다음 저항선", drawingIds: ["level-target"], derivation: "level" },
+    stop: { label: "지지선", drawingIds: ["level-stop"], derivation: "level" }
+  },
+  assetIdentity: { algorithmVersion: "v6", inputDigest: "sha256:test", asOf: candles.at(-1)!.timestamp }
+};
+const layout = buildTradePlanOverlayLayout(buildChartScene(chart, 800, 420), drawing, setup);
 assert.ok(layout);
 assert.equal(layout.labels.length, 3);
 assert.ok(layout.boxRight - layout.boxLeft >= 144);
 assert.deepEqual(layout.labels.map((label) => label.role).sort(), ["basis", "risk", "target"]);
-assert.ok(layout.labels.some((label) => label.text === "진입 $100.00 · 0.00%"));
-assert.ok(layout.labels.some((label) => label.text === "목표 $100.10 · +0.10%"));
+assert.ok(layout.labels.some((label) => label.text === "진입 $100.00 · 저항선"));
+assert.ok(layout.labels.some((label) => label.text === "목표 $100.10 · 다음 저항선"));
+assert.deepEqual(layout.labels.find((label) => label.role === "target")?.sourceDrawingIds, ["level-target"]);
+assert.ok(layout.labels.every((label) => label.left > layout.boxRight), "labels stay in a lane to the right of the Canvas box");
+assert.ok(layout.labels.every((label) => label.connector.startX === layout.boxRight));
 const sortedCenters = layout.labels.map((label) => label.centerY).sort((left, right) => left - right);
 assert.ok(sortedCenters.every((center, index) => index === 0 || center - sortedCenters[index - 1] >= 24));
 assert.equal(layout.labels.find((label) => label.role === "target")?.price, 100.1);
+const scaledLayout = scaleTradePlanOverlayLayout(layout, { width: 800, height: 420 }, { width: 640, height: 336 });
+assert.equal(scaledLayout.labels[0].left, layout.labels[0].left * .8);
+assert.equal(scaledLayout.labels[0].desiredY, layout.labels[0].desiredY * .8);
+assert.equal(scaledLayout.labels[0].connector.startX, layout.labels[0].connector.startX * .8);
+assert.equal(tradePlanOverlayContentKey(scaledLayout), tradePlanOverlayContentKey(layout), "pan/zoom coordinates do not trigger React content replacement");
 
 const sellDrawing: DrawingEntity = {
   ...drawing,
@@ -67,9 +88,22 @@ const sellDrawing: DrawingEntity = {
 };
 const sellLayout = buildTradePlanOverlayLayout(
   buildChartScene({ ...chart, drawings: [sellDrawing] }, 800, 420),
-  sellDrawing
+  sellDrawing,
+  {
+    ...setup,
+    action: "sell_candidate",
+    entryPrice: 100,
+    targetPrice: 99.9,
+    stopPrice: 100.1,
+    drawingIds: { ...setup.drawingIds, plan: sellDrawing.id },
+    priceSources: {
+      entry: { label: "지지선", drawingIds: ["level-entry"], derivation: "level" },
+      target: { label: "다음 지지선", drawingIds: ["level-target"], derivation: "level" },
+      stop: { label: "저항선", drawingIds: ["level-stop"], derivation: "level" }
+    }
+  }
 );
 assert.ok(sellLayout);
-assert.ok(sellLayout.labels.some((label) => label.text === "매도 $100.00 · 0.00%"));
-assert.ok(sellLayout.labels.some((label) => label.text === "예상 하단 $99.90 · -0.10%"));
-assert.ok(sellLayout.labels.some((label) => label.text === "재검토 $100.10 · +0.10%"));
+assert.ok(sellLayout.labels.some((label) => label.text === "매도 $100.00 · 지지선"));
+assert.ok(sellLayout.labels.some((label) => label.text === "예상 하단 $99.90 · 다음 지지선"));
+assert.ok(sellLayout.labels.some((label) => label.text === "재검토 $100.10 · 저항선"));

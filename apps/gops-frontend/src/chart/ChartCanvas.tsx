@@ -367,7 +367,7 @@ function drawBaseChart(
   const spotlight = spotlightDrawingIds.length || analysisTraceOverlay?.focused
     ? new Set(spotlightDrawingIds)
     : null;
-  const drawDimmedBase = (draw: () => void) => withCanvasAlpha(context, spotlight ? 0.60 : 1, draw);
+  const drawDimmedBase = (draw: () => void) => withCanvasAlpha(context, spotlight ? 0.78 : 1, draw);
   const drawingBatch = drawingRenderBatch(scene, scene.chart.drawings, false, spotlight);
   const previewDrawingBatch = drawingRenderBatch(scene, previewDrawings, true);
   const layers: Array<() => void> = [
@@ -782,14 +782,21 @@ function drawAnalysisTraceOverlay(
     if (selected || !pivotColor.has(id)) pivotColor.set(id, color);
   };
 
+  overlay.markerCandidates.forEach((candidate) => {
+    const selected = candidate.selected === true;
+    const color = traceCandidateColor(candidate);
+    candidate.anchorPivotIds.forEach((id) => { rememberPivotColor(id, color, selected); });
+    candidate.touchPivotIds.forEach((id) => { touchIds.add(id); rememberPivotColor(id, color, selected); });
+    candidate.reactionPivotIds.forEach((id) => { reactionIds.add(id); rememberPivotColor(id, color, selected); });
+  });
+
   overlay.candidates.forEach((candidate) => {
     const selected = candidate.selected === true;
     const disposition = candidate.disposition
       ?? (selected ? "selected" : candidate.hardPass ? "qualified_not_selected" : "rejected");
-    const color = disposition === "rejected" ? colors.muted : traceCandidateColor(candidate);
-    candidate.anchorPivotIds.forEach((id) => { rememberPivotColor(id, color, selected); });
-    candidate.touchPivotIds.forEach((id) => { touchIds.add(id); rememberPivotColor(id, color, selected); });
-    candidate.reactionPivotIds.forEach((id) => { reactionIds.add(id); rememberPivotColor(id, color, selected); });
+    const categoryColor = traceCandidateColor(candidate);
+    const color = disposition === "rejected" ? colors.axis : categoryColor;
+    candidate.anchorPivotIds.forEach((id) => { rememberPivotColor(id, categoryColor, selected); });
     const anchors = candidate.anchors.length
       ? candidate.anchors
       : candidate.anchorPivotIds.map((id) => pivotById.get(id)).filter((pivot): pivot is NonNullable<typeof pivot> => Boolean(pivot));
@@ -799,7 +806,7 @@ function drawAnalysisTraceOverlay(
       : null;
     const levelY = levelPrice === null ? points[0]?.y : transform.priceToY(levelPrice);
     if (overlay.showCandidateLines) {
-      const baseAlpha = disposition === "selected" ? 0.58 : disposition === "qualified_not_selected" ? 0.44 : 0.34;
+      const baseAlpha = disposition === "selected" ? 0.58 : disposition === "qualified_not_selected" ? 0.42 : 0.30;
       const focusMultiplier = overlay.focused && !focusedCandidateIds.has(candidate.id) ? 0.45 : 1;
       context.save();
       context.strokeStyle = color;
@@ -876,7 +883,7 @@ function traceCandidateColor(candidate: AnalysisTraceOverlayCandidate): string {
     return candidate.role === "resistance" ? colors.evidenceResistance : colors.evidenceSupport;
   }
   if (candidate.category === "pattern") return colors.evidencePattern;
-  return candidate.kind?.includes("down") || candidate.role === "resistance" ? colors.down : colors.up;
+  return colors.evidenceTrend;
 }
 
 function drawSpotlightCandle(context: CanvasRenderingContext2D, scene: ChartScene, timestamp: string) {
@@ -1771,6 +1778,7 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
 
   batch.renderItems.forEach((item) => {
     const style = item.drawing.style ?? {};
+    const spotlightOpacity = drawingSpotlightOpacity(item.drawing, spotlight);
     if (item.kind === "timeWarpedParallelLines") {
       context.save();
       context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", previewLayer ? "preview" : "drawing");
@@ -1779,7 +1787,7 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
           if (band.length < 3) {
             return;
           }
-          context.globalAlpha = (style.fillOpacity ?? 0.04) * (previewLayer ? 0.72 : 1) * (index % 2 === 0 ? 1 : 0.58);
+          context.globalAlpha = spotlightOpacity * (style.opacity ?? 1) * (style.fillOpacity ?? 0.04) * (previewLayer ? 0.72 : 1) * (index % 2 === 0 ? 1 : 0.58);
           context.beginPath();
           band.forEach((point, pointIndex) => {
             if (pointIndex === 0) {
@@ -1796,7 +1804,7 @@ function drawDrawingFills(context: CanvasRenderingContext2D, scene: ChartScene, 
     } else if (item.kind === "expansionProjection") {
       context.save();
       context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", previewLayer ? "preview" : "drawing");
-      context.globalAlpha = (style.fillOpacity ?? 0.045) * (previewLayer ? 0.72 : 1);
+      context.globalAlpha = spotlightOpacity * (style.opacity ?? 1) * (style.fillOpacity ?? 0.045) * (previewLayer ? 0.72 : 1);
       drawPricePlotClipped(context, scene, () => {
         context.fillRect(item.left, item.top, Math.max(0, item.right - item.left), Math.max(0, item.bottom - item.top));
       });
@@ -1820,9 +1828,7 @@ function drawDrawings(
     const style = drawing.style ?? {};
     const points = drawing.anchors.map((anchor) => transform.anchorToPoint(anchor)).filter((point): point is { x: number; y: number } => Boolean(point));
     const spotlighted = Boolean(spotlight?.has(drawing.id));
-    const strokeColor = spotlighted
-      ? colors.signal
-      : resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
+    const strokeColor = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
 
     context.save();
     context.globalAlpha = preview ? 0.58 : drawingStrokeOpacity(drawing, spotlight, style.opacity ?? 1);
@@ -1830,7 +1836,7 @@ function drawDrawings(
     context.fillStyle = resolveDrawingColor(style, "fillToken", "fillColor", preview ? "preview" : "drawing");
     const baseLineWidth = style.lineWidth ?? 1;
     context.lineWidth = spotlighted
-      ? Math.min(5, baseLineWidth + 1.5)
+      ? Math.min(4.5, baseLineWidth + 0.75)
       : selected ? Math.max(1.8, baseLineWidth) : baseLineWidth;
     context.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
 
@@ -1872,7 +1878,8 @@ function drawDrawings(
       drawDrawingEntityLabel(context, scene, drawing, editingDrawingId);
     } else if (drawing.type === "flagMarker" && points[0]) {
       context.save();
-      context.lineWidth = Math.max(0.75, style.lineWidth ?? 1);
+      const flagLineWidth = Math.max(0.75, style.lineWidth ?? 1);
+      context.lineWidth = spotlighted ? Math.min(4.5, flagLineWidth + 0.75) : flagLineWidth;
       context.setLineDash([2, 4]);
       line(context, points[0].x, points[0].y, points[0].x, scene.plot.top + 7);
       context.setLineDash([]);
@@ -1898,13 +1905,13 @@ function drawDrawings(
 
   batch.renderItems.forEach((item) => {
     if (item.kind === "timeWarpedLine") {
-      drawTimeWarpedLine(context, scene, item, previewLayer);
+      drawTimeWarpedLine(context, scene, item, previewLayer, spotlight);
     } else if (item.kind === "timeWarpedParallelLines") {
-      drawTimeWarpedParallelLines(context, scene, item, previewLayer);
+      drawTimeWarpedParallelLines(context, scene, item, previewLayer, spotlight);
     } else if (item.kind === "expansionProjection") {
-      drawExpansionProjectionDrawing(context, scene, item, previewLayer);
+      drawExpansionProjectionDrawing(context, scene, item, previewLayer, spotlight);
     } else if (item.kind === "collapsed") {
-      drawCollapsedDrawing(context, scene, item, previewLayer);
+      drawCollapsedDrawing(context, scene, item, previewLayer, spotlight);
     }
   });
 }
@@ -1913,7 +1920,8 @@ function drawTimeWarpedLine(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
   item: Extract<DrawingRenderItem, { kind: "timeWarpedLine" }>,
-  previewLayer: boolean
+  previewLayer: boolean,
+  spotlight: ReadonlySet<string> | null
 ) {
   if (item.points.length < 2) {
     return;
@@ -1921,12 +1929,16 @@ function drawTimeWarpedLine(
   const drawing = item.drawing;
   const selected = !previewLayer && scene.chart.selectedDrawingId === drawing.id;
   const preview = previewLayer || drawing.id === "drawing-draft-preview";
+  const spotlighted = Boolean(spotlight?.has(drawing.id));
   const style = drawing.style ?? {};
   context.save();
-  context.globalAlpha = preview ? 0.58 : style.opacity ?? 1;
+  context.globalAlpha = preview ? 0.58 : drawingStrokeOpacity(drawing, spotlight, style.opacity ?? 1);
   context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
   context.fillStyle = context.strokeStyle;
-  context.lineWidth = selected ? Math.max(2.2, style.lineWidth ?? 1.5) : style.lineWidth ?? 1.5;
+  const baseLineWidth = style.lineWidth ?? 1.5;
+  context.lineWidth = spotlighted
+    ? Math.min(4.5, baseLineWidth + 0.75)
+    : selected ? Math.max(2.2, baseLineWidth) : baseLineWidth;
   context.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
   drawPricePlotClipped(context, scene, () => {
     context.beginPath();
@@ -1962,7 +1974,8 @@ function drawTimeWarpedParallelLines(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
   item: Extract<DrawingRenderItem, { kind: "timeWarpedParallelLines" }>,
-  previewLayer: boolean
+  previewLayer: boolean,
+  spotlight: ReadonlySet<string> | null
 ) {
   if (!item.lines.length || item.lines.some((linePoints) => linePoints.length < 2)) {
     return;
@@ -1970,12 +1983,16 @@ function drawTimeWarpedParallelLines(
   const drawing = item.drawing;
   const selected = !previewLayer && scene.chart.selectedDrawingId === drawing.id;
   const preview = previewLayer || drawing.id === "drawing-draft-preview";
+  const spotlighted = Boolean(spotlight?.has(drawing.id));
   const style = drawing.style ?? {};
   context.save();
-  context.globalAlpha = preview ? 0.58 : style.opacity ?? 1;
+  context.globalAlpha = preview ? 0.58 : drawingStrokeOpacity(drawing, spotlight, style.opacity ?? 1);
   context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
   context.fillStyle = context.strokeStyle;
-  context.lineWidth = selected ? Math.max(1.8, style.lineWidth ?? 1) : style.lineWidth ?? 1;
+  const baseLineWidth = style.lineWidth ?? 1;
+  context.lineWidth = spotlighted
+    ? Math.min(4.5, baseLineWidth + 0.75)
+    : selected ? Math.max(1.8, baseLineWidth) : baseLineWidth;
   context.setLineDash(preview ? [6, 4] : style.lineDash ?? []);
   drawPricePlotClipped(context, scene, () => {
     item.lines.forEach((linePoints) => {
@@ -2013,7 +2030,8 @@ function drawExpansionProjectionDrawing(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
   item: Extract<DrawingRenderItem, { kind: "expansionProjection" }>,
-  preview: boolean
+  preview: boolean,
+  spotlight: ReadonlySet<string> | null
 ) {
   const style = item.drawing.style ?? {};
   const left = Math.max(scene.plot.left, Math.min(scene.plot.right, item.left));
@@ -2028,9 +2046,12 @@ function drawExpansionProjectionDrawing(
 
   context.save();
   context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
-  context.lineWidth = style.lineWidth ?? 1.4;
+  const baseLineWidth = style.lineWidth ?? 1.4;
+  context.lineWidth = spotlight?.has(item.drawing.id) ? Math.min(4.5, baseLineWidth + 0.75) : baseLineWidth;
   context.setLineDash(style.lineDash ?? [5, 3]);
-  context.globalAlpha = (style.opacity ?? 1) * 0.82;
+  context.globalAlpha = spotlight?.has(item.drawing.id)
+    ? 1
+    : drawingStrokeOpacity(item.drawing, spotlight, style.opacity ?? 1) * 0.82;
   context.strokeRect(left, top, width, height);
   context.setLineDash([]);
   drawDrawingLabel(context, item.label, left + 5, top + 13, item.drawing);
@@ -2041,16 +2062,17 @@ function drawCollapsedDrawing(
   context: CanvasRenderingContext2D,
   scene: ChartScene,
   item: Extract<DrawingRenderItem, { kind: "collapsed" }>,
-  preview: boolean
+  preview: boolean,
+  spotlight: ReadonlySet<string> | null
 ) {
   const style = item.drawing.style ?? {};
   const x = Math.max(scene.plot.left + 8, Math.min(scene.plot.right - 8, item.x));
   const y = Math.max(scene.plot.top + 10, Math.min(scene.plot.priceBottom - 10, item.y));
   context.save();
-  context.globalAlpha = preview ? 0.58 : style.opacity ?? 0.78;
+  context.globalAlpha = preview ? 0.58 : drawingStrokeOpacity(item.drawing, spotlight, style.opacity ?? 0.78);
   context.strokeStyle = resolveDrawingColor(style, "colorToken", "color", preview ? "preview" : "drawing");
   context.fillStyle = colors.surfaceStrong;
-  context.lineWidth = 1.2;
+  context.lineWidth = spotlight?.has(item.drawing.id) ? 1.95 : 1.2;
   context.setLineDash([3, 3]);
   line(context, x, scene.plot.top, x, scene.plot.priceBottom);
   context.setLineDash([]);
@@ -2378,9 +2400,7 @@ function drawDrawingLabelsOnAxes(context: CanvasRenderingContext2D, scene: Chart
     if (!anchor) {
       return;
     }
-    const axisLabelColor = spotlight?.has(drawing.id)
-      ? colors.signal
-      : resolveDrawingColor(drawing.style ?? {}, "colorToken", "color", "drawing");
+    const axisLabelColor = resolveDrawingColor(drawing.style ?? {}, "colorToken", "color", "drawing");
     const placement = drawing.style?.labelPlacement;
     if (placement === "inline" || placement === "none") {
       return;
@@ -2423,7 +2443,7 @@ function drawingSpotlightOpacity(drawing: Pick<DrawingEntity, "id" | "sourceProp
   if (spotlight.has(drawing.id)) return 1;
   const analysis = drawing.id.startsWith("chart-asset:") || drawing.id.startsWith("chart-plan:")
     || drawing.sourceProposalId?.startsWith("chart-asset:") || drawing.sourceProposalId?.startsWith("chart-plan:");
-  return analysis ? 0.45 : 0.65;
+  return analysis ? 0.65 : 0.82;
 }
 
 function drawingStrokeOpacity(

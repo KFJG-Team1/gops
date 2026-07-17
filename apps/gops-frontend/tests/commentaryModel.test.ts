@@ -21,7 +21,11 @@ const plan: ChartTradeSetup = {
   entryPrice: 100, targetPrice: 110, stopPrice: 95, entryTrigger: 99.5, rewardRiskRatio: 2, signalAt: asset.asOf, signalIndex: 0,
   patternId: "pattern", patternKind: "bullish_flag", projectionBars: 10, reasons: ["reward_risk_passed"],
   drawingIds: { plan: "chart-plan:risk", signal: "chart-plan:signal" },
-  priceSources: { entry: "server", target: "server", stop: "server" }
+  priceSources: {
+    entry: { label: "패턴 상단", drawingIds: ["pattern-upper"], derivation: "pattern_boundary" },
+    target: { label: "패턴 폭", drawingIds: ["pattern-upper", "pattern-lower"], derivation: "pattern_measure" },
+    stop: { label: "패턴 하단", drawingIds: ["pattern-lower"], derivation: "pattern_boundary" }
+  }
 };
 const steps = buildChartCommentaryModel(asset, plan);
 assert.deepEqual(steps.map((step) => step.id), ["levels", "trend", "pattern"]);
@@ -33,14 +37,15 @@ const view = buildChartCommentaryViewModel(asset, plan, 101, { averagePrice: 90,
 assert.deepEqual(view.keyPrices.map((item) => item.id), ["support", "entry", "target", "invalidation"]);
 assert.equal(view.keyPrices[0]?.distancePercent?.toFixed(2), "-2.97");
 assert.equal(view.scenario?.status, "조건부 매수 검토");
-assert.equal(view.scenario?.confirmation, "진입 100.00 확인");
+assert.equal(view.scenario?.confirmation, "진입 100.00 · 패턴 상단");
 assert.deepEqual(view.keyPrices.slice(1).map((item) => item.label), ["진입", "목표", "손절"]);
 assert.equal(view.scenario?.rewardRiskRatio, 2);
 assert.equal(view.scenario?.projectionBars, 10);
-assert.deepEqual(view.scenario?.drawingIds, [plan.drawingIds.signal, plan.drawingIds.plan]);
+assert.deepEqual(view.scenario?.drawingIds, [plan.drawingIds.signal, plan.drawingIds.plan, "pattern-upper", "pattern-lower"]);
+assert.deepEqual(view.keyPrices.slice(1).map((item) => item.sourceLabel), ["패턴 상단", "패턴 폭", "패턴 하단"]);
 assert.match(view.summary.join(" "), /현재가 101\.00/);
 assert.match(view.summary.join(" "), /98\.00/);
-assert.match(view.summary.join(" "), /95\.00을 손절 기준/);
+assert.match(view.summary.join(" "), /95\.00 패턴 하단을 손절 기준/);
 assert.match(view.summary.join(" "), /평균 매입가 90\.00 대비 현재가는 \+12\.22%/);
 assert.equal(view.summary.length, 4);
 assert.deepEqual(buildChartCommentaryViewModel(asset, plan, 101, { averagePrice: 90 }), view, "same facts always produce the same commentary");
@@ -49,6 +54,7 @@ const withoutHolding = buildChartCommentaryViewModel(asset, null, null, null);
 assert.equal(withoutHolding.scenario, null);
 assert.deepEqual(withoutHolding.keyPrices.map((item) => item.id), ["support"]);
 assert.doesNotMatch(withoutHolding.summary.join(" "), /현재가|평균 매입가|진입 기준/);
+assert.match(withoutHolding.summary.join(" "), /현재 적격 제안 없음/);
 assert.equal(withoutHolding.summary.length, 2);
 
 assert.deepEqual(chartCommentaryHoldingDisplay({ symbol: "AAPL", averagePrice: 148.42, quantity: 18 }, false), {
@@ -71,9 +77,9 @@ const sellView = buildChartCommentaryViewModel(asset, {
   rewardRiskRatio: 2
 }, 118, null);
 assert.equal(sellView.scenario?.status, "조건부 매도 검토");
-assert.equal(sellView.scenario?.confirmation, "매도 118.00 확인");
+assert.equal(sellView.scenario?.confirmation, "매도 118.00 · 패턴 상단");
 assert.deepEqual(sellView.keyPrices.slice(1).map((item) => item.label), ["매도", "예상 하단", "재검토"]);
-assert.match(sellView.summary.join(" "), /118\.00을 매도 기준으로 보고, 122\.00에서 시나리오를 재검토/);
+assert.match(sellView.summary.join(" "), /118\.00 패턴 상단을 매도 기준으로 보고, 122\.00 패턴 하단에서 시나리오를 재검토/);
 assert.deepEqual(buildChartCommentaryModel(asset, null).map((step) => step.id), ["levels", "trend", "pattern"]);
 
 const trendWithInvalidation = {

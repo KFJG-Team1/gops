@@ -15,11 +15,13 @@ export type AnalysisTraceOverlayCandidate = GeometryTraceCandidate & {
 
 export type AnalysisTraceOverlay = {
   candidates: AnalysisTraceOverlayCandidate[];
+  markerCandidates: AnalysisTraceOverlayCandidate[];
   pivots: GeometryTracePivot[];
   focused: boolean;
   focusedCandidateIds: string[];
   showCandidateLines: boolean;
   dataMode: "complete" | "bounded" | "legacy";
+  storedCandidateCount: number;
 };
 
 export type AnalysisTraceDataMode = AnalysisTraceOverlay["dataMode"] | "none";
@@ -69,7 +71,8 @@ export function buildAnalysisTraceOverlay(
   if (!trace) {
     const pivots = legacyPivots(asset).filter((pivot) => !focused || evidenceFilter.has(pivot.id));
     return pivots.length ? {
-      candidates: [], pivots, focused, focusedCandidateIds: [], showCandidateLines: false, dataMode: "legacy"
+      candidates: [], markerCandidates: [], pivots, focused, focusedCandidateIds: [],
+      showCandidateLines: false, dataMode: "legacy", storedCandidateCount: 0
     } : null;
   }
 
@@ -86,15 +89,16 @@ export function buildAnalysisTraceOverlay(
   const focusedCandidates = focused
     ? allCandidates.filter((candidate) => candidateFilter.has(candidate.id))
     : allCandidates;
-  const candidates = options.visible ? allCandidates : focusedCandidates;
-  const markerCandidates = focused ? focusedCandidates : allCandidates;
+  const displayedCandidates = options.visible ? selectInterpretationCandidates(allCandidates) : [];
+  const candidates = options.visible ? displayedCandidates : focusedCandidates;
+  const markerCandidates = focused ? focusedCandidates : displayedCandidates;
   const referencedPivotIds = new Set(evidenceFilter);
   markerCandidates.forEach((candidate) => {
     candidate.anchorPivotIds.forEach((id) => referencedPivotIds.add(id));
     candidate.touchPivotIds.forEach((id) => referencedPivotIds.add(id));
     candidate.reactionPivotIds.forEach((id) => referencedPivotIds.add(id));
   });
-  const tracePivots = trace.pivots.filter((pivot) => !focused || referencedPivotIds.has(pivot.id));
+  const tracePivots = trace.pivots.filter((pivot) => referencedPivotIds.has(pivot.id));
   const touchPivots = markerCandidates.flatMap((candidate) => (candidate.touches ?? []).map((touch) => ({
     id: touch.id,
     timestamp: touch.timestamp,
@@ -102,16 +106,121 @@ export function buildAnalysisTraceOverlay(
     ...(typeof touch.outcome === "string" ? { outcome: touch.outcome } : {})
   })));
   const pivots = [...new Map([...tracePivots, ...touchPivots].map((pivot) => [pivot.id, pivot])).values()];
-  return candidates.length || pivots.length ? {
+  return candidates.length || pivots.length || (options.visible && allCandidates.length) ? {
     candidates,
+    markerCandidates,
     pivots,
     focused,
     focusedCandidateIds: [...candidateFilter],
     showCandidateLines: options.visible,
     dataMode: trace.version === "geometry-analysis-trace-v2" && trace.completeness?.complete
       ? "complete"
-      : "bounded"
+      : "bounded",
+    storedCandidateCount: allCandidates.length
   } : null;
+}
+
+const categoryCaps: Record<AnalysisTraceOverlayCandidate["category"], number> = {
+  levels: 4,
+  trend: 3,
+  pattern: 2
+};
+
+const fatalNearMissReason = /(stale|breach|invalid|role[_ -]?conflict|break[_ -]?pending)/i;
+
+export function selectInterpretationCandidates(
+  candidates: readonly AnalysisTraceOverlayCandidate[]
+): AnalysisTraceOverlayCandidate[] {
+  const selectedCount = new Set(candidates.filter((candidate) => candidate.selected === true).map((candidate) => candidate.id)).size;
+  const budget = Math.min(9, Math.max(3, selectedCount * 2));
+  const shortlists = (["levels", "trend", "pattern"] as const).map((category) => {
+    const unselected = candidates.filter((candidate) => candidate.category === category && candidate.selected !== true);
+    const qualified = unselected.filter((candidate) => (
+      candidate.hardPass === true || candidate.disposition === "qualified_not_selected"
+    ));
+    const eligible = qualified.length
+      ? qualified
+      : unselected.filter((candidate) => (
+        candidate.evidencePass === true
+        && candidate.activePass === true
+        && !(candidate.rejectReasons ?? []).some((reason) => fatalNearMissReason.test(reason))
+      )).slice().sort(compareTraceCandidates).slice(0, 1);
+    return orderedByDiversity(eligible, candidateDiversityKey).slice(0, categoryCaps[category]);
+  });
+  const selected: AnalysisTraceOverlayCandidate[] = [];
+  for (let index = 0; selected.length < budget; index += 1) {
+    let added = false;
+    shortlists.forEach((shortlist) => {
+      const candidate = shortlist[index];
+      if (candidate && selected.length < budget) {
+        selected.push(candidate);
+        added = true;
+      }
+    });
+    if (!added) break;
+  }
+  return selected;
+}
+
+function orderedByDiversity(
+  candidates: readonly AnalysisTraceOverlayCandidate[],
+  keyOf: (candidate: AnalysisTraceOverlayCandidate) => string
+): AnalysisTraceOverlayCandidate[] {
+  const groups = new Map<string, AnalysisTraceOverlayCandidate[]>();
+  candidates.slice().sort(compareTraceCandidates).forEach((candidate) => {
+    const key = keyOf(candidate);
+    const group = groups.get(key) ?? [];
+    group.push(candidate);
+    groups.set(key, group);
+  });
+  const orderedGroups = [...groups.values()].sort((left, right) => compareTraceCandidates(left[0], right[0]));
+  const result: AnalysisTraceOverlayCandidate[] = [];
+  for (let index = 0; orderedGroups.some((group) => index < group.length); index += 1) {
+    orderedGroups.forEach((group) => {
+      if (group[index]) result.push(group[index]);
+    });
+  }
+  return result;
+}
+
+function candidateDiversityKey(candidate: AnalysisTraceOverlayCandidate): string {
+  if (candidate.category === "levels") return candidate.role === "resistance" ? "resistance" : "support";
+  if (candidate.category === "trend") {
+    if (candidate.kind === "channel") return "channel";
+    return candidate.direction ?? candidate.kind ?? "trend";
+  }
+  return candidate.kind ?? "pattern";
+}
+
+function compareTraceCandidates(
+  left: AnalysisTraceOverlayCandidate,
+  right: AnalysisTraceOverlayCandidate
+): number {
+  return descending(left.score, right.score)
+    || descending(metricNumber(left, "reactionCount"), metricNumber(right, "reactionCount"))
+    || descending(metricNumber(left, "touchCount"), metricNumber(right, "touchCount"))
+    || ascending(metricNumber(left, "currentDistanceAtr"), metricNumber(right, "currentDistanceAtr"), true)
+    || ascending(metricNumber(left, "lastTouchAgeBars"), metricNumber(right, "lastTouchAgeBars"), true)
+    || ascending(left.categoryRank, right.categoryRank, true)
+    || left.id.localeCompare(right.id);
+}
+
+function metricNumber(candidate: AnalysisTraceOverlayCandidate, key: string): number | undefined {
+  const value = candidate.metrics?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function descending(left: number | undefined, right: number | undefined): number {
+  const safeLeft = typeof left === "number" && Number.isFinite(left) ? left : Number.NEGATIVE_INFINITY;
+  const safeRight = typeof right === "number" && Number.isFinite(right) ? right : Number.NEGATIVE_INFINITY;
+  return safeRight - safeLeft;
+}
+
+function ascending(left: number | undefined, right: number | undefined, missingLast = false): number {
+  const missingValue = missingLast ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+  const safeLeft = typeof left === "number" && Number.isFinite(left) ? left : missingValue;
+  const safeRight = typeof right === "number" && Number.isFinite(right) ? right : missingValue;
+  return safeLeft - safeRight;
 }
 
 function normalizeCandidate(

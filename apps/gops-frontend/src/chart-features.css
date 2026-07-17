@@ -92,15 +92,16 @@
   pointer-events: none;
 }
 
-.chart-trade-plan-price-overlay line {
+.chart-trade-plan-price-overlay polyline {
+  fill: none;
   stroke: var(--color-signal);
   stroke-width: 1;
   stroke-dasharray: 2 3;
   opacity: 0.82;
 }
 
-.chart-trade-plan-price-overlay line.is-up { stroke: var(--color-up); }
-.chart-trade-plan-price-overlay line.is-down { stroke: var(--color-down); }
+.chart-trade-plan-price-overlay polyline.is-up { stroke: var(--color-up); }
+.chart-trade-plan-price-overlay polyline.is-down { stroke: var(--color-down); }
 
 .chart-trade-plan-price-label {
   position: absolute;
@@ -113,7 +114,7 @@
   background: color-mix(in srgb, var(--color-surface-strong) 94%, transparent);
   color: var(--color-text);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--color-background) 55%, transparent);
-  font: 600 12px/1.2 var(--font-data-sans);
+  font: var(--type-caption);
   font-variant-numeric: tabular-nums;
   text-align: left;
   text-overflow: ellipsis;
@@ -130,6 +131,21 @@
   background: var(--color-surface-strong);
   outline: 2px solid color-mix(in srgb, var(--color-signal) 42%, transparent);
   outline-offset: 1px;
+}
+
+.chart-primary-pattern-badge {
+  position: absolute;
+  z-index: 4;
+  max-width: min(42%, 360px);
+  overflow: hidden;
+  color: var(--color-evidence-pattern);
+  font: var(--type-label-md);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px var(--color-background);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .chart-holding-price-description {
@@ -168,12 +184,11 @@
 .chart-analysis-layer-buttons button {
   position: relative;
   display: inline-flex;
-  min-width: 56px;
-  height: 32px;
+  min-width: 52px;
+  height: 34px;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 0 9px;
+  padding: 0 12px;
   border: 0;
   border-right: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-surface-strong) 82%, transparent);
@@ -182,7 +197,8 @@
 }
 
 .chart-analysis-layer-buttons .chart-analysis-layer-label {
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 1;
   font-weight: 750;
 }
 
@@ -200,24 +216,6 @@
   background: color-mix(in srgb, var(--color-surface-strong) 92%, var(--framer-accent-blue) 8%);
 }
 
-.chart-analysis-layer-state {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 5px;
-  height: 5px;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  opacity: 0.78;
-}
-
-.chart-analysis-layer-buttons button.is-on .chart-analysis-layer-state {
-  border-color: var(--framer-accent-blue);
-  background: var(--framer-accent-blue);
-  box-shadow: 0 0 0 2px rgb(var(--framer-accent-blue-rgb) / 0.12);
-  opacity: 1;
-}
-
 .chart-analysis-layer-buttons button:focus-visible {
   z-index: 1;
   outline: 2px solid var(--framer-accent-blue);
@@ -227,16 +225,7 @@
 .chart-analysis-layer-buttons button:disabled {
   color: var(--color-muted-soft);
   cursor: not-allowed;
-  opacity: 0.48;
-}
-
-.chart-analysis-layer-buttons button.is-unavailable .chart-analysis-layer-state {
-  top: 7px;
-  width: 6px;
-  height: 1px;
-  border: 0;
-  border-radius: 1px;
-  background: currentColor;
+  opacity: 0.42;
 }
 
 .chart-analysis-asof {

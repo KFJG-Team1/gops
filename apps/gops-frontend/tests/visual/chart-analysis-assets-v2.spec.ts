@@ -2,7 +2,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 
 const layoutStorageKey = "gops:workspace-grid-layout:v1";
 const candles = fixtureCandles();
-let postedSymbols: unknown = null;
+let postedBuildRequest: Record<string, unknown> | null = null;
 let densePatternCoverage = false;
 let includeTradePlan = true;
 let includeConditionalEvidence = true;
@@ -13,7 +13,7 @@ let nearbyIntervalFallback = false;
 let analysisAssetStorageUnavailable = false;
 
 test.beforeEach(async ({ page }, testInfo) => {
-  postedSymbols = null;
+  postedBuildRequest = null;
   densePatternCoverage = false;
   includeTradePlan = true;
   includeConditionalEvidence = true;
@@ -50,7 +50,9 @@ test("five analysis layers render independently with commentary focus and cards"
   const canvas = chart.locator(".chart-canvas");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
   await expect(page.locator(".chart-analysis-layer-controls")).toBeVisible();
-  await expect(page.locator(".chart-analysis-asof")).toContainText(/해석 전체 후보 · 후보 \d+\/4/);
+  await expect(page.locator(".chart-analysis-layer-controls svg")).toHaveCount(0);
+  await expect(page.locator(".chart-analysis-layer-state")).toHaveCount(0);
+  await expect(page.locator(".chart-analysis-asof")).toContainText(/해석 유력 후보 · 유력 후보 \d+\/2 · 전체 4/);
   const interpretationToggle = page.getByRole("button", { name: "해석 분석 레이어 켜기" });
   const levelsToggle = page.getByRole("button", { name: "지지·저항 분석 레이어 끄기" });
   const trendToggle = page.getByRole("button", { name: "추세 분석 레이어 끄기" });
@@ -66,6 +68,7 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(levelsToggle).toHaveAttribute("data-state", "on");
   await expect(trendToggle).toHaveAttribute("data-state", "on");
   await expect(patternToggle).toHaveAttribute("data-state", "on");
+  await expect(chart.locator(".chart-primary-pattern-badge")).toHaveText("상승 삼각형 · 돌파 확인");
   await expect(proposalToggle).toHaveAttribute("data-state", "off");
   await expect(page.getByText(/상승 삼각형 돌파 확인/).first()).toBeVisible();
   const commentaryPanel = page.locator(".chart-commentary-panel");
@@ -83,6 +86,7 @@ test("five analysis layers render independently with commentary focus and cards"
   await page.getByRole("button", { name: "추세 분석 레이어 켜기" }).click();
   await patternToggle.click();
   await expect(page.getByRole("button", { name: "패턴 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
+  await expect(chart.locator(".chart-primary-pattern-badge")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "추세 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "패턴 분석 레이어 켜기" }).click();
 
@@ -151,60 +155,17 @@ test("proposal toggle is disabled when the asset has no proposal drawings", asyn
   await expect(page.locator(".chart-analysis-layer-controls")).toHaveScreenshot("chart-assets-no-proposal.png", { timeout: 15_000 });
 });
 
-test("nearby interval setup stays stable during crosshair and user pan", async ({ page }) => {
+test("another interval never becomes a silent proposal fallback", async ({ page }) => {
   includeTradePlan = false;
   nearbyIntervalFallback = true;
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel").first();
-  const canvas = chart.locator(".chart-canvas");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
-  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toBeEnabled();
-  await expect(canvas).toBeVisible();
-  await page.waitForTimeout(250);
-
-  const initialSnapshot = await page.evaluate(async () => {
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 사용 불가" })).toBeDisabled();
+  await expect.poll(() => page.evaluate(async () => {
     const store = await import("/src/chart/chartTradeSetupStore.ts");
-    const snapshot = store.getChartTradeSetupSnapshot("asset-visual-chart");
-    let notifications = 0;
-    const unsubscribe = store.subscribeChartTradeSetup("asset-visual-chart", () => {
-      notifications += 1;
-    });
-    Object.assign(window, {
-      __chartSetupNotificationCount: () => notifications,
-      __chartSetupUnsubscribe: unsubscribe
-    });
-    return snapshot ? {
-      sourceInterval: snapshot.setup.sourceInterval,
-      entryPrice: snapshot.setup.entryPrice,
-      targetPrice: snapshot.setup.targetPrice,
-      stopPrice: snapshot.setup.stopPrice
-    } : null;
-  });
-  expect(initialSnapshot).toEqual({ sourceInterval: "4h", entryPrice: 178, targetPrice: 206, stopPrice: 164 });
-
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error("chart canvas is not visible");
-  for (let index = 0; index < 60; index += 1) {
-    await page.mouse.move(
-      box.x + 20 + (index % 30) * Math.max(2, (box.width - 100) / 30),
-      box.y + 90 + (index % 6) * 8
-    );
-  }
-  expect(await page.evaluate(() => (window as typeof window & {
-    __chartSetupNotificationCount?: () => number;
-  }).__chartSetupNotificationCount?.())).toBe(0);
-
-  const beforePan = Number(await chart.getAttribute("data-chart-right-offset"));
-  await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.55);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.55, { steps: 8 });
-  await page.mouse.up();
-  await expect.poll(async () => Number(await chart.getAttribute("data-chart-right-offset"))).not.toBe(beforePan);
-  const pannedOffset = Number(await chart.getAttribute("data-chart-right-offset"));
-  await page.waitForTimeout(500);
-  expect(Number(await chart.getAttribute("data-chart-right-offset"))).toBe(pannedOffset);
-  await expect(chart).toHaveScreenshot("chart-pan-price-scale.png", { maxDiffPixelRatio: 0.015 });
-  await page.evaluate(() => (window as typeof window & { __chartSetupUnsubscribe?: () => void }).__chartSetupUnsubscribe?.());
+    return store.getChartTradeSetupSnapshot("asset-visual-chart");
+  })).toBeNull();
 });
 
 test("commentary chart selection targets one chart document at a time", async ({ page }) => {
@@ -365,8 +326,8 @@ test("price axis selection accepts a natural reservation buy command and creates
   await expect(dialog).toContainText("NVDA · 1D");
   await expect(dialog).toContainText("조건부 매수 검토");
   await expect(dialog).toContainText(`$${selectedPrice}`);
-  await expect(dialog).toContainText("$194.00");
-  await expect(dialog).toContainText("$170.00");
+  await expect(dialog).toContainText("$198.00");
+  await expect(dialog).toContainText("$164.00");
   await expect(dialog.getByLabel("예약 수량")).toHaveValue("20");
   await expect(dialog).toContainText("가상계좌 예약매매와 가격 알림이 실제로 등록됩니다");
   const cancel = dialog.getByRole("button", { name: "취소" });
@@ -396,9 +357,9 @@ test("price axis and proposal labels share order selection while scenario contro
 
   await scenario.hover();
   await expect(labels).toHaveCount(3);
-  await expect(chart.getByRole("button", { name: "진입 가격 178.00 주문창에 적용" })).toContainText("진입 $178.00 · 0.00%");
-  await expect(chart.getByRole("button", { name: "목표 가격 194.00 주문창에 적용" })).toContainText("목표 $194.00 · +8.99%");
-  await expect(chart.getByRole("button", { name: "손절 가격 170.00 주문창에 적용" })).toContainText("손절 $170.00 · -4.49%");
+  await expect(chart.getByRole("button", { name: "진입 가격 178.00, 패턴 상단 기준 주문창에 적용" })).toContainText("진입 $178.00 · 패턴 상단");
+  await expect(chart.getByRole("button", { name: "목표 가격 198.00, 패턴 폭 기준 주문창에 적용" })).toContainText("목표 $198.00 · 패턴 폭");
+  await expect(chart.getByRole("button", { name: "손절 가격 164.00, 패턴 하단 기준 주문창에 적용" })).toContainText("손절 $164.00 · 패턴 하단");
   await expect(chart).toHaveScreenshot("chart-proposal-hover-labels.png", { maxDiffPixelRatio: 0.015 });
 
   await chart.locator(".chart-analysis-layer-controls").hover();
@@ -407,11 +368,34 @@ test("price axis and proposal labels share order selection while scenario contro
   await expect(labels).toHaveCount(3);
   await scenario.press("Enter");
   await expect(page.getByRole("button", { name: "제안 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
-  const targetLabel = chart.getByRole("button", { name: "목표 가격 194.00 주문창에 적용" });
+  const assertLabelsRightOfBox = async () => {
+    const overlay = chart.locator(".chart-trade-plan-price-overlay");
+    const boxRight = Number(await overlay.getAttribute("data-box-right"));
+    const labelLefts = await labels.evaluateAll((items) => items.map((item) => Number.parseFloat((item as HTMLElement).style.left)));
+    expect(Number.isFinite(boxRight)).toBe(true);
+    expect(Math.min(...labelLefts)).toBeGreaterThan(boxRight);
+  };
+  await assertLabelsRightOfBox();
+  const canvasBox = await chart.locator(".chart-canvas").boundingBox();
+  if (!canvasBox) throw new Error("chart canvas missing");
+  await page.mouse.move(canvasBox.x + canvasBox.width * .55, canvasBox.y + canvasBox.height * .55);
+  await page.mouse.down();
+  await page.mouse.move(canvasBox.x + canvasBox.width * .55 - 36, canvasBox.y + canvasBox.height * .55, { steps: 3 });
+  await page.mouse.up();
+  await expect(labels).toHaveCount(3);
+  await assertLabelsRightOfBox();
+  const targetLabel = chart.getByRole("button", { name: "목표 가격 198.00, 패턴 폭 기준 주문창에 적용" });
+  const patternToggle = chart.getByRole("button", { name: "패턴 분석 레이어 끄기" });
+  await patternToggle.click();
+  await expect(chart.locator(".chart-primary-pattern-badge")).toHaveCount(0);
   await targetLabel.focus();
+  await expect(chart.locator(".chart-primary-pattern-badge")).toHaveText("상승 삼각형 · 돌파 확인");
+  await expect(targetLabel).toHaveAttribute("data-source-drawing-ids", /triangle-upper.*triangle-lower|triangle-lower.*triangle-upper/);
   await targetLabel.press("Enter");
-  await expect(quickOrder.getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("194.00");
-  await expect(quickOrder.locator(".order-chart-price-source")).toContainText("NVDA 차트에서 $194.00");
+  await expect(quickOrder.getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("198.00");
+  await expect(quickOrder.locator(".order-chart-price-source")).toContainText("NVDA 차트에서 $198.00");
+  await targetLabel.blur();
+  await expect(chart.locator(".chart-primary-pattern-badge")).toHaveCount(0);
 
   await scenario.focus();
   await scenario.press("Space");
@@ -461,9 +445,19 @@ test("asset ops wording and comma-separated input remain readable", async ({ pag
   await expect(ops.getByText("콤마로 구분", { exact: true })).toBeVisible();
   await expect(ops.getByText("갱신 스킵(시간)", { exact: true })).toHaveCount(0);
   await expect(ops.getByText("신선 자산 스킵(시간)", { exact: true })).toHaveCount(0);
+  await expect(ops.getByLabel("전체 S&P500")).toHaveCount(0);
+  await expect(ops.locator(".chart-asset-ops-actions button")).toHaveCount(1);
   await ops.getByLabel("빌드 심볼").fill("NVDA,AAPL, MSFT");
-  await ops.getByRole("button", { name: "없는 자산 생성" }).click();
-  await expect.poll(() => postedSymbols).toEqual(["NVDA", "AAPL", "MSFT"]);
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("성공한 자산만 기존 저장본을 교체합니다");
+    await dialog.accept();
+  });
+  await ops.getByRole("button", { name: "작도 자산 생성·갱신" }).click();
+  await expect.poll(() => postedBuildRequest).toMatchObject({
+    symbols: ["NVDA", "AAPL", "MSFT"],
+    intervals: ["1m", "1D"],
+    force: true
+  });
   const universeRow = ops.locator(".chart-asset-ops-universe-row");
   const rowBox = await universeRow.boundingBox();
   const hintBox = await ops.getByText("콤마로 구분", { exact: true }).boundingBox();
@@ -583,7 +577,7 @@ async function fulfillApi(route: Route): Promise<void> {
     payload = chartAnalysisReport(request.postDataJSON());
   }
   else if (url.pathname === "/api/charts/analysis-assets/build" && request.method() === "POST") {
-    postedSymbols = request.postDataJSON().symbols;
+    postedBuildRequest = request.postDataJSON() as Record<string, unknown>;
     status = 503;
     payload = { detail: "fixture queue disabled" };
   } else if (url.pathname === "/api/charts/indicators") payload = { symbol: "NVDA", interval: "1D", series: {} };
@@ -677,16 +671,17 @@ function assetResponse(): Record<string, unknown> {
   const asOf = candles.at(-1)?.timestamp;
   const hline = drawing("chart-asset:NVDA:1D:support", "horizontalLine", [{ timestamp: candles[50].timestamp, price: 164 }, { timestamp: candles[100].timestamp, price: 164 }], "지지", "#22c55e");
   const upper = drawing("chart-asset:NVDA:1D:triangle-upper", "trendLine", [{ timestamp: candles[40].timestamp, price: 178 }, { timestamp: candles[139].timestamp, price: 178 }], "상승 삼각형 · 형성 중", "#22c55e");
-  const lower = drawing("chart-asset:NVDA:1D:triangle-lower", "trendLine", [{ timestamp: candles[40].timestamp, price: 158 }, { timestamp: candles[139].timestamp, price: 174 }], "상승 삼각형 · 형성 중", "#22c55e");
+  const lower = drawing("chart-asset:NVDA:1D:triangle-lower", "trendLine", [{ timestamp: candles[40].timestamp, price: 158 }, { timestamp: candles[139].timestamp, price: 164 }], "상승 삼각형 · 형성 중", "#22c55e");
+  const trend = drawing("chart-asset:NVDA:1D:trend-primary", "trendLine", [{ timestamp: candles[25].timestamp, price: 154 }, { timestamp: candles[120].timestamp, price: 169 }], "상승 추세선", "#22c55e");
   const asset = {
     assetVersion: "geometry", algorithmVersion: "ohlcv-consensus-1", symbol: "NVDA", interval: "1D", sourceInterval: "1D",
     asOf, generatedAt: asOf, status: "ready", inputDigest: "sha256:fixture",
     coverage: { state: "partial", targetBars: 380, actualBars: 140, contiguousBars: 140, missingBars: 240 },
     geometry: {
-      drawings: [hline, upper, lower],
+      drawings: [hline, upper, lower, trend],
       drawingGroups: {
         levels: [hline.id],
-        trend: [],
+        trend: [trend.id],
         pattern: [upper.id, lower.id]
       },
       supports: includeConditionalEvidence && !nearbyIntervalFallback
@@ -716,8 +711,8 @@ function assetResponse(): Record<string, unknown> {
           metrics: { price: 164, touchCount: 2, reactionCount: 1, currentDistanceAtr: .5 }
         }, {
           id: "rejected-resistance", category: "level", role: "resistance", score: .42, selected: false,
-          hardPass: false, evidencePass: true, activePass: false, rejectReasons: ["stale"],
-          categoryRank: 2, disposition: "rejected", selectionReasons: [],
+          hardPass: true, evidencePass: true, activePass: true, rejectReasons: [],
+          categoryRank: 2, disposition: "qualified_not_selected", selectionReasons: [],
           render: { drawingType: "horizontalLine", extension: "plot" },
           anchors: [{ timestamp: candles[75].timestamp, price: 168 }, { timestamp: candles[120].timestamp, price: 168 }],
           evidenceRefs: ["pivot-rejected"], touchRefs: ["touch-rejected"], reactionRefs: [],
@@ -726,8 +721,8 @@ function assetResponse(): Record<string, unknown> {
         }] : [],
         trendCandidates: includeConditionalEvidence && !nearbyIntervalFallback ? [{
           id: "rejected-uptrend", category: "trend", kind: "uptrend", direction: "up", score: .55,
-          selected: false, hardPass: false, evidencePass: true, activePass: false,
-          rejectReasons: ["stale"], categoryRank: 1, disposition: "rejected", selectionReasons: [],
+          selected: false, hardPass: true, evidencePass: true, activePass: true,
+          rejectReasons: [], categoryRank: 1, disposition: "qualified_not_selected", selectionReasons: [],
           render: { drawingType: "trendLine", extension: "ray", direction: "up" },
           anchors: [{ timestamp: candles[30].timestamp, price: 158 }, { timestamp: candles[90].timestamp, price: 166 }],
           evidenceRefs: ["pivot-trend-a", "pivot-trend-b"], anchorPivotIds: ["pivot-trend-a", "pivot-trend-b"],
@@ -741,7 +736,7 @@ function assetResponse(): Record<string, unknown> {
           render: { drawingType: "segments", extension: "segment", segments: [[0, 1], [2, 3]] },
           anchors: [
             { timestamp: candles[40].timestamp, price: 176 }, { timestamp: candles[139].timestamp, price: 176 },
-            { timestamp: candles[40].timestamp, price: 158 }, { timestamp: candles[139].timestamp, price: 174 }
+            { timestamp: candles[40].timestamp, price: 158 }, { timestamp: candles[139].timestamp, price: 164 }
           ],
           evidenceRefs: ["pivot-pattern-upper", "pivot-pattern-lower"], anchorPivotIds: [],
           touchPivotIds: ["pivot-pattern-upper", "pivot-pattern-lower"], reactionPivotIds: [],

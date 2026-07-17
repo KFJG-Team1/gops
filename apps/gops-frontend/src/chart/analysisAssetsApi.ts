@@ -147,6 +147,7 @@ export type GeometryPatternKind =
   | "descending_channel_breakout" | "ascending_channel_breakdown";
 
 export type GeometryPattern = {
+  id?: string;
   kind: GeometryPatternKind;
   state: "forming" | "confirmed" | "inactive" | "invalidated";
   bias?: "bullish" | "bearish" | "neutral";
@@ -156,6 +157,7 @@ export type GeometryPattern = {
   geometryHash: string;
   apexBarsFromAsOf?: number | null;
   metrics?: Record<string, unknown>;
+  pole?: GeometryPatternBoundary;
   upper?: GeometryPatternBoundary;
   lower?: GeometryPatternBoundary;
   confirmation?: {

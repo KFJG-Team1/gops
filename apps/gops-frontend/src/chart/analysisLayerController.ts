@@ -83,7 +83,6 @@ export function hasAnalysisLayerDrawings(asset: ChartAnalysisAsset | null, layer
       || asset.geometry.evidence?.length
     );
   }
-  if (layer === "trend" && (asset.indicators.sma60 !== null || asset.indicators.sma120 !== null)) return true;
   return asset.geometry.drawings.some((drawing) => analysisLayerOfDrawing(drawing, asset) === layer);
 }
 
@@ -102,10 +101,6 @@ export function analysisAssetApplyCommands(
       drawing: { ...drawing, visible: layer ? visibility[layer] : drawing.visible }
     }));
   });
-  (["sma:60", "sma:120"] as const).forEach((layer) => commands.push(externalCommand(target, "chart.layer.visibility.set", {
-    layer,
-    visible: visibility.trend
-  })));
   if (asset.geometry.drawings.length) {
     commands.push(externalCommand(target, "chart.drawing.clearSelection", { mode: interaction.mode }));
     if (interaction.mode === "select" && interaction.selectedDrawingId && currentDrawings.some((drawing) => drawing.id === interaction.selectedDrawingId && !isAnalysisDrawing(drawing))) {
@@ -128,13 +123,6 @@ export function analysisLayerToggleCommands(
   const commands = layerDrawings.flatMap((drawing) => currentById.has(drawing.id)
     ? [externalCommand(target, "chart.drawing.update", { drawingId: drawing.id, drawingPatch: { visible } })]
     : visible ? [externalCommand(target, "chart.drawing.add", { drawing: { ...drawing, visible } })] : []);
-  if (layer === "trend") {
-    (["sma:60", "sma:120"] as const).forEach((indicatorLayer) => commands.push(externalCommand(
-      target,
-      "chart.layer.visibility.set",
-      { layer: indicatorLayer, visible }
-    )));
-  }
   return commands;
 }
 

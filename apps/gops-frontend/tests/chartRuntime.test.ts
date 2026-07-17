@@ -8,6 +8,7 @@ import "./glossary.test";
 import "./analysisAssets.test";
 import "./tradeTimingOverlay.test";
 import "./tradePlanOverlayLayout.test";
+import "./patternBadge.test";
 import "./tradePlanStore.test";
 import "./commentaryModel.test";
 import "./chartCommentaryHistory.test";
@@ -556,6 +557,7 @@ assert.equal(fallbackChartStyle.grid, "rgba(255, 255, 255, 0.08)");
 assert.equal(fallbackChartStyle.volume, "rgba(255, 255, 255, 0.12)");
 assert.equal(fallbackChartStyle.bullish, "#22c55e");
 assert.equal(fallbackChartStyle.bearish, "#ff5577");
+assert.equal(fallbackChartStyle.evidenceTrend, fallbackChartStyle.axis);
 setDefaultChartStyle({
   background: "#242832",
   bullish: "#05b169",
@@ -1446,6 +1448,17 @@ assert.ok(Math.abs(compactPriceTransform.yToPrice(compactPriceTransform.priceToY
 assert.ok(compactPriceDensityScene.scales.priceTicks.every((tick) => (
   tick >= compactPriceDensityScene.scales.minPrice && tick <= compactPriceDensityScene.scales.maxPrice
 )));
+assert.deepEqual(priceScaleHeadroom(200), { topPx: 18, bottomPx: 22 });
+assert.deepEqual(priceScaleHeadroom(760), { topPx: 44, bottomPx: 50 });
+assert.ok(Math.abs(priceScaleHeadroom(320).topPx - 24) < 0.000001);
+assert.ok(Math.abs(priceScaleHeadroom(320).bottomPx - 27.2) < 0.000001);
+assert.ok(Math.abs(compactPriceDensityScene.scales.priceTicks[0] - compactPriceDensityScene.scales.minPrice) < 0.000001);
+assert.ok(Math.abs(compactPriceDensityScene.scales.priceTicks.at(-1)! - compactPriceDensityScene.scales.maxPrice) < 0.000001);
+const compactTickYs = compactPriceDensityScene.scales.priceTicks.map((tick) => compactPriceTransform.priceToY(tick));
+const compactTickPixelGaps = compactTickYs.slice(1).map((y, index) => Math.abs(y - compactTickYs[index]));
+assert.ok(compactTickPixelGaps.every((gap) => Math.abs(gap - compactTickPixelGaps[0]) < 0.000001));
+assert.ok(Math.abs(compactTickYs[0] - compactPriceDensityScene.plot.priceBottom) < 0.000001);
+assert.ok(Math.abs(compactTickYs.at(-1)! - compactPriceDensityScene.plot.top) < 0.000001);
 
 const lowerNiceBoundaryScale = resolvePriceScale([100, 107.27], compactPricePaneHeight);
 const upperNiceBoundaryScale = resolvePriceScale([100, 107.28], compactPricePaneHeight);
@@ -1455,6 +1468,11 @@ assert.equal(lowerNiceBoundaryScale.tickCount, upperNiceBoundaryScale.tickCount)
 assert.ok(Math.abs(upperNiceBoundarySpan - lowerNiceBoundarySpan) / lowerNiceBoundarySpan < 0.01);
 assert.ok(lowerNiceBoundaryScale.ticks.every((tick) => tick >= lowerNiceBoundaryScale.domainMin && tick <= lowerNiceBoundaryScale.domainMax));
 assert.ok(upperNiceBoundaryScale.ticks.every((tick) => tick >= upperNiceBoundaryScale.domainMin && tick <= upperNiceBoundaryScale.domainMax));
+assert.equal(lowerNiceBoundaryScale.ticks[0], lowerNiceBoundaryScale.domainMin);
+assert.equal(lowerNiceBoundaryScale.ticks.at(-1), lowerNiceBoundaryScale.domainMax);
+assert.ok(lowerNiceBoundaryScale.ticks.slice(1).every((tick, index) => (
+  Math.abs((tick - lowerNiceBoundaryScale.ticks[index]) - lowerNiceBoundaryScale.tickStep) < 0.000001
+)));
 assert.equal(priceTickCountForHeight(279), 4);
 assert.equal(priceTickCountForHeight(280), 5);
 assert.equal(priceTickCountForHeight(343), 5);
@@ -2080,7 +2098,7 @@ assert.ok(Math.abs(narrowBidAskGrid.domainMin - (210.6 - narrowBidAskPricePerPix
 assert.ok(Math.abs(narrowBidAskGrid.domainMax - (210.9 + narrowBidAskPricePerPixel * narrowBidAskHeadroom.topPx)) < 0.000001);
 assert.equal(narrowBidAskGrid.decimalPlaces, 2);
 assert.ok(narrowBidAskGrid.rowPrices.length <= 64);
-assert.ok(narrowBidAskGrid.domainMax - narrowBidAskGrid.domainMin < 0.35);
+assert.ok(narrowBidAskGrid.domainMax - narrowBidAskGrid.domainMin < 0.37);
 assert.equal(narrowBidAskGrid.axisTicks.length, priceTickCountForHeight(320));
 const compactBidAskGrid = buildBidAskPriceGrid([210.6, 210.9], 0.01, 100);
 assert.equal(compactBidAskGrid.priceStep, 0.02);
@@ -4509,22 +4527,25 @@ assert.match(
 );
 assert.match(
   baseChartSource,
-  /const drawDimmedBase = \(draw: \(\) => void\) => withCanvasAlpha\(context, spotlight \? 0\.60 : 1, draw\)/,
-  "trace-only focus dims the base chart while leaving trace evidence emphasized"
+  /const drawDimmedBase = \(draw: \(\) => void\) => withCanvasAlpha\(context, spotlight \? 0\.78 : 1, draw\)/,
+  "trace-only focus keeps candles and indicators legible while emphasizing trace evidence"
 );
 assert.match(
   chartCanvasSource,
-  /const disposition = candidate\.disposition[\s\S]*const color = disposition === "rejected" \? colors\.muted : traceCandidateColor\(candidate\)/,
-  "rejected candidates are muted while qualified competitors keep their category color"
+  /const categoryColor = traceCandidateColor\(candidate\);[\s\S]*const color = disposition === "rejected" \? colors\.axis : categoryColor/,
+  "near-miss candidate lines use the neutral axis token while qualified competitors keep their category color"
 );
+assert.match(chartCanvasSource, /disposition === "qualified_not_selected" \? 0\.42 : 0\.30/);
 assert.match(
   chartCanvasSource,
   /analysisTraceLevelPrice\(candidate, overlay\.pivots\)[\s\S]*candidate\.category === "levels"[\s\S]*line\(context, scene\.plot\.left, levelY, scene\.plot\.right, levelY\)/,
   "level analysis candidates render as full-width H-lines"
 );
-assert.match(chartCanvasSource, /spotlight\?\.has\(drawing\.id\)[\s\S]*?colors\.signal[\s\S]*?resolveDrawingColor\(drawing\.style \?\? \{\}, "colorToken", "color", "drawing"\)/);
+assert.doesNotMatch(chartCanvasSource, /const strokeColor = spotlighted\s*\?\s*colors\.signal/);
+assert.match(chartCanvasSource, /const strokeColor = resolveDrawingColor\(style, "colorToken", "color", preview \? "preview" : "drawing"\)/);
+assert.match(chartCanvasSource, /spotlighted\s*\? Math\.min\(4\.5, baseLineWidth \+ 0\.75\)/);
 assert.match(chartCanvasSource, /if \(spotlight\?\.has\(drawing\.id\)\) return 1;/);
-assert.match(chartCanvasSource, /return analysis \? 0\.45 : 0\.65;/);
+assert.match(chartCanvasSource, /return analysis \? 0\.65 : 0\.82;/);
 assert.equal((chartCanvasSource.match(/drawDarkAxisPill\([^\n]+axisLabelColor\)/g) ?? []).length, 3);
 assert.match(chartDocumentAdapterSource, /volume: false/);
 

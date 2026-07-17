@@ -15,9 +15,9 @@ export function isTradeTimingDrawing(drawing: Pick<DrawingEntity, "id">): boolea
 export function buildTradeTimingDrawings(
   asset: ChartAnalysisAsset,
   candles: CandleDto[],
-  availableAssets?: Partial<Record<ChartAnalysisAsset["interval"], ChartAnalysisAsset | null>>
+  _availableAssets?: Partial<Record<ChartAnalysisAsset["interval"], ChartAnalysisAsset | null>>
 ): AnalysisAssetDrawing[] {
-  const setup = projectChartTradeSetup(asset, candles, availableAssets);
+  const setup = projectChartTradeSetup(asset, candles);
   if (!setup) return [];
   const ids = setup.drawingIds;
   const sourceProposalId = `chart-plan:${asset.symbol}:${asset.interval}:trade-timing`;

@@ -1,7 +1,5 @@
 const minimumDegeneratePriceSpan = 0.01;
 const minimumTickStep = 1e-8;
-const maximumTickStepSearchIterations = 64;
-const niceStepMultipliers = [1, 2, 2.5, 5] as const;
 
 export type PriceScaleResult = {
   dataMin: number;
@@ -26,8 +24,8 @@ export function priceTickCountForHeight(pricePaneHeight: number): number {
 
 export function priceScaleHeadroom(pricePaneHeight: number): PriceScaleHeadroom {
   const safeHeight = Number.isFinite(pricePaneHeight) ? Math.max(1, pricePaneHeight) : 1;
-  let topPx = clampNumber(safeHeight * 0.06, 14, 28);
-  let bottomPx = clampNumber(safeHeight * 0.07, 16, 30);
+  let topPx = clampNumber(safeHeight * 0.075, 18, 44);
+  let bottomPx = clampNumber(safeHeight * 0.085, 22, 50);
   const available = Math.max(0, safeHeight - 1);
   const requested = topPx + bottomPx;
   if (requested > available && requested > 0) {
@@ -91,60 +89,27 @@ function priceScaleForDomain(
     safeDomainMin + minimumTickStep,
     Number.isFinite(domainMax) ? domainMax : safeDomainMin + 4
   );
-  const tickGrid = fixedNiceTicks(safeDomainMin, safeDomainMax, tickCount);
+  const safeTickCount = Math.max(2, Math.round(tickCount));
+  const tickStep = (safeDomainMax - safeDomainMin) / (safeTickCount - 1);
+  const ticks = Array.from({ length: safeTickCount }, (_, index) => (
+    index === 0
+      ? safeDomainMin
+      : index === safeTickCount - 1
+        ? safeDomainMax
+        : safeDomainMin + tickStep * index
+  ));
   return {
     dataMin,
     dataMax,
     domainMin: safeDomainMin,
     domainMax: safeDomainMax,
-    tickCount,
-    tickStep: tickGrid.step,
-    ticks: tickGrid.ticks,
-    decimalPlaces: decimalPlacesForPriceStep(tickGrid.step)
+    tickCount: safeTickCount,
+    tickStep,
+    ticks,
+    // Standard price labels use two decimals. Bid/Ask raises this from its
+    // source bin precision instead of the non-terminating display tick step.
+    decimalPlaces: 2
   };
-}
-
-function fixedNiceTicks(domainMin: number, domainMax: number, tickCount: number): { step: number; ticks: number[] } {
-  const safeTickCount = Math.max(2, Math.round(tickCount));
-  const span = Math.max(minimumTickStep, domainMax - domainMin);
-  let step = niceStepFloor(span / Math.max(1, safeTickCount - 1));
-  let bounds = tickIndexBounds(domainMin, domainMax, step);
-  for (let iteration = 0; bounds.count < safeTickCount && iteration < maximumTickStepSearchIterations; iteration += 1) {
-    step = niceStepFloor(step * (1 - 1e-10));
-    bounds = tickIndexBounds(domainMin, domainMax, step);
-  }
-
-  const lastStartIndex = Math.max(bounds.first, bounds.last - safeTickCount + 1);
-  const centeredStartIndex = Math.round(((domainMin + domainMax) / 2) / step - (safeTickCount - 1) / 2);
-  const startIndex = clampNumber(centeredStartIndex, bounds.first, lastStartIndex);
-  const decimalPlaces = decimalPlacesForPriceStep(step);
-  const ticks = Array.from({ length: safeTickCount }, (_, index) => (
-    Number(((startIndex + index) * step).toFixed(decimalPlaces))
-  ));
-  return { step, ticks };
-}
-
-function tickIndexBounds(domainMin: number, domainMax: number, step: number): { first: number; last: number; count: number } {
-  const epsilon = Math.max(minimumTickStep, Math.abs(step)) * 1e-7;
-  const first = Math.max(0, Math.ceil((domainMin - epsilon) / step));
-  const last = Math.max(first, Math.floor((domainMax + epsilon) / step));
-  return { first, last, count: last - first + 1 };
-}
-
-function niceStepFloor(rawStep: number): number {
-  if (!Number.isFinite(rawStep) || rawStep <= minimumTickStep) {
-    return minimumTickStep;
-  }
-  const exponent = Math.floor(Math.log10(rawStep));
-  const magnitude = 10 ** exponent;
-  const normalized = rawStep / magnitude;
-  let multiplier: number = niceStepMultipliers[0];
-  for (const candidate of niceStepMultipliers) {
-    if (candidate <= normalized + 1e-12) {
-      multiplier = candidate;
-    }
-  }
-  return Math.max(minimumTickStep, multiplier * magnitude);
 }
 
 function isPositiveFinitePrice(value: number | null | undefined): value is number {

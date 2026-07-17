@@ -4,8 +4,9 @@ import {
   riskRewardDirection
 } from "@gops/chart-engine";
 import { createCoordinateTransform, formatPriceAxisValue, type ChartScene } from "./scene";
+import type { ChartTradeSetup, ChartTradeSetupPriceSource } from "./chartTradeSetup";
 import type { DrawingEntity } from "./types";
-import { signedTradePlanPercent, tradePlanPresentation } from "./tradePlanPresentation";
+import { tradePlanPresentation } from "./tradePlanPresentation";
 
 export type TradePlanOverlayLabelRole = "basis" | "target" | "risk";
 
@@ -21,7 +22,9 @@ export type TradePlanOverlayLabelLayout = {
   top: number;
   width: number;
   tone: "up" | "down" | "basis";
-  connector: { startX: number; startY: number; endX: number; endY: number };
+  sourceLabel: string | null;
+  sourceDrawingIds: string[];
+  connector: { startX: number; startY: number; bendX: number; endX: number; endY: number };
 };
 
 export type TradePlanOverlayLayout = {
@@ -31,14 +34,15 @@ export type TradePlanOverlayLayout = {
   labels: TradePlanOverlayLabelLayout[];
 };
 
-const labelGap = 8;
+const labelGap = 10;
 const labelHeight = 22;
 const minimumLabelWidth = 96;
 const minimumLabelCenterGap = 24;
 
 export function buildTradePlanOverlayLayout(
   scene: ChartScene,
-  drawing: DrawingEntity
+  drawing: DrawingEntity,
+  setup?: ChartTradeSetup | null
 ): TradePlanOverlayLayout | null {
   if (drawing.type !== "riskRewardBox" || drawing.style.zoneSplit !== true || drawing.anchors.length < 3) {
     return null;
@@ -67,10 +71,16 @@ export function buildTradePlanOverlayLayout(
   }
   const action = drawing.style.proposalAction === "sell_candidate" ? "sell_candidate" : "buy_candidate";
   const labels = tradePlanPresentation(action);
+  const sourceFor = (role: TradePlanOverlayLabelRole): ChartTradeSetupPriceSource | null => {
+    if (!setup || setup.drawingIds.plan !== drawing.id) return null;
+    if (role === "basis") return setup.priceSources.entry;
+    if (role === "target") return setup.priceSources.target;
+    return setup.priceSources.stop;
+  };
   const raw = [
-    { role: "basis" as const, label: labels.basis, price: entryPrice, desiredY: entryPoint.y, tone: "basis" as const },
-    { role: "target" as const, label: labels.target, price: targetPrice, desiredY: targetPoint.y, tone: action === "buy_candidate" ? "up" as const : "down" as const },
-    { role: "risk" as const, label: labels.risk, price: stopPrice, desiredY: stopPoint.y, tone: action === "buy_candidate" ? "down" as const : "up" as const }
+    { role: "basis" as const, label: labels.basis, price: entryPrice, desiredY: entryPoint.y, tone: "basis" as const, source: sourceFor("basis") },
+    { role: "target" as const, label: labels.target, price: targetPrice, desiredY: targetPoint.y, tone: action === "buy_candidate" ? "up" as const : "down" as const, source: sourceFor("target") },
+    { role: "risk" as const, label: labels.risk, price: stopPrice, desiredY: stopPoint.y, tone: action === "buy_candidate" ? "down" as const : "up" as const, source: sourceFor("risk") }
   ].sort((first, second) => first.desiredY - second.desiredY || first.role.localeCompare(second.role));
   const minCenter = scene.plot.top + labelHeight / 2;
   const maxCenter = scene.plot.priceBottom - labelHeight / 2;
@@ -94,10 +104,11 @@ export function buildTradePlanOverlayLayout(
     labels: raw.map((item, index) => {
       const formattedPrice = formatPriceAxisValue(item.price, 2);
       const centerY = centers[index];
+      const sourceText = item.source?.label ? ` · ${item.source.label}` : "";
       return {
         role: item.role,
-        text: `${item.label} $${formattedPrice} · ${signedTradePlanPercent(item.price, entryPrice)}`,
-        ariaLabel: `${item.label} 가격 ${formattedPrice} 주문창에 적용`,
+        text: `${item.label} $${formattedPrice}${sourceText}`,
+        ariaLabel: `${item.label} 가격 ${formattedPrice}${item.source?.label ? `, ${item.source.label} 기준` : ""} 주문창에 적용`,
         price: item.price,
         formattedPrice,
         desiredY: item.desiredY,
@@ -106,9 +117,12 @@ export function buildTradePlanOverlayLayout(
         top: centerY - labelHeight / 2,
         width,
         tone: item.tone,
+        sourceLabel: item.source?.label ?? null,
+        sourceDrawingIds: item.source?.drawingIds ?? [],
         connector: {
           startX: geometry.right,
           startY: item.desiredY,
+          bendX: left - 4,
           endX: left,
           endY: centerY
         }
@@ -117,24 +131,52 @@ export function buildTradePlanOverlayLayout(
   };
 }
 
-export function tradePlanOverlayLayoutKey(layout: TradePlanOverlayLayout | null): string {
+export function tradePlanOverlayContentKey(layout: TradePlanOverlayLayout | null): string {
   if (!layout) return "none";
   return JSON.stringify([
     layout.drawingId,
-    Math.round(layout.boxLeft),
-    Math.round(layout.boxRight),
-    ...layout.labels.flatMap((label) => [
-      label.role,
-      Math.round(label.left),
-      Math.round(label.top),
-      Math.round(label.width),
-      Math.round(label.desiredY),
-      Math.round(label.centerY),
-      label.text
-    ])
+    ...layout.labels.flatMap((label) => [label.role, label.text, label.price, ...label.sourceDrawingIds])
   ]);
+}
+
+export function scaleTradePlanOverlayLayout(
+  layout: TradePlanOverlayLayout,
+  sceneSize: { width: number; height: number },
+  targetSize: { width: number; height: number }
+): TradePlanOverlayLayout {
+  const scaleX = positiveScale(targetSize.width, sceneSize.width);
+  const scaleY = positiveScale(targetSize.height, sceneSize.height);
+  return {
+    ...layout,
+    boxLeft: layout.boxLeft * scaleX,
+    boxRight: layout.boxRight * scaleX,
+    labels: layout.labels.map((label) => {
+      const centerY = label.centerY * scaleY;
+      return {
+        ...label,
+        desiredY: label.desiredY * scaleY,
+        centerY,
+        left: label.left * scaleX,
+        top: centerY - labelHeight / 2,
+        width: label.width * scaleX,
+        connector: {
+          startX: label.connector.startX * scaleX,
+          startY: label.connector.startY * scaleY,
+          bendX: label.connector.bendX * scaleX,
+          endX: label.connector.endX * scaleX,
+          endY: label.connector.endY * scaleY
+        }
+      };
+    })
+  };
 }
 
 function isPositiveFinite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function positiveScale(target: number, source: number): number {
+  return Number.isFinite(target) && target > 0 && Number.isFinite(source) && source > 0
+    ? target / source
+    : 1;
 }

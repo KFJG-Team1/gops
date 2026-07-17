@@ -286,6 +286,7 @@ export type ChartDocument = {
     evidenceSupport: string;
     evidenceResistance: string;
     evidencePattern: string;
+    evidenceTrend: string;
     proposal: string;
     caution: string;
     purple: string;
