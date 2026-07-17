@@ -324,6 +324,7 @@ type DrawingRenderBatch = {
 };
 
 const interpretationUnderlayIdPrefix = "interpretation-underlay:";
+const interpretationLineOpacity = 0.4;
 
 function drawingRenderBatch(
   scene: ChartScene,
@@ -354,7 +355,7 @@ function interpretationFinalDrawingBatch(
   const drawings = scene.chart.drawings.flatMap((drawing) => {
     const descriptor = descriptorById.get(drawing.id);
     if (!descriptor) return [];
-    const opacity = 0.48 * (spotlight && !spotlight.has(drawing.id) ? 0.65 : 1);
+    const opacity = interpretationLineOpacity * (spotlight && !spotlight.has(drawing.id) ? 0.65 : 1);
     const colorToken: ThemeColorToken = descriptor.tone === "support"
       ? "evidenceSupport"
       : descriptor.tone === "resistance"
@@ -825,9 +826,6 @@ function drawAnalysisTraceLines(
   const focusedCandidateIds = new Set(overlay.focusedCandidateIds);
 
   overlay.candidates.forEach((candidate) => {
-    const selected = candidate.selected === true;
-    const disposition = candidate.disposition
-      ?? (selected ? "selected" : candidate.hardPass ? "qualified_not_selected" : "rejected");
     const color = traceCandidateColor(candidate);
     const anchors = candidate.anchors.length
       ? candidate.anchors
@@ -837,11 +835,10 @@ function drawAnalysisTraceLines(
       ? analysisTraceLevelPrice(candidate, overlay.pivots)
       : null;
     const levelY = levelPrice === null ? points[0]?.y : transform.priceToY(levelPrice);
-    const baseAlpha = disposition === "rejected" ? 0.38 : 0.48;
     const focusMultiplier = overlay.focused && !focusedCandidateIds.has(candidate.id) ? 0.65 : 1;
     context.save();
     context.strokeStyle = color;
-    context.globalAlpha = baseAlpha * focusMultiplier;
+    context.globalAlpha = interpretationLineOpacity * focusMultiplier;
     context.lineWidth = interpretationLineWidth(candidate.category);
     context.setLineDash([]);
     if (typeof levelY === "number" && Number.isFinite(levelY) && candidate.category === "levels") {

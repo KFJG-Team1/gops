@@ -4624,7 +4624,9 @@ assert.match(chartCanvasSource, /lineWidth: interpretationLineWidth\(descriptor\
 assert.match(chartCanvasSource, /fillOpacity: 0/);
 assert.match(chartCanvasSource, /labelPlacement: "none"/);
 assert.match(chartCanvasSource, /function interpretationLineWidth[\s\S]*pattern"\) return 5\.5[\s\S]*levels"\) return 4\.5[\s\S]*return 4/);
-assert.match(chartCanvasSource, /const baseAlpha = disposition === "rejected" \? 0\.38 : 0\.48/);
+assert.match(chartCanvasSource, /const interpretationLineOpacity = 0\.4/);
+assert.match(chartCanvasSource, /const opacity = interpretationLineOpacity \* \(spotlight/);
+assert.match(chartCanvasSource, /context\.globalAlpha = interpretationLineOpacity \* focusMultiplier/);
 assert.match(chartCanvasSource, /context\.setLineDash\(\[\]\)/);
 assert.ok(chartCanvasLayerSource.indexOf("drawGrid(context, scene)") < chartCanvasLayerSource.indexOf("drawAnalysisTraceLines"));
 assert.ok(chartCanvasLayerSource.indexOf("drawAnalysisTraceLines") < chartCanvasLayerSource.indexOf("drawDrawingFills"));
@@ -4690,10 +4692,10 @@ assert.match(
 );
 assert.match(
   chartCanvasSource,
-  /const color = traceCandidateColor\(candidate\);[\s\S]*const baseAlpha = disposition === "rejected" \? 0\.38 : 0\.48/,
-  "qualified and near-miss interpretation lines keep their category color and differ by opacity"
+  /const color = traceCandidateColor\(candidate\);[\s\S]*context\.globalAlpha = interpretationLineOpacity \* focusMultiplier/,
+  "all interpretation candidates keep their category color and share one base opacity"
 );
-assert.match(chartCanvasSource, /const baseAlpha = disposition === "rejected" \? 0\.38 : 0\.48/);
+assert.doesNotMatch(chartCanvasSource, /const baseAlpha = disposition === "rejected"/);
 assert.match(
   chartCanvasSource,
   /analysisTraceLevelPrice\(candidate, overlay\.pivots\)[\s\S]*candidate\.category === "levels"[\s\S]*line\(context, scene\.plot\.left, levelY, scene\.plot\.right, levelY\)/,
