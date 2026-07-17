@@ -72,6 +72,9 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(proposalToggle).toHaveAttribute("data-state", "off");
   await expect(page.getByText(/상승 삼각형 돌파 확인/).first()).toBeVisible();
   const commentaryPanel = page.locator(".chart-commentary-panel");
+  const holdingSummary = commentaryPanel.getByLabel("실계좌 보유 현황");
+  await expect(holdingSummary.getByRole("columnheader")).toHaveText(["보유 상태", "평균 매입가", "보유 수량"]);
+  await expect(holdingSummary.getByRole("cell")).toHaveText(["보유", "$148.42", "18주"]);
   await expect(commentaryPanel.getByLabel("종합 해설")).toBeVisible();
   await expect(commentaryPanel.locator(".chart-commentary-generated")).toHaveAttribute("data-prompt-version", "chart-commentary.ko.v2");
   await expect(commentaryPanel.locator(".chart-commentary-reference-tag")).toHaveCount(0);

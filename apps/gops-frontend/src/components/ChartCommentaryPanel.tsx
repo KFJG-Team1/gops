@@ -19,6 +19,7 @@ import {
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import { buildChartCommentaryViewModel, type ChartCommentaryScenario } from "../chart/commentaryModel";
 import { dispatchChartAnalysisLayerToggle } from "../chart/analysisLayerController";
+import { chartCommentaryHoldingDisplay } from "../chart/commentaryHoldings";
 import {
   dispatchChartCommentaryIndicatorToggle,
   dispatchChartCommentaryReferenceOpen
@@ -28,6 +29,8 @@ import { projectChartTradeSetup } from "../chart/chartTradeSetup";
 import { getActiveTradePlan, subscribeActiveTradePlans, type ActiveTradePlan } from "../chart/tradePlanStore";
 import type { CandleDto, ChartInterval } from "../chart/types";
 import { GlossaryText } from "../glossary/GlossaryText";
+import { usePortfolioHoldingsData } from "./PortfolioHoldingsPanel";
+import type { PortfolioPosition } from "./portfolioHoldingsApi";
 
 type ChartCommentaryPanelProps = {
   chartDocumentId?: string;
@@ -72,6 +75,12 @@ export function ChartCommentaryPanel({
     () => chartDocumentId ? getActiveTradePlan(chartDocumentId) : null,
     () => null
   );
+  const holdings = usePortfolioHoldingsData(undefined, "kis");
+  const holding = useMemo(
+    () => holdings.positions.find((position) => position.symbol.trim().toUpperCase() === normalizedSymbol) ?? null,
+    [holdings.positions, normalizedSymbol]
+  );
+  const verifiedHolding = holdings.loading || holdings.error ? null : holding;
   useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
     if (!invalidatedSymbol || invalidatedSymbol === normalizedSymbol) {
       setAssets(null);
@@ -155,6 +164,10 @@ export function ChartCommentaryPanel({
           asset={asset}
           availableAssets={assets?.assets}
           chartLayers={chartLayers}
+          holding={verifiedHolding}
+          holdingsLoading={holdings.loading}
+          holdingsError={holdings.error}
+          holdingsErrorStatus={holdings.errorStatus}
         />}
     </article>
   );
@@ -162,7 +175,7 @@ export function ChartCommentaryPanel({
 
 function CurrentCommentary({
   chartDocumentId, sourceAvailable, symbol, interval, candles, drawingIds, asset, availableAssets,
-  chartLayers
+  chartLayers, holding, holdingsLoading, holdingsError, holdingsErrorStatus
 }: {
   chartDocumentId?: string;
   sourceAvailable: boolean;
@@ -173,6 +186,10 @@ function CurrentCommentary({
   asset: ChartAnalysisAsset | null;
   availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>;
   chartLayers: Partial<Record<string, boolean>>;
+  holding: PortfolioPosition | null;
+  holdingsLoading: boolean;
+  holdingsError?: string;
+  holdingsErrorStatus?: number;
 }) {
   const [pinnedStepId, setPinnedStepId] = useState<string | null>(null);
   const drawingIdsKey = drawingIds.join("\u0000");
@@ -221,6 +238,12 @@ function CurrentCommentary({
   };
   return (
     <article className="chart-commentary-panel">
+      <HoldingSummary
+        holding={holding}
+        loading={holdingsLoading}
+        error={holdingsError}
+        errorStatus={holdingsErrorStatus}
+      />
       {emptyText || !diagnostics || !viewModel || !asset
         ? <Empty text={emptyText ?? "차트 해설을 불러오지 못했습니다"} />
         : <>
@@ -530,6 +553,25 @@ function CommentaryScenarioButton({ scenario, chartDocumentId, symbol, interval,
   </button>;
 }
 
+function HoldingSummary({ holding, loading, error, errorStatus }: {
+  holding: PortfolioPosition | null;
+  loading: boolean;
+  error?: string;
+  errorStatus?: number;
+}) {
+  const display = chartCommentaryHoldingDisplay(holding, loading, error, errorStatus);
+  return <section className="chart-commentary-holding" aria-label="실계좌 보유 현황">
+    <table>
+      <thead><tr><th>보유 상태</th><th>평균 매입가</th><th>보유 수량</th></tr></thead>
+      <tbody><tr>
+        <td>{display.status}</td>
+        <td>{display.averagePrice != null ? `$${formatPrice(display.averagePrice)}` : "—"}</td>
+        <td>{display.quantity != null ? `${formatQuantity(display.quantity)}주` : "—"}</td>
+      </tr></tbody>
+    </table>
+  </section>;
+}
+
 function ConversationView({ turns, pending, ...answerProps }: {
   turns: ChartCommentaryAnswer[];
   pending: ChartCommentaryPending | null;
@@ -673,6 +715,10 @@ function Empty({ text }: { text: string }) {
 
 function formatPrice(value: number): string {
   return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatQuantity(value: number): string {
+  return value.toLocaleString("ko-KR", { maximumFractionDigits: 6 });
 }
 
 type FocusMode = "select" | "spotlight" | "clear";
