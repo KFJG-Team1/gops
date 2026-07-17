@@ -102,6 +102,7 @@ assert.match(controlSource, /setSimulatorSpeed/);
 assert.match(controlSource, /시뮬레이션 재생/);
 assert.match(chartPanelSource, /simulationAwareNowMs\(Date\.now\(\)\)/);
 assert.match(apiSource, /\/api\/simulator\/speed/);
+assert.match(apiSource, /\/api\/simulator\/quote/);
 assert.doesNotMatch(apiSource, /\/api\/simulator\/phase|\/api\/simulator\/orders\/basket/);
 assert.match(bottomCommandBarSource, /<SimulatorControl \/>/);
 assert.match(bottomCommandBarSource, /notification\.id < 0/);
@@ -163,6 +164,10 @@ assert.equal((geopoliticalToastStyle.match(/border-color: transparent;/g) ?? [])
 assert.match(stylesSource, /\.workspace-notification-row\.is-geopolitical-risk/);
 assert.match(paperClientSource, /\/api\/paper\/symbols\/search/);
 assert.match(quickOrderSource, /submitOrderRequest\([\s\S]*executionMode\)/);
+assert.match(quickOrderSource, /latestSimulatorStatus/);
+assert.match(quickOrderSource, /fetchSimulatorQuote/);
+assert.match(quickOrderSource, /effectiveExecutionMode/);
+assert.match(quickOrderSource, /simulatorStatusEvent/);
 assert.doesNotMatch(quickOrderSource, />가상 빠른 주문</);
 assert.doesNotMatch(quickOrderSource, /프리셋 선택/);
 assert.match(quickOrderSource, /executionMode === "paper" \? "회사명 검색" : "종목 검색"/);
