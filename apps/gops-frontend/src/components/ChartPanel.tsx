@@ -3048,9 +3048,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
             aria-label={`${chart.symbol} ${paperHoldingOverlayLabel(holdingOverlay)}`}
             aria-describedby={holdingPriceTooltipId}
           >
-            <span className="chart-holding-price-pill" aria-hidden="true">
-              {holdingPriceMarker.priceText}
-            </span>
             <span id={holdingPriceTooltipId} className="chart-holding-price-tooltip" role="tooltip">
               <span className="chart-holding-price-tooltip-heading">
                 <strong>{chart.symbol}</strong>

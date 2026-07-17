@@ -544,6 +544,7 @@ test("average purchase price marker stays in the right-side scale lane", async (
   await expect(marker).toBeVisible();
   await expect(marker).toHaveCSS("left", /px/);
   await expect(marker).toHaveCSS("width", /px/);
+  await expect(marker.locator(".chart-holding-price-pill")).toHaveCount(0);
 
   const chartBox = await chart.boundingBox();
   const markerBox = await marker.boundingBox();

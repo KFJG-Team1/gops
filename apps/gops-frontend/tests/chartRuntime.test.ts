@@ -4673,7 +4673,7 @@ const panelCurrentPriceSource = chartPanelSource.slice(
 assert.match(panelCurrentPriceSource, /const price = latest\.close;/);
 assert.match(panelCurrentPriceSource, /const isClosed = latest\.isClosed;/);
 assert.doesNotMatch(panelCurrentPriceSource, /liveTrade/);
-assert.match(chartCanvasSource, /variant:\s*"default"\s*\|\s*"currentPrice"\s*=\s*"default"/);
+assert.match(chartCanvasSource, /variant:\s*"default"\s*\|\s*"currentPrice"\s*\|\s*"holdingPrice"\s*=\s*"default"/);
 const drawingLabelLayerIndex = chartCanvasSource.indexOf("drawDrawingLabelsOnAxes(context, scene,");
 const drawingLayerIndex = chartCanvasSource.indexOf("drawDrawings(context, scene, drawingBatch");
 const currentPriceLayerIndex = chartCanvasSource.indexOf("drawCurrentPriceMarker(context, scene)");

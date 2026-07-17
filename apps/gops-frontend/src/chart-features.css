@@ -156,31 +156,11 @@
   display: inline-flex;
   box-sizing: border-box;
   width: var(--chart-holding-axis-width);
-  height: 17px;
+  height: 22px;
   align-items: center;
-  justify-content: flex-end;
-  padding-right: 4px;
-  color: var(--color-surface);
-  font: var(--type-caption);
-  font-variant-numeric: tabular-nums;
   transform: translateY(-50%);
   cursor: help;
   pointer-events: auto;
-}
-
-.chart-holding-price-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 17px;
-  border: 1px solid var(--color-point-yellow);
-  border-radius: 5px;
-  padding: 0 5px;
-  background: var(--color-point-yellow);
-  box-shadow: none;
-  font-size: 11px;
-  font-weight: 760;
-  line-height: 1;
-  white-space: nowrap;
 }
 
 .chart-holding-price-marker:hover,
@@ -188,11 +168,6 @@
 .chart-holding-price-marker:focus-visible {
   z-index: 18;
   outline: none;
-}
-
-.chart-holding-price-marker:focus-visible .chart-holding-price-pill {
-  outline: 2px solid color-mix(in srgb, var(--color-point-yellow) 52%, transparent);
-  outline-offset: 2px;
 }
 
 .chart-holding-price-tooltip {
