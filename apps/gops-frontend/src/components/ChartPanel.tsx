@@ -290,7 +290,7 @@ type ExpansionOverlay = {
   status: string;
 };
 
-type OrderFlowChartDataStatus = "ready" | "empty" | "unsupported";
+type OrderFlowChartDataStatus = "loading" | "ready" | "empty" | "unsupported" | "error";
 
 type ComparisonScopeRequest = {
   key: string;
@@ -517,7 +517,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [volumeProfileSceneRange, setVolumeProfileSceneRange] = useState<VolumeProfileSceneRange | null>(null);
   const [orderFlowToday, setOrderFlowToday] = useState<Map<string, OrderFlowMinuteDto>>(new Map());
   const [orderFlowTodaySessionDate, setOrderFlowTodaySessionDate] = useState<string | null>(null);
-  const [orderFlowDataStatus, setOrderFlowDataStatus] = useState<OrderFlowChartDataStatus>("empty");
+  const orderFlowTodaySessionDateRef = useRef<string | null>(null);
+  const [orderFlowDataStatus, setOrderFlowDataStatus] = useState<OrderFlowChartDataStatus>("loading");
   const [orderFlowSupportedSymbols, setOrderFlowSupportedSymbols] = useState<string[] | undefined>();
   const [orderFlowPriceBinSize, setOrderFlowPriceBinSize] = useState(defaultOrderFlowPriceBinSize);
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
@@ -556,12 +557,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (orderFlowTodaySessionDate) {
       return orderFlowTodaySessionDate;
     }
-    if (isOrderFlowDemoRuntimeEnabled()) {
-      return sourceChart.candles.length
-        ? sessionDateFromTimestamp(sourceChart.candles[sourceChart.candles.length - 1].timestamp)
-        : sessionDateFromTimestamp(new Date().toISOString());
-    }
-    return sessionDateFromTimestamp(new Date().toISOString());
+    return sourceChart.candles.length
+      ? sessionDateFromTimestamp(sourceChart.candles[sourceChart.candles.length - 1].timestamp)
+      : sessionDateFromTimestamp(new Date().toISOString());
   }, [orderFlowTodaySessionDate, sourceChart.candles]);
   const chart = useMemo(() => (
     sourceChart.chartType === "bidask"
@@ -1657,10 +1655,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       (event) => {
         if (isOrderFlowEventDto(event)) {
           if (chartRef.current.chartType === "bidask" && chartRef.current.symbol === event.symbol.toUpperCase()) {
+            const previousSessionDate = orderFlowTodaySessionDateRef.current;
+            orderFlowTodaySessionDateRef.current = event.data.sessionDate;
             setOrderFlowTodaySessionDate(event.data.sessionDate);
             setOrderFlowDataStatus("ready");
             setOrderFlowPriceBinSize(normalizeOrderFlowPriceBinSize(event.data.priceBinSize));
-            setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data));
+            setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data, previousSessionDate));
           }
           return;
         }
@@ -1670,14 +1670,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         }
         onChartRuntimeAction({ kind: "chart.live", event: candleEventFromDto(event, chart.interval) });
       },
-      (nextStreamState) => onChartRuntimeAction({
-        kind: "chart.stream.status",
-        symbol: socketSymbol,
-        interval: chart.interval,
-        status: normalizeStreamStatus(nextStreamState)
-      })
+      (nextStreamState) => {
+        if (orderFlowActive && nextStreamState === "error") {
+          setOrderFlowDataStatus("error");
+        }
+        onChartRuntimeAction({
+          kind: "chart.stream.status",
+          symbol: socketSymbol,
+          interval: chart.interval,
+          status: normalizeStreamStatus(nextStreamState)
+        });
+      },
+      { orderFlow: orderFlowActive }
     );
-  }, [chart.interval, chart.symbol, onChartRuntimeAction]);
+  }, [chart.interval, chart.symbol, onChartRuntimeAction, orderFlowActive]);
 
   useEffect(() => {
     if (!comparisonScopeRequests.length) {
@@ -1941,20 +1947,24 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (!orderFlowActive) {
       setOrderFlowToday(new Map());
       setOrderFlowTodaySessionDate(null);
+      orderFlowTodaySessionDateRef.current = null;
       setOrderFlowDataStatus("empty");
       setOrderFlowSupportedSymbols(undefined);
       setOrderFlowPriceBinSize(defaultOrderFlowPriceBinSize);
       return;
     }
     const controller = new AbortController();
+    setOrderFlowDataStatus("loading");
     const handleOrderFlowEvent = (event: CandleEventDto) => {
       if (event.type !== "ORDER_FLOW_BINS_UPDATE" || event.symbol.toUpperCase() !== chart.symbol) {
         return;
       }
+      const previousSessionDate = orderFlowTodaySessionDateRef.current;
+      orderFlowTodaySessionDateRef.current = event.data.sessionDate;
       setOrderFlowTodaySessionDate(event.data.sessionDate);
       setOrderFlowDataStatus("ready");
       setOrderFlowPriceBinSize(normalizeOrderFlowPriceBinSize(event.data.priceBinSize));
-      setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data));
+      setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data, previousSessionDate));
     };
     fetchOrderFlowIntraday(chart.symbol, controller.signal, orderFlowDemoAnchor)
       .then((response) => {
@@ -1964,6 +1974,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         ) {
           return;
         }
+        orderFlowTodaySessionDateRef.current = response.sessionDate;
         setOrderFlowTodaySessionDate(response.sessionDate);
         setOrderFlowDataStatus(response.dataStatus);
         setOrderFlowSupportedSymbols(response.supportedSymbols);
@@ -1974,7 +1985,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         if (!controller.signal.aborted) {
           setOrderFlowToday(new Map());
           setOrderFlowTodaySessionDate(null);
-          setOrderFlowDataStatus("empty");
+          orderFlowTodaySessionDateRef.current = null;
+          setOrderFlowDataStatus("error");
           setOrderFlowSupportedSymbols(undefined);
           setOrderFlowPriceBinSize(defaultOrderFlowPriceBinSize);
         }

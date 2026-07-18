@@ -127,6 +127,7 @@ import {
 } from "./layout/tiledAgentLayout";
 import type { AgentLayoutProposal } from "./layout/agentLayoutTypes";
 import { fetchMarketHeatmap } from "./market/heatmapApi";
+import { clearOrderFlowCaches } from "./chart/orderFlowClient";
 import {
   shouldResetMarketDataForSimulatorTransition,
   simulatorStatusEvent,
@@ -613,6 +614,7 @@ export function App() {
       previousSimulatorModeRef.current = status.mode;
       previousSimulatorRunIdRef.current = status.runId ?? null;
       if (shouldResetMarketDataForSimulatorTransition(previousMode, status.mode, previousRunId, status.runId)) {
+        clearOrderFlowCaches();
         chartPanelHandlesRef.current.clear();
         setSemanticSelection(null);
         setChartRuntime((current) => chartRuntimeReducer(current, { kind: "chart.marketData.reset" }));

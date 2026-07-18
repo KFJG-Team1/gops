@@ -1,4 +1,5 @@
 import { ChartApiError } from "./cdcClient";
+import { latestSimulatorStatus } from "../simulator/simulatorApi";
 import {
   sessionDateFromTimestamp,
   type OrderFlowDailyResponseDto,
@@ -30,7 +31,7 @@ export type OrderFlowDemoContext = {
   anchor: OrderFlowDemoAnchor;
 };
 
-let symbolsCache: OrderFlowSymbolsResponse | null = null;
+const symbolsCache = new Map<string, OrderFlowSymbolsResponse>();
 const intradayCache = new Map<string, { expiresAt: number; promise: Promise<OrderFlowIntradayResponseDto> }>();
 const intradayCacheTtlMs = 5_000;
 const intradayCacheMaxEntries = 32;
@@ -41,11 +42,18 @@ export async function fetchOrderFlowSymbols(signal?: AbortSignal): Promise<Order
     const demo = await import("./orderFlowDemoData");
     return demo.fetchDemoOrderFlowSymbols();
   }
-  if (symbolsCache) {
-    return symbolsCache;
+  const runtimeKey = orderFlowRuntimeIdentity();
+  const cached = symbolsCache.get(runtimeKey);
+  if (cached) {
+    return cached;
   }
   const result = normalizeSymbolsResponse(await fetchJson(`/api/charts/order-flow/symbols`, signal));
-  symbolsCache = result;
+  symbolsCache.set(runtimeKey, result);
+  while (symbolsCache.size > 4) {
+    const oldest = symbolsCache.keys().next().value;
+    if (oldest === undefined) break;
+    symbolsCache.delete(oldest);
+  }
   return result;
 }
 
@@ -78,8 +86,7 @@ export async function fetchOrderFlowIntraday(
     return demo.fetchDemoOrderFlowIntraday(symbol, demoAnchor);
   }
   const normalizedSymbol = symbol.trim().toUpperCase();
-  const sessionDate = sessionDateFromTimestamp(new Date().toISOString());
-  const cacheKey = `${normalizedSymbol}|${sessionDate}`;
+  const cacheKey = `${orderFlowRuntimeIdentity()}|${normalizedSymbol}`;
   const now = Date.now();
   pruneIntradayCache(now);
   let entry = intradayCache.get(cacheKey);
@@ -108,6 +115,24 @@ export async function fetchOrderFlowIntraday(
     intradayCache.set(cacheKey, entry);
   }
   return withAbortSignal(entry.promise, signal);
+}
+
+export function clearOrderFlowCaches(): void {
+  symbolsCache.clear();
+  intradayCache.clear();
+}
+
+function orderFlowRuntimeIdentity(): string {
+  const status = latestSimulatorStatus();
+  if (status?.mode === "simulation") {
+    return [
+      "simulation",
+      status.datasetId,
+      status.runId ?? "no-run",
+      sessionDateFromTimestamp(status.virtualTime)
+    ].join("|");
+  }
+  return `live|${sessionDateFromTimestamp(new Date().toISOString())}`;
 }
 
 function pruneIntradayCache(now: number): void {
@@ -259,7 +284,12 @@ function normalizeIntradayResponse(payload: unknown): OrderFlowIntradayResponseD
     dataStatus: normalizeDataStatus(source.dataStatus),
     minutes: source.minutes.map(normalizeMinute).filter((minute): minute is OrderFlowMinuteDto => Boolean(minute)).sort((left, right) => left.eventMinute.localeCompare(right.eventMinute)),
     liveQuote,
-    supportedSymbols: normalizeSymbolList(source.supportedSymbols)
+    supportedSymbols: normalizeSymbolList(source.supportedSymbols),
+    source: typeof source.source === "string" ? source.source : undefined,
+    simulation: source.simulation === true,
+    datasetId: typeof source.datasetId === "string" ? source.datasetId : undefined,
+    runId: typeof source.runId === "string" || source.runId === null ? source.runId : undefined,
+    virtualTime: typeof source.virtualTime === "string" ? source.virtualTime : undefined
   };
 }
 
@@ -289,7 +319,8 @@ function normalizeMinute(value: unknown): OrderFlowMinuteDto | null {
   const source = value as Partial<OrderFlowMinuteDto>;
   return {
     eventMinute: typeof source.eventMinute === "string" ? source.eventMinute : "",
-    bins: Array.isArray(source.bins) ? source.bins.map(normalizeLevel).filter((level): level is OrderFlowLevelDto => Boolean(level)) : []
+    bins: Array.isArray(source.bins) ? source.bins.map(normalizeLevel).filter((level): level is OrderFlowLevelDto => Boolean(level)) : [],
+    updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : undefined
   };
 }
 

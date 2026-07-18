@@ -1364,6 +1364,9 @@ function orderFlowStateMessage(scene: ChartScene, orderFlow: ChartState["orderFl
   if (orderFlow.dataStatus === "unsupported") {
     return unsupportedOrderFlowMessage(scene.chart.symbol, orderFlow.supportedSymbols);
   }
+  if (orderFlow.dataStatus === "error") {
+    return "오더플로우 데이터를 불러오지 못했습니다";
+  }
   if (!orderFlow.minutes.size && orderFlow.dataStatus === "empty") {
     return "아직 수집된 오더플로우 데이터가 없어요";
   }

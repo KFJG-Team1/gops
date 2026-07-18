@@ -321,12 +321,22 @@ export type CandleEventDto =
       symbol: string;
       interval?: "trades" | "quotes";
       data: Record<string, unknown>;
+      source?: string;
+      simulation?: boolean;
+      datasetId?: string;
+      runId?: string | null;
+      virtualTime?: string;
     }
   | {
       type: "ORDER_FLOW_BINS_UPDATE";
       symbol: string;
       interval?: string;
       data: OrderFlowMinuteUpdate;
+      source?: string;
+      simulation?: boolean;
+      datasetId?: string;
+      runId?: string | null;
+      virtualTime?: string;
     };
 
 export type ChartLayerKey =
@@ -498,7 +508,7 @@ export type ChartState = {
   indicatorSeries?: IndicatorSeries;
   volumeProfile?: VolumeProfileResponseDto | null;
   orderFlow?: {
-    dataStatus: OrderFlowIntradayResponseDto["dataStatus"];
+    dataStatus: OrderFlowIntradayResponseDto["dataStatus"] | "loading" | "error";
     supportedSymbols?: string[];
     priceBinSize: number;
     sessionDate: string | null;
