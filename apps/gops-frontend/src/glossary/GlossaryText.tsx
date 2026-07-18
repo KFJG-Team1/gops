@@ -1,11 +1,27 @@
 import { Fragment } from "react";
+import type { GlossaryEntry } from "./stockGlossary";
 import { annotateGlossaryTerms, glossaryEntryById } from "./matchGlossaryTerms";
 import { hideGlossaryTooltip, scheduleGlossaryTooltip, toggleGlossaryTooltip } from "./GlossaryTooltip";
 
-export function GlossaryText({ text }: { text: string }) {
+export type GlossarySelectionContext = {
+  text: string;
+  matchedText: string;
+  startIndex: number;
+};
+
+export function GlossaryText({
+  text,
+  onTermSelect
+}: {
+  text: string;
+  onTermSelect?: (entry: GlossaryEntry, context: GlossarySelectionContext) => boolean;
+}) {
+  let textCursor = 0;
   return (
     <>
       {annotateGlossaryTerms(text).map((segment, index) => {
+        const startIndex = textCursor;
+        textCursor += segment.text.length;
         const entry = segment.glossaryId ? glossaryEntryById(segment.glossaryId) : undefined;
         if (!entry) {
           return <Fragment key={`${index}-${segment.text}`}>{segment.text}</Fragment>;
@@ -26,6 +42,13 @@ export function GlossaryText({ text }: { text: string }) {
             }}
             onBlur={() => hideGlossaryTooltip()}
             onClick={(event) => {
+              const handled = onTermSelect?.(entry, { text, matchedText: segment.text, startIndex }) ?? false;
+              if (handled) {
+                event.stopPropagation();
+                hideGlossaryTooltip();
+                return;
+              }
+              if (onTermSelect) event.stopPropagation();
               const rect = event.currentTarget.getBoundingClientRect();
               toggleGlossaryTooltip(entry, rect.left + rect.width / 2, rect.bottom);
             }}
@@ -34,6 +57,13 @@ export function GlossaryText({ text }: { text: string }) {
                 return;
               }
               event.preventDefault();
+              const handled = onTermSelect?.(entry, { text, matchedText: segment.text, startIndex }) ?? false;
+              if (handled) {
+                event.stopPropagation();
+                hideGlossaryTooltip();
+                return;
+              }
+              if (onTermSelect) event.stopPropagation();
               const rect = event.currentTarget.getBoundingClientRect();
               toggleGlossaryTooltip(entry, rect.left + rect.width / 2, rect.bottom);
             }}

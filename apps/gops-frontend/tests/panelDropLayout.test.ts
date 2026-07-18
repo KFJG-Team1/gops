@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   addPanelSlotAtGridRect,
   defaultGridSpanForKind,
+  ensurePrimaryChartSelection,
   gridRectsOverlap,
   movePanelSlotToGridRect,
   normalizePanelGridRect,
@@ -13,8 +14,8 @@ import {
   resolvePanelDropGridRect,
   resolvePanelMoveWithPush,
   resolvePanelResizeWithYield,
-  setPrimaryChartSelection,
-  setPrimaryChartSymbol,
+  syncPrimaryChartSelection,
+  syncPrimaryChartSymbol,
   type PanelContentKind,
   type PanelGridRect,
   type TiledPanelState
@@ -105,18 +106,41 @@ const priceConditionOneCellResize = resolvePanelResizeWithYield(
 assert.equal(priceConditionOneCellResize.valid, true);
 assert.deepEqual(priceConditionOneCellResize.sourceGridRect, { col: 1, row: 1, colSpan: 1, rowSpan: 1 });
 
-const selectedPatternChart = setPrimaryChartSelection(firstAvailableState, " aapl ", "4h", viewport);
-const selectedPatternChartSlot = selectedPatternChart.slots.find((slot) => selectedPatternChart.contents[slot.contentId]?.kind === "chart");
-const selectedPatternChartContent = selectedPatternChartSlot ? selectedPatternChart.contents[selectedPatternChartSlot.contentId] : undefined;
-assert.equal(selectedPatternChartContent?.props?.symbol, "AAPL");
-assert.equal(selectedPatternChartContent?.props?.timeframe, "4h");
-const selectedPatternWithoutChart = setPrimaryChartSelection(emptyState, "nvda", "1m", viewport);
+const syncedPatternWithoutChart = syncPrimaryChartSelection(firstAvailableState, " aapl ", "4h");
+assert.equal(syncedPatternWithoutChart, firstAvailableState);
+assert.deepEqual(
+  syncedPatternWithoutChart.slots.map((slot) => slot.gridRect),
+  firstAvailableState.slots.map((slot) => slot.gridRect)
+);
+assert.equal(
+  syncedPatternWithoutChart.slots.some((slot) => syncedPatternWithoutChart.contents[slot.contentId]?.kind === "chart"),
+  false
+);
+
+const selectedPatternWithoutChart = ensurePrimaryChartSelection(emptyState, "nvda", "1m", viewport);
 const createdPatternChartSlot = selectedPatternWithoutChart.slots.find((slot) => selectedPatternWithoutChart.contents[slot.contentId]?.kind === "chart");
 const createdPatternChartContent = createdPatternChartSlot ? selectedPatternWithoutChart.contents[createdPatternChartSlot.contentId] : undefined;
 assert.equal(createdPatternChartContent?.kind, "chart");
 assert.equal(createdPatternChartContent?.props?.symbol, "NVDA");
 assert.equal(createdPatternChartContent?.props?.timeframe, "1m");
-const symbolOnlySelection = setPrimaryChartSymbol(selectedPatternChart, "MSFT", viewport);
+
+const selectedPatternChart = syncPrimaryChartSelection(selectedPatternWithoutChart, " aapl ", "4h");
+const selectedPatternChartSlot = selectedPatternChart.slots.find((slot) => selectedPatternChart.contents[slot.contentId]?.kind === "chart");
+const selectedPatternChartContent = selectedPatternChartSlot ? selectedPatternChart.contents[selectedPatternChartSlot.contentId] : undefined;
+assert.equal(selectedPatternChart.slots.length, selectedPatternWithoutChart.slots.length);
+assert.equal(selectedPatternChartContent?.props?.symbol, "AAPL");
+assert.equal(selectedPatternChartContent?.props?.timeframe, "4h");
+
+const ensuredPatternAgain = ensurePrimaryChartSelection(selectedPatternChart, "msft", "1h", viewport);
+assert.equal(
+  ensuredPatternAgain.slots.filter((slot) => ensuredPatternAgain.contents[slot.contentId]?.kind === "chart").length,
+  1
+);
+const ensuredPatternAgainSlot = ensuredPatternAgain.slots.find((slot) => ensuredPatternAgain.contents[slot.contentId]?.kind === "chart");
+assert.equal(ensuredPatternAgainSlot ? ensuredPatternAgain.contents[ensuredPatternAgainSlot.contentId]?.props?.symbol : undefined, "MSFT");
+assert.equal(ensuredPatternAgainSlot ? ensuredPatternAgain.contents[ensuredPatternAgainSlot.contentId]?.props?.timeframe : undefined, "1h");
+
+const symbolOnlySelection = syncPrimaryChartSymbol(selectedPatternChart, "MSFT");
 const symbolOnlyChartSlot = symbolOnlySelection.slots.find((slot) => symbolOnlySelection.contents[slot.contentId]?.kind === "chart");
 assert.equal(symbolOnlyChartSlot ? symbolOnlySelection.contents[symbolOnlyChartSlot.contentId]?.props?.timeframe : undefined, "1D");
 

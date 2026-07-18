@@ -107,7 +107,7 @@ export function InvestmentProfileForm({
   return (
     <form className="investment-profile-form" onSubmit={submit}>
       <div className="investment-profile-head">
-        <strong>장중 추천 설정</strong>
+        <strong>기본 추천 조건</strong>
         {loading && <LoaderCircle size={14} className="spin" />}
       </div>
       <label className="investment-profile-field">

@@ -3043,7 +3043,7 @@ const separatedBoundaryState = {
     "content-a-left": { id: "content-a-left", kind: "news" as const, title: "뉴스", instanceIndex: 41 },
     "content-a-right": { id: "content-a-right", kind: "company" as const, title: "기업정보", instanceIndex: 42 },
     "content-b-left": { id: "content-b-left", kind: "ontology" as const, title: "온톨로지", instanceIndex: 43 },
-    "content-b-right": { id: "content-b-right", kind: "popular" as const, title: "인기종목", instanceIndex: 44 }
+    "content-b-right": { id: "content-b-right", kind: "recommendationsList" as const, title: "추천 목록", instanceIndex: 44 }
   },
   nextInstance: 45,
   slots: [
@@ -4246,7 +4246,9 @@ assert.match(appSource, /normalizedShortcutSymbols/);
 assert.match(appSource, /shortcutSymbols\.length > 1/);
 assert.match(appSource, /panelLayoutStorageKey/);
 assert.match(appSource, /restoreTiledPanelStateSnapshot/);
-assert.match(appSource, /setPrimaryChartSymbol/);
+assert.match(appSource, /syncPrimaryChartSymbol/);
+assert.match(appSource, /ensurePrimaryChartSymbol/);
+assert.doesNotMatch(appSource, /setPrimaryChart(Symbol|Selection)/);
 assert.match(appSource, /createInitialTiledPanelState\(viewport, \{/);
 assert.match(appSource, /createOrderFlowDemoPanelState/);
 assert.match(appSource, /isOrderFlowDemoRoute/);
@@ -4847,7 +4849,7 @@ assert.deepEqual(
     ["market", "추천종목"],
     ["stock", "기업분석"],
     ["compare", "차트분석"],
-    ["regular", "본장추천"],
+    ["regular", "추천분석"],
     ["asset", "포트폴리오"]
   ]
 );
@@ -4918,12 +4920,9 @@ const regularRecommendationLayout = buildPresetLayout(regularRecommendationPrese
 assert.ok(regularRecommendationLayout);
 assert.deepEqual(
   regularRecommendationLayout.slots.map((slot) => regularRecommendationLayout.contents[slot.contentId]?.kind),
-  ["recommendationsList", "indices", "themeRadar", "news"]
+  ["recommendationsList", "indexCommentary", "themeRadar", "news"]
 );
-assert.equal(
-  regularRecommendationLayout.contents[regularRecommendationLayout.slots[0].contentId]?.props?.initialSessionMode,
-  "regular"
-);
+assert.equal(regularRecommendationLayout.contents[regularRecommendationLayout.slots[0].contentId]?.props?.initialSessionMode, undefined);
 
 const presetSummaries = buildAgentLayoutPresetSummaries([
   { id: "market", kind: "default", name: "추천종목" },

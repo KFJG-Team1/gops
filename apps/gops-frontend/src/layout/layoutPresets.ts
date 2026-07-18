@@ -50,10 +50,10 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   market: {
     name: "추천종목",
     spec: [
-      { kind: "recommendationsList", gridRect: { col: 1, row: 1, colSpan: 4, rowSpan: 6 } },
-      { kind: "indices", gridRect: { col: 5, row: 1, colSpan: 4, rowSpan: 2 } },
-      { kind: "themeRadar", gridRect: { col: 5, row: 3, colSpan: 4, rowSpan: 2 } },
-      { kind: "news", gridRect: { col: 5, row: 5, colSpan: 4, rowSpan: 2 } }
+      { kind: "recommendationsList", gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 } },
+      { kind: "indexCommentary", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 1 } },
+      { kind: "themeRadar", gridRect: { col: 6, row: 2, colSpan: 3, rowSpan: 2 } },
+      { kind: "newsKeyword", gridRect: { col: 6, row: 4, colSpan: 3, rowSpan: 3 } }
     ]
   },
   stock: {
@@ -65,7 +65,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
         gridRect: { col: 3, row: 1, colSpan: 4, rowSpan: 6 },
         props: { companyLayoutVersion: STOCK_COMPANY_LAYOUT_VERSION }
       },
-      { kind: "newsList", gridRect: { col: 7, row: 1, colSpan: 2, rowSpan: 6 } }
+      { kind: "newsKeyword", gridRect: { col: 7, row: 1, colSpan: 2, rowSpan: 6 } }
     ]
   },
   chart: {
@@ -85,16 +85,15 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     ]
   },
   regular: {
-    name: "본장추천",
+    name: "추천분석",
     spec: [
       {
         kind: "recommendationsList",
-        gridRect: { col: 1, row: 1, colSpan: 4, rowSpan: 6 },
-        props: { initialSessionMode: "regular" }
+        gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 }
       },
-      { kind: "indices", gridRect: { col: 5, row: 1, colSpan: 4, rowSpan: 2 } },
-      { kind: "themeRadar", gridRect: { col: 5, row: 3, colSpan: 4, rowSpan: 2 } },
-      { kind: "news", gridRect: { col: 5, row: 5, colSpan: 4, rowSpan: 2 } }
+      { kind: "indexCommentary", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 1 } },
+      { kind: "themeRadar", gridRect: { col: 6, row: 2, colSpan: 3, rowSpan: 2 } },
+      { kind: "news", gridRect: { col: 6, row: 4, colSpan: 3, rowSpan: 3 } }
     ]
   },
   asset: {
@@ -132,8 +131,11 @@ export function buildPresetLayout(
 ): TiledPanelState | null {
   // A saved override layout (valid snapshot) wins; otherwise defaults rebuild from spec.
   if (preset.layout) {
+    const presetLayout = preset.kind === "default" && preset.id === "market"
+      ? migrateRecommendationNewsKeywordSnapshot(preset.layout)
+      : preset.layout;
     const layout = migrateCompanyComparePanelSnapshot(
-      migratePortfolioInvestmentSnapshot(preset.layout)
+      migratePortfolioInvestmentSnapshot(presetLayout)
     );
     const shouldReplaceLegacyAssetLayout = preset.id === "asset"
       && isStoredTiledPanelStateShape(layout)
@@ -159,6 +161,32 @@ export function buildPresetLayout(
     return definition ? createTiledPanelStateFromSpec(definition.spec, viewport, options) : null;
   }
   return null;
+}
+
+export function migrateRecommendationNewsKeywordSnapshot(value: unknown): unknown {
+  if (!isStoredTiledPanelStateShape(value)) {
+    return value;
+  }
+  const contents = Object.values(value.contents);
+  const hasRecommendations = contents.some((content) => content.kind === "recommendationsList");
+  const hasNewsKeyword = contents.some((content) => content.kind === "newsKeyword");
+  const newsEntries = Object.entries(value.contents)
+    .filter(([, content]) => content.kind === "news");
+  if (!hasRecommendations || hasNewsKeyword || newsEntries.length !== 1) {
+    return value;
+  }
+  const [newsContentId, newsContent] = newsEntries[0];
+  return {
+    ...value,
+    contents: {
+      ...value.contents,
+      [newsContentId]: {
+        ...newsContent,
+        kind: "newsKeyword",
+        title: panelContentTitle("newsKeyword")
+      }
+    }
+  };
 }
 
 export function ensurePortfolioInvestedPanelState(
@@ -693,7 +721,6 @@ const DEFAULT_PRESET_LEGACY_ALIASES: Partial<Record<DefaultPresetId, readonly st
   market: ["추천 종목", "오늘의 추천 종목", "시장분석"],
   stock: ["기업 분석", "종목분석"],
   compare: ["차트 분석", "비교분석"],
-  regular: ["본장 추천", "정규장 추천"],
   asset: ["자산현황"]
 };
 

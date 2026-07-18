@@ -9,6 +9,7 @@ export type AgentLayoutPanelType =
   | "compareChart"
   | "companyCompare"
   | "marketIndices"
+  | "indexCommentary"
   | "companyProfile"
   | "companyJournal"
   | "companyMulti"

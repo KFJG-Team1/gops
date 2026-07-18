@@ -36,13 +36,14 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   companyProfitability: "companyProfitability",
   companyStability: "companyStability",
   indices: "marketIndices",
-  popular: "popularStocks",
+  indexCommentary: "indexCommentary",
   recommendations: "stockRecommendations",
   recommendationsList: "stockRecommendations",
   recommendationExplain: "stockRecommendationExplain",
   themeRadar: "themeRadar",
   news: "newsFeed",
   newsList: "newsFeed",
+  newsKeyword: "newsFeed",
   watchlistNews: "newsFeed",
   watchlistNewsList: "newsFeed",
   ontology: "ontologyGraph",
@@ -651,7 +652,10 @@ function readPanelSymbol(payload: Record<string, unknown>): string | null {
 }
 
 function readPanelProps(payload: Record<string, unknown>): Record<string, unknown> | undefined {
-  return isRecord(payload.props) ? payload.props : undefined;
+  const props = isRecord(payload.props) ? payload.props : undefined;
+  return readString(payload.panelType) === "popularStocks"
+    ? { ...(props ?? {}), initialPopular: true }
+    : props;
 }
 
 function readPendingPlacementPick(proposal: AgentLayoutProposal): PendingPlacementPick | undefined {

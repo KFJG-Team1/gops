@@ -107,6 +107,62 @@ export const stockGlossary: Record<RequiredGlossaryId, GlossaryEntry> = {
 
 export const extraGlossary: GlossaryEntry[] = [
   {
+    id: "risk_off",
+    term: "리스크오프",
+    aliases: ["리스크오프", "risk-off", "risk off"],
+    description: "투자자들이 주식 같은 위험 자산을 줄이고 현금이나 채권처럼 비교적 안전한 자산을 찾는 분위기입니다.",
+    category: "general"
+  },
+  {
+    id: "sector_rotation",
+    term: "순환매",
+    aliases: ["순환매", "sector rotation"],
+    description: "투자 자금이 한 업종에서 다른 업종으로 옮겨 가며 차례로 주가가 오르는 흐름입니다.",
+    category: "general"
+  },
+  {
+    id: "valuation",
+    term: "밸류에이션",
+    aliases: ["밸류에이션", "valuation", "기업가치 평가"],
+    description: "기업의 실적과 성장 가능성에 비해 현재 주가가 비싼지 싼지 판단한 수준입니다.",
+    category: "general"
+  },
+  {
+    id: "resilient",
+    term: "견조",
+    aliases: ["견조", "견조한", "견조하게"],
+    description: "시장 상황이 흔들려도 실적이나 수요가 비교적 안정적으로 유지되는 상태입니다.",
+    category: "general"
+  },
+  {
+    id: "wait_and_see",
+    term: "관망",
+    aliases: ["관망", "관망세", "관망 분위기"],
+    description: "새 정보가 나올 때까지 적극적으로 사고팔지 않고 기다리는 시장 분위기입니다.",
+    category: "general"
+  },
+  {
+    id: "share_buyback",
+    term: "자사주 매입",
+    aliases: ["자사주 매입", "자사주매입", "share buyback", "stock buyback"],
+    description: "회사가 시장에서 자기 회사 주식을 사들이는 것으로, 유통 주식 수를 줄이거나 주주 환원에 활용합니다.",
+    category: "general"
+  },
+  {
+    id: "antitrust",
+    term: "반독점",
+    aliases: ["반독점", "반독점 규제", "antitrust"],
+    description: "한 기업이 시장 지배력을 남용해 경쟁을 막지 못하도록 정부가 조사하거나 제한하는 제도입니다.",
+    category: "general"
+  },
+  {
+    id: "rate_caution",
+    term: "금리 경계감",
+    aliases: ["금리 경계감", "금리 부담", "금리 우려"],
+    description: "금리가 오르거나 높은 수준이 오래갈 가능성을 투자자들이 조심스럽게 보는 분위기입니다.",
+    category: "general"
+  },
+  {
     id: "entry_price",
     term: "진입가",
     aliases: ["진입가", "진입 가격"],
@@ -254,10 +310,80 @@ export const extraGlossary: GlossaryEntry[] = [
     category: "fundamental"
   },
   {
+    id: "current_ratio",
+    term: "유동비율",
+    aliases: ["유동비율", "current ratio"],
+    description: "1년 안에 현금화할 자산을 1년 안에 갚을 부채와 비교한 값입니다. 100%보다 높으면 단기 자산이 단기 부채보다 많다는 뜻입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "interest_coverage",
+    term: "이자보상배율",
+    aliases: ["이자보상배율", "이자보상", "interest coverage ratio"],
+    description: "영업이익이 이자비용의 몇 배인지 보여줍니다. 높을수록 영업으로 번 돈으로 이자를 감당할 여유가 큽니다.",
+    category: "fundamental"
+  },
+  {
+    id: "net_debt",
+    term: "순부채",
+    aliases: ["순부채", "net debt"],
+    description: "이자를 내는 부채에서 현금성 자산을 뺀 금액입니다. 작을수록 실제로 남은 빚 부담이 적고, 음수면 현금이 부채보다 많다는 뜻입니다.",
+    category: "fundamental"
+  },
+  {
     id: "eps",
     term: "EPS",
     aliases: ["EPS", "주당순이익", "earnings per share"],
     description: "기업의 순이익을 주식 수로 나눈 값으로, 주식 한 주가 벌어들인 이익을 뜻합니다.",
+    category: "fundamental"
+  },
+  {
+    id: "bps",
+    term: "BPS",
+    aliases: ["BPS", "주당순자산", "book value per share"],
+    description: "자기자본을 주식 수로 나눈 값으로, 한 주에 해당하는 장부상 순자산입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "sps",
+    term: "SPS",
+    aliases: ["SPS", "주당매출", "sales per share"],
+    description: "매출을 주식 수로 나눈 값으로, 한 주가 만들어 낸 매출 규모를 보여줍니다.",
+    category: "fundamental"
+  },
+  {
+    id: "cps",
+    term: "CPS",
+    aliases: ["CPS", "주당현금흐름", "cash flow per share"],
+    description: "영업현금흐름을 주식 수로 나눈 값으로, 한 주가 실제 사업에서 만든 현금 규모를 보여줍니다.",
+    category: "fundamental"
+  },
+  {
+    id: "operating_margin",
+    term: "영업이익률",
+    aliases: ["영업이익률", "영업 이익률", "operating margin"],
+    description: "매출 가운데 본업의 영업이익으로 남은 비율입니다. 높아지면 매출 증가가 이익 개선으로 이어지고 있다는 뜻입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "net_margin",
+    term: "순이익률",
+    aliases: ["순이익률", "순 이익률", "net margin"],
+    description: "매출에서 모든 비용과 세금을 반영한 뒤 순이익으로 남은 비율입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "roe",
+    term: "ROE",
+    aliases: ["ROE", "자기자본이익률", "return on equity"],
+    description: "주주가 맡긴 자기자본으로 얼마나 많은 순이익을 만들었는지 보여주는 비율입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "fcf_margin",
+    term: "FCF Margin",
+    aliases: ["FCF Margin", "잉여현금흐름 마진", "free cash flow margin"],
+    description: "매출 가운데 투자 지출을 반영하고도 잉여현금흐름으로 남은 비율입니다.",
     category: "fundamental"
   },
   {

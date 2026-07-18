@@ -103,6 +103,17 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 50
   },
   {
+    kind: "newsKeyword",
+    title: "뉴스 키워드",
+    agentPanelType: "newsFeed",
+    minSpan: { colSpan: 2, rowSpan: 2 },
+    readableMinSpan: { colSpan: 2, rowSpan: 2 },
+    minSizePx: { width: 300, height: 220 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
+    defaultLayoutWeight: 54,
+    insertable: true
+  },
+  {
     kind: "watchlistNews",
     title: "관심종목 뉴스 카드",
     agentPanelType: "newsFeed",
@@ -143,14 +154,15 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     defaultLayoutWeight: 50
   },
   {
-    kind: "popular",
-    title: "인기종목",
-    agentPanelType: "popularStocks",
+    kind: "indexCommentary",
+    title: "지수 해설",
+    agentPanelType: "indexCommentary",
     minSpan: { colSpan: 1, rowSpan: 1 },
-    readableMinSpan: { colSpan: 1, rowSpan: 2 },
-    minSizePx: { width: 150, height: 200 },
-    defaultSpan: { colSpan: 1, rowSpan: 2 },
-    defaultLayoutWeight: 50
+    readableMinSpan: { colSpan: 3, rowSpan: 1 },
+    minSizePx: { width: 420, height: 96 },
+    defaultSpan: { colSpan: 3, rowSpan: 1 },
+    defaultLayoutWeight: 56,
+    insertable: true
   },
   {
     kind: "recommendations",
@@ -448,6 +460,11 @@ export function panelRegistryEntry(kind: PanelContentKind): PanelRegistryEntry {
 export function panelKindForAgentType(panelType: AgentLayoutPanelType | string | undefined): PanelContentKind | null {
   if (!panelType) {
     return null;
+  }
+  // Backward-compatible Agent command: the former popular panel is now the
+  // unified recommendation explorer with its popular filter enabled.
+  if (panelType === "popularStocks") {
+    return "recommendationsList";
   }
   return panelRegistry.find((entry) => entry.agentPanelType === panelType)?.kind ?? null;
 }

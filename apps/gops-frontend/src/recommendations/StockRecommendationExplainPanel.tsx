@@ -49,7 +49,7 @@ export function StockRecommendationExplainPanel({
     setError(null);
     setLoading(true);
     try {
-      setPayload(await fetchStockRecommendations("regular", signal));
+      setPayload(await fetchStockRecommendations(signal));
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") {
         return;
@@ -518,40 +518,14 @@ function buildMetricViews(item: StockRecommendationItem): MetricView[] {
   const intradayRange = readNumberMetric(item, "intradayRangePct", "intraday_range_pct");
   const dollarVolume = readNumberMetric(item, "sessionDollarVolume", "session_dollar_volume");
   const breakout = readBooleanMetric(item, "breakout");
-  const v2Metrics: MetricView[] = item.algorithmVersion === "continuous-personalization-v2" ? [
-    {
-      key: "extended-alpha",
-      label: "V2 확장 알파",
-      value: formatScore(item.extendedBaseAlphaScore),
-      detail: "시장 9팩터와 cutoff-safe 기업 팩터 결합",
-      tone: (item.extendedBaseAlphaScore ?? 0) >= 60 ? "positive" : "neutral"
-    },
-    {
-      key: "fundamental",
-      label: "기업 펀더멘털",
-      value: item.fundamentalStatus === "ready" ? formatScore(item.fundamentalScore) : "Fallback",
-      detail: item.fundamentalStatus === "ready"
-        ? `전체 점수에 ${formatWeight(item.fundamentalWeight)} 반영`
-        : "유효 데이터가 없어 시장 9팩터로 계산",
-      tone: item.fundamentalStatus === "ready" ? "positive" : "neutral"
-    },
-    {
-      key: "preference-fit",
-      label: "행동 선호 적합도",
-      value: formatScore(item.preferenceFitScore),
-      detail: `실제 매수 기반 개인화 신뢰도 ${Math.round((item.preferenceConfidence ?? 0) * 100)}%`,
-      tone: (item.preferenceFitScore ?? 0) >= 60 ? "positive" : "neutral"
-    },
-    {
-      key: "portfolio-fit",
-      label: "포트폴리오 적합도",
-      value: formatScore(item.portfolioFitScore),
-      detail: "집중도·상관·유동성과 연속 위험예산 반영",
-      tone: (item.portfolioFitScore ?? 0) >= 60 ? "positive" : "neutral"
-    }
-  ] : [];
   return [
-    ...v2Metrics,
+    {
+      key: "custom-rank-score",
+      label: "적용 점수",
+      value: formatScore(item.customRankScore ?? item.score),
+      detail: "활성 점수 프로필과 고정 안전 조건을 반영한 순위 점수",
+      tone: (item.customRankScore ?? item.score) >= 60 ? "positive" : "neutral"
+    },
     {
       key: "return",
       label: "3시간 수익률",
@@ -591,7 +565,7 @@ function buildMetricViews(item: StockRecommendationItem): MetricView[] {
       key: "liquidity",
       label: "세션 거래대금",
       value: formatCompactCurrency(dollarVolume),
-      detail: dollarVolume === null ? "유동성 데이터 없음" : dollarVolume >= 10_000_000 ? "본장 최소 유동성 충족" : "유동성 기준 재확인",
+      detail: dollarVolume === null ? "유동성 데이터 없음" : dollarVolume >= 10_000_000 ? "최소 유동성 기준 충족" : "유동성 기준 재확인",
       tone: dollarVolume === null ? "neutral" : dollarVolume >= 10_000_000 ? "positive" : "caution"
     }
   ];
@@ -606,10 +580,10 @@ function emptyMessage(payload: StockRecommendationPayload | null) {
     return "실데이터 fixture가 gate를 통과하지 않아 추천을 표시하지 않습니다.";
   }
   if (payload?.status === "profile_required") {
-    return "추천 설정을 저장하면 종목별 설명이 표시됩니다.";
+    return "추천 로직과 기본 투자 조건을 저장하면 종목별 설명이 표시됩니다.";
   }
   if (payload?.status === "market_closed") {
-    return "미국 본장 추천이 생성되면 설명이 표시됩니다.";
+    return "시장 운영 중 새 추천이 생성되면 설명이 표시됩니다.";
   }
   if (payload?.status === "data_not_ready") {
     const reason = payload.summary?.emptyReason;
@@ -668,10 +642,6 @@ function formatSigned(value: number) {
 
 function formatScore(value?: number) {
   return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)} / 100` : "--";
-}
-
-function formatWeight(value?: number) {
-  return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "0%";
 }
 
 function formatCompactCurrency(value: number | null) {

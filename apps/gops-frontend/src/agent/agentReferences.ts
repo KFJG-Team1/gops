@@ -238,6 +238,7 @@ export function newsDailySummaryReference(
     symbol?: string;
     summary: string;
     keyPoints?: string[];
+    keywordTags?: Array<{ label: string; direction: "positive" | "negative" | "neutral" }>;
     articleIds?: string[];
     sources?: unknown[];
     priceChange?: unknown;
@@ -255,6 +256,7 @@ export function newsDailySummaryReference(
       date: item.date,
       summary: item.summary,
       keyPoints: item.keyPoints ?? [],
+      keywordTags: item.keywordTags ?? [],
       articleIds: item.articleIds ?? [],
       sources: item.sources ?? [],
       priceChange: item.priceChange ?? undefined

@@ -24,9 +24,9 @@ import type { PanelContentInstance, PanelSlot } from "../layout/panelLayout";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import {
-  StockRecommendationsPanel,
   type StockRecommendationSelection
 } from "../recommendations/StockRecommendationsPanel";
+import { StockDiscoveryPanel } from "../recommendations/StockDiscoveryPanel";
 import { StockRecommendationExplainPanel } from "../recommendations/StockRecommendationExplainPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
@@ -39,9 +39,9 @@ import {
   CompanyStabilityPanel,
   CompanyValuationPanel
 } from "./CompanySummaryPanel";
+import { IndexCommentaryPanel } from "./IndexCommentaryPanel";
 import { IndexWidgetPanel } from "./IndexWidgetPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
-import { PopularStocksPanel } from "./PopularStocksPanel";
 import {
   PortfolioDividendPanel,
   PortfolioDiversificationPanel,
@@ -79,6 +79,9 @@ const ChartPatternListPanel = lazy(() => import("./ChartPatternListPanel").then(
 })));
 const NewsPanel = lazy(() => import("./NewsPanel").then((module) => ({
   default: module.NewsPanel
+})));
+const NewsKeywordPanel = lazy(() => import("./NewsKeywordPanel").then((module) => ({
+  default: module.NewsKeywordPanel
 })));
 const WatchlistNewsPanel = lazy(() => import("./WatchlistNewsPanel").then((module) => ({
   default: module.WatchlistNewsPanel
@@ -134,6 +137,7 @@ type PanelContentRendererProps = {
   onSelectSymbol: (symbol: string) => void;
   selectedRecommendationSymbol: string | null;
   selectedRecommendation: StockRecommendationSelection | null;
+  recommendationNewsKeywordLinked: boolean;
   onSelectRecommendationReference: (
     reference: AgentReference | null,
     selection?: StockRecommendationSelection | null,
@@ -190,6 +194,7 @@ export function PanelContentRenderer({
   onSelectSymbol,
   selectedRecommendationSymbol,
   selectedRecommendation,
+  recommendationNewsKeywordLinked,
   onSelectRecommendationReference,
   onOpenCompany,
   onSelectPatternAsset,
@@ -327,6 +332,24 @@ export function PanelContentRenderer({
     );
   }
 
+  if (content.kind === "newsKeyword") {
+    return (
+      <Suspense fallback={<div className="workspace-panel-placeholder" role="status">뉴스 키워드를 불러오는 중입니다</div>}>
+        <NewsKeywordPanel
+          symbol={recommendationNewsKeywordLinked
+            ? selectedRecommendationSymbol ?? symbol.toUpperCase()
+            : symbol.toUpperCase()}
+          initialPayload={content.props}
+          sourcePanelId={content.id}
+          selectedAgentReferenceKeys={selectedAgentReferenceKeys}
+          emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
+          onAgentReferenceSelect={onAgentReferenceSelect}
+          onAgentAsk={onAgentAsk}
+        />
+      </Suspense>
+    );
+  }
+
   if (content.kind === "watchlistNews") {
     return (
       <Suspense fallback={<div className="workspace-panel-placeholder" role="status">관심 종목 뉴스를 불러오는 중입니다</div>}>
@@ -367,37 +390,39 @@ export function PanelContentRenderer({
     );
   }
 
-  if (content.kind === "popular") {
-    return <PopularStocksPanel items={marketItems} onSelectSymbol={onSelectSymbol} />;
+  if (content.kind === "indexCommentary") {
+    return (
+      <IndexCommentaryPanel
+        symbol={symbol.toUpperCase()}
+        recommendationSymbol={selectedRecommendation?.item.symbol}
+      />
+    );
   }
 
   if (content.kind === "recommendations") {
     return (
-      <StockRecommendationsPanel
+      <StockDiscoveryPanel
         activeSymbol={symbol.toUpperCase()}
         sourcePanelId={content.id}
-        selectedSymbol={selectedRecommendationSymbol}
-        selectedRecommendation={selectedRecommendation}
+        marketItems={marketItems}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onSelectReference={onSelectRecommendationReference}
-        initialSessionMode={recommendationSessionMode(content.props?.initialSessionMode)}
+        initialPopular={content.props?.initialPopular === true}
       />
     );
   }
 
   if (content.kind === "recommendationsList") {
     return (
-      <StockRecommendationsPanel
+      <StockDiscoveryPanel
         activeSymbol={symbol.toUpperCase()}
         sourcePanelId={content.id}
-        selectedSymbol={selectedRecommendationSymbol}
-        selectedRecommendation={selectedRecommendation}
+        marketItems={marketItems}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onSelectReference={onSelectRecommendationReference}
-        initialSessionMode={recommendationSessionMode(content.props?.initialSessionMode)}
-        variant="list"
+        initialPopular={content.props?.initialPopular === true}
       />
     );
   }
@@ -776,10 +801,6 @@ export function PanelContentRenderer({
       )}
     </div>
   );
-}
-
-function recommendationSessionMode(value: unknown): "pre" | "regular" | undefined {
-  return value === "pre" || value === "regular" ? value : undefined;
 }
 
 function normalizeChartType(value: string | undefined): ChartType {

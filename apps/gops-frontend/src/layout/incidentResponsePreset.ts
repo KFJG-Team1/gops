@@ -17,6 +17,7 @@ const incidentSymbolPanelKinds = new Set<PanelContentKind>([
   "chart",
   "compare",
   "company",
+  "indexCommentary",
   "companyMulti",
   "companyValuation",
   "companyProfitability",
