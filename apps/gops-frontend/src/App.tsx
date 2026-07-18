@@ -2042,15 +2042,17 @@ export function App() {
         agentReferenceChips={agentReferenceChips}
         isChartMode={mainView.mode === "chart"}
         layoutEditMode={layoutEditMode}
-        topDock={mainView.mode === "chart" ? (
+        topDock={
           <PresetDock
             controls={presetControls}
             onShowHome={showTreeMap}
             layoutEditMode={layoutEditMode}
             onEnterLayoutEdit={enterLayoutEditMode}
             onExitLayoutEdit={exitLayoutEditMode}
+            layoutEditDisabled={mainView.mode === "treemap"}
+            isHome={mainView.mode === "treemap"}
           />
-        ) : null}
+        }
         onAgentInputChange={setAgentInput}
         onAgentCancel={cancelActiveAgentRun}
         onAgentReferenceRemove={removeAgentReference}
