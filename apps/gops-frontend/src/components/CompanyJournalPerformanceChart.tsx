@@ -105,6 +105,8 @@ export function CompanyJournalPerformanceChart({
   const commonCompanyPoints = normalized.find((value) => value.tone === "company")?.points ?? [];
   const commonFrom = commonCompanyPoints[0]?.timestamp;
   const commonTo = commonCompanyPoints.at(-1)?.timestamp;
+  const hasRenderablePerformance = commonCompanyPoints.length >= 2 && commonFrom !== commonTo;
+  const hasFilteredSeries = normalized.length < series.filter((value) => value.candles.length > 0).length;
   const companyWindowCandles = (companySeries?.candles ?? []).filter((candle) => (
     (!commonFrom || candle.timestamp >= commonFrom) && (!commonTo || candle.timestamp <= commonTo)
   ));
@@ -129,7 +131,10 @@ export function CompanyJournalPerformanceChart({
     bottom: plotBottom
   };
   const yFor = (value: number) => plot.top + ((domain.max - value) / (domain.max - domain.min || 1)) * (plot.priceBottom - plot.top);
-  const xFor = (index: number, length: number) => plot.left + (index / Math.max(1, length - 1)) * (chartWidth - plot.left - plot.right);
+  const xFor = (index: number, length: number) => {
+    const plotWidth = chartWidth - plot.left - plot.right;
+    return length <= 1 ? plot.left + plotWidth / 2 : plot.left + (index / (length - 1)) * plotWidth;
+  };
   const ticks = makeTicks(domain.min, domain.max, 5);
   const periodLabel = normalized.length ? commonCoverageLabel(normalized) : "가격 이력 확인 중";
   const companyPerformance = normalized.find((value) => value.tone === "company") ?? normalized[0];
@@ -147,22 +152,24 @@ export function CompanyJournalPerformanceChart({
         </div>
         {previewEnabled && <em>DEV PREVIEW</em>}
       </header>
-      <div className="company-journal-performance-legend" aria-label="시장 대비 주가 범례">
-        {normalized.map((value) => <span key={value.symbol}><i className={value.tone} />{value.label}</span>)}
-        <span><i className="volume" />거래량</span>
-      </div>
-      {normalized.length ? (
+      {hasRenderablePerformance && (
+        <div className="company-journal-performance-legend" aria-label="시장 대비 주가 범례">
+          {normalized.map((value) => <span key={value.symbol}><i className={value.tone} />{value.label}</span>)}
+          <span><i className="volume" />거래량</span>
+        </div>
+      )}
+      {hasRenderablePerformance ? (
         <svg ref={chartRef} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${symbol}, S&P 500, 산업 기준 상대수익률과 거래량`}>
           {ticks.map((tick) => {
             const y = yFor(tick);
-            return <g key={tick}><line className="grid" x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text x={plot.left - 8} y={y + 4}>{formatAxis(tick)}</text></g>;
+            return <g key={tick}><line className="grid" x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="axis-value" x={0} y={y + 4}>{formatAxis(tick)}</text></g>;
           })}
           <line className="zero" x1={plot.left} x2={chartWidth - plot.right} y1={yFor(0)} y2={yFor(0)} />
           {volumePoints.map((candle, index) => {
             const x = xFor(index, volumePoints.length);
-            const slot = (chartWidth - plot.left - plot.right) / Math.max(1, volumePoints.length);
+            const bar = performanceVolumeBarGeometry(x, plot.left, chartWidth - plot.right, volumePoints.length);
             const height = (candle.volume / maxVolume) * (plot.bottom - plot.volumeTop);
-            return <rect key={candle.timestamp} className="volume" x={x - slot * 0.28} y={plot.bottom - height} width={Math.max(2, slot * 0.56)} height={height} rx={1.5}><title>{`${formatDate(candle.timestamp)} · 거래량 ${formatVolume(candle.volume)}`}</title></rect>;
+            return <rect key={candle.timestamp} className="volume" x={bar.x} y={plot.bottom - height} width={bar.width} height={height} rx={1.5}><title>{`${formatDate(candle.timestamp)} · 거래량 ${formatVolume(candle.volume)}`}</title></rect>;
           })}
           {normalized.map((value) => (
             <path key={value.symbol} className={`performance-line ${value.tone}`} d={linePath(value.points.map((point) => point.value), xFor, yFor)} />
@@ -189,25 +196,32 @@ export function CompanyJournalPerformanceChart({
           {status === "loading" ? "2년 가격 이력을 불러오는 중입니다." : "가격 이력이 충분하지 않아 시장 비교를 계산하지 않았습니다."}
         </div>
       )}
-      {status === "partial" && <p className="company-journal-performance-note">일부 비교 지수의 이력이 부족해 확인된 시계열만 표시합니다.</p>}
+      {hasRenderablePerformance && (status === "partial" || hasFilteredSeries) && <p className="company-journal-performance-note">일부 비교 지수의 이력이 부족해 확인된 시계열만 표시합니다.</p>}
     </section>
   );
 }
 
-function normalizePerformanceSeries(series: CompanyJournalPerformanceSeries[]) {
+export function normalizePerformanceSeries(series: CompanyJournalPerformanceSeries[]) {
   const available = series
-    .map((value) => ({ ...value, candles: [...value.candles].sort((left, right) => left.timestamp.localeCompare(right.timestamp)) }))
-    .filter((value) => value.candles.length > 0);
-  const commonStart = available.reduce((latest, value) => value.candles[0]!.timestamp > latest ? value.candles[0]!.timestamp : latest, "");
-  const commonEnd = available.reduce((earliest, value) => {
+    .map((value) => ({ ...value, candles: validPerformanceCandles(value.candles) }))
+    .filter((value) => value.candles.length >= 2);
+  const company = available.find((value) => value.tone === "company") ?? available[0];
+  if (!company) return [];
+  const minimumComparisonPoints = Math.max(2, Math.ceil(company.candles.length * 0.5));
+  const comparable = available.filter((value) => value === company || value.candles.filter((candle) => (
+    candle.timestamp >= company.candles[0]!.timestamp && candle.timestamp <= company.candles.at(-1)!.timestamp
+  )).length >= minimumComparisonPoints);
+  const commonStart = comparable.reduce((latest, value) => value.candles[0]!.timestamp > latest ? value.candles[0]!.timestamp : latest, "");
+  const commonEnd = comparable.reduce((earliest, value) => {
     const end = value.candles.at(-1)!.timestamp;
     return !earliest || end < earliest ? end : earliest;
   }, "");
-  return available.flatMap((value) => {
+  return comparable.flatMap((value) => {
     const candles = downsampleCandles(
       value.candles.filter((candle) => candle.timestamp >= commonStart && candle.timestamp <= commonEnd),
       64
     );
+    if (candles.length < 2 || candles[0]?.timestamp === candles.at(-1)?.timestamp) return [];
     const base = candles.find((candle) => Number.isFinite(candle.close) && candle.close !== 0)?.close;
     if (!base) return [];
     return [{
@@ -215,6 +229,25 @@ function normalizePerformanceSeries(series: CompanyJournalPerformanceSeries[]) {
       points: candles.map((candle) => ({ timestamp: candle.timestamp, value: (candle.close / base - 1) * 100 }))
     }];
   });
+}
+
+function validPerformanceCandles(candles: CandleDto[]) {
+  const byTimestamp = new Map<string, CandleDto>();
+  for (const candle of candles) {
+    if (!candle.timestamp || !Number.isFinite(candle.close) || candle.close === 0) continue;
+    byTimestamp.set(candle.timestamp, candle);
+  }
+  return [...byTimestamp.values()].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+}
+
+export function performanceVolumeBarGeometry(x: number, plotLeft: number, plotEnd: number, pointCount: number) {
+  const plotWidth = Math.max(0, plotEnd - plotLeft);
+  const slot = plotWidth / Math.max(1, pointCount - 1);
+  const width = Math.min(14, Math.max(2, slot * 0.56));
+  return {
+    x: Math.min(Math.max(plotLeft, x - width / 2), Math.max(plotLeft, plotEnd - width)),
+    width
+  };
 }
 
 function downsampleCandles(candles: CandleDto[], limit: number) {
@@ -275,15 +308,21 @@ function commonCoverageLabel(series: Array<{ points: Array<{ timestamp: string }
   const timestamps = series.flatMap((value) => value.points.map((point) => point.timestamp));
   if (!timestamps.length) return "가격 이력 확인 중";
   timestamps.sort();
-  return `${formatDate(timestamps[0]!)}–${formatDate(timestamps.at(-1)!)}`;
+  const from = timestamps[0]!;
+  const to = timestamps.at(-1)!;
+  const includeDay = formatDate(from) === formatDate(to);
+  return `${formatDate(from, includeDay)}–${formatDate(to, includeDay)}`;
 }
 
-function dateLabels(candles: CandleDto[]) {
+export function dateLabels(candles: CandleDto[]) {
   const sorted = [...candles].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
   if (!sorted.length) return [];
-  return [0, 0.5, 1].map((ratio) => {
-    const candle = sorted[Math.round(ratio * (sorted.length - 1))]!;
-    return { timestamp: candle.timestamp, ratio, label: formatDate(candle.timestamp) };
+  const indexes = [...new Set([0, Math.round((sorted.length - 1) / 2), sorted.length - 1])];
+  const monthLabels = indexes.map((index) => formatDate(sorted[index]!.timestamp));
+  const includeDay = new Set(monthLabels).size < monthLabels.length;
+  return indexes.map((index) => {
+    const candle = sorted[index]!;
+    return { timestamp: candle.timestamp, ratio: index / Math.max(1, sorted.length - 1), label: formatDate(candle.timestamp, includeDay) };
   });
 }
 
@@ -291,9 +330,11 @@ function formatAxis(value: number) {
   return `${value > 0 ? "+" : ""}${value.toFixed(0)}%`;
 }
 
-function formatDate(value: string) {
+function formatDate(value: string, includeDay = false) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : `${String(date.getUTCFullYear()).slice(2)}.${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  if (Number.isNaN(date.getTime())) return value;
+  const month = `${String(date.getUTCFullYear()).slice(2)}.${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  return includeDay ? `${month}.${String(date.getUTCDate()).padStart(2, "0")}` : month;
 }
 
 function formatVolume(value: number) {

@@ -1,3 +1,14 @@
+export type CompanyJournalAnalystAction = {
+  firm: string;
+  action: string;
+  fromGrade: string;
+  toGrade: string;
+  priorPriceTarget: number | null;
+  priceTarget: number | null;
+  actionAt: string;
+  source: string;
+};
+
 export type CompanyJournalReport = {
   contractVersion: string;
   symbol: string;
@@ -22,16 +33,7 @@ export type CompanyJournalReport = {
       recentWindowDays?: number;
       upgradeCount?: number;
       downgradeCount?: number;
-      recentActions?: Array<{
-        firm: string;
-        action: string;
-        fromGrade: string;
-        toGrade: string;
-        priorPriceTarget: number | null;
-        priceTarget: number | null;
-        actionAt: string;
-        source: string;
-      }>;
+      recentActions?: CompanyJournalAnalystAction[];
       latestConsensus?: Record<string, unknown> | null;
       previousConsensus?: Record<string, unknown> | null;
       consensusMeanTargetChangePercent?: number | null;

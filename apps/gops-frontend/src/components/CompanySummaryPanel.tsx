@@ -8,6 +8,18 @@ import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500Univ
 import { buildStockLogoUrl, stockLogoInitials } from "../market/stockLogo";
 import { CANVAS_FONT_FAMILY, TYPE_ROLE } from "../theme/typography";
 import { LogoDevAttribution } from "./StockLogo";
+import {
+  buildHistoricalValuationSeries,
+  financialPriceRequestRange,
+  perShareMetricsForPoint,
+  type FinancialChartPoint,
+  type FinancialPeriodMode,
+  type HistoricalValuationPoint,
+  type PerShareMetrics,
+  type ValuationPricePoint
+} from "./companyFinancialHistory";
+
+export type { FinancialChartPoint, FinancialPeriodMode, ValuationPricePoint } from "./companyFinancialHistory";
 
 type CompanySummaryPanelProps = {
   symbol: string;
@@ -23,8 +35,6 @@ type CompanySummaryPanelProps = {
 };
 
 export type CompanyPanelView = "info" | "current" | "growth" | "valuation" | "profitability" | "stability";
-export type FinancialPeriodMode = "quarterly" | "annual";
-export type ValuationPricePoint = { timestamp: string; close: number };
 
 const emptyValuationPriceFixture: ValuationPricePoint[] = [];
 
@@ -75,33 +85,6 @@ type EarningsChartPoint = {
   estimatedEps?: number | null;
   actualRevenue?: number | null;
   estimatedRevenue?: number | null;
-};
-
-type FinancialChartPoint = {
-  period: string;
-  periodEndDate?: string | null;
-  revenue?: number | null;
-  operatingIncome?: number | null;
-  netIncome?: number | null;
-  eps?: number | null;
-  totalAssets?: number | null;
-  totalLiabilities?: number | null;
-  totalEquity?: number | null;
-  currentAssets?: number | null;
-  currentLiabilities?: number | null;
-  cashAndCashEquivalents?: number | null;
-  interestExpense?: number | null;
-  operatingCashFlow?: number | null;
-  freeCashFlow?: number | null;
-  sharesOutstanding?: number | null;
-  debtRatio?: number | null;
-  currentLiabilityRatio?: number | null;
-  noncurrentLiabilityRatio?: number | null;
-  currentRatio?: number | null;
-  totalDebt?: number | null;
-  interestCoverage?: number | null;
-  financialCostBurdenRatio?: number | null;
-  netDebt?: number | null;
 };
 
 export type CompanyJournalEvidence = {
@@ -1631,14 +1614,6 @@ function PerShareIndicatorsChart({ points, selectedPeriod, onPeriodSelect }: Fin
   );
 }
 
-type HistoricalValuationPoint = {
-  financial: FinancialChartPoint;
-  close: number | null;
-  per: number | null;
-  pbr: number | null;
-  psr: number | null;
-};
-
 function HistoricalValuationChart({
   points,
   selectedPeriod,
@@ -1915,25 +1890,6 @@ function buildValuationMetrics(price: number | null | undefined, marketCap: numb
   ];
 }
 
-type PerShareMetrics = {
-  eps: number | null;
-  bps: number | null;
-  sps: number | null;
-  cps: number | null;
-};
-
-function perShareMetricsForPoint(point: FinancialChartPoint): PerShareMetrics {
-  const shares = Number.isFinite(point.sharesOutstanding ?? NaN) && (point.sharesOutstanding as number) > 0
-    ? point.sharesOutstanding
-    : null;
-  return {
-    eps: Number.isFinite(point.eps ?? NaN) ? point.eps as number : safeDivide(point.netIncome, shares),
-    bps: safeDivide(point.totalEquity, shares),
-    sps: safeDivide(point.revenue, shares),
-    cps: safeDivide(point.operatingCashFlow, shares)
-  };
-}
-
 function isRenderablePerSharePoint(point: FinancialChartPoint): boolean {
   const metrics = perShareMetricsForPoint(point);
   return [metrics.eps, metrics.bps, metrics.sps, metrics.cps].some((value) => Number.isFinite(value ?? NaN));
@@ -1955,56 +1911,6 @@ function buildPerShareTableRows(points: FinancialChartPoint[], periodMode: Finan
     buildRow("SPS", "sps", "sps"),
     buildRow("CPS", "cps", "cps")
   ];
-}
-
-function buildHistoricalValuationSeries(points: FinancialChartPoint[], prices: ValuationPricePoint[]): HistoricalValuationPoint[] {
-  const sortedPrices = prices
-    .filter((point) => Number.isFinite(point.close) && Number.isFinite(Date.parse(point.timestamp)))
-    .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
-  return points.map((financial) => {
-    const close = periodEndClose(financial.periodEndDate, sortedPrices);
-    const perShare = perShareMetricsForPoint(financial);
-    return {
-      financial,
-      close,
-      per: positiveMultiple(close, perShare.eps),
-      pbr: positiveMultiple(close, perShare.bps),
-      psr: positiveMultiple(close, perShare.sps)
-    };
-  });
-}
-
-function periodEndClose(periodEndDate: string | null | undefined, prices: ValuationPricePoint[]): number | null {
-  if (!periodEndDate) return null;
-  const targetDay = periodEndDate.slice(0, 10);
-  const target = Date.parse(`${targetDay}T00:00:00Z`);
-  if (!Number.isFinite(target)) return null;
-  const maximumGapMs = 10 * 24 * 60 * 60 * 1000;
-  for (let index = prices.length - 1; index >= 0; index -= 1) {
-    const price = prices[index]!;
-    const priceDay = price.timestamp.slice(0, 10);
-    const timestamp = Date.parse(`${priceDay}T00:00:00Z`);
-    if (priceDay <= targetDay && target - timestamp <= maximumGapMs) return price.close;
-  }
-  return null;
-}
-
-function positiveMultiple(numerator: number | null, denominator: number | null): number | null {
-  return numerator != null && denominator != null && numerator > 0 && denominator > 0
-    ? numerator / denominator
-    : null;
-}
-
-function financialPriceRequestRange(points: FinancialChartPoint[]): { from: string; to: string } | null {
-  const timestamps = points
-    .map((point) => point.periodEndDate ? Date.parse(point.periodEndDate) : NaN)
-    .filter(Number.isFinite);
-  if (!timestamps.length) return null;
-  const dayMs = 24 * 60 * 60 * 1000;
-  return {
-    from: new Date(Math.min(...timestamps) - 10 * dayMs).toISOString(),
-    to: new Date(Math.max(...timestamps) + 2 * dayMs).toISOString()
-  };
 }
 
 function buildProfitabilityDashboardRows(points: FinancialChartPoint[], periodMode: FinancialPeriodMode): FinancialTableRow[] {

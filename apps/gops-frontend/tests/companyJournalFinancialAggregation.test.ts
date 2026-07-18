@@ -4,10 +4,18 @@ import {
   aggregateQuarterlySeriesToAnnual,
   companyJournalAnnualHistory,
   companyJournalHistoryYears,
+  formatCompanyJournalAnalystOpinion,
+  mergeCompanyJournalValuationPrices,
   totalLiabilitiesFor
 } from "../src/components/CompanyJournalSummaryPanel";
-import { nearestFinancialYear } from "../src/components/CompanyJournalPanel";
+import { financialYearsForContext, nearestFinancialYear } from "../src/components/CompanyJournalPanel";
 import { buildCompanyJournalDiagnosis } from "../src/components/companyJournalDiagnosis";
+import { buildCompanyJournalReading } from "../src/components/companyJournalReading";
+import {
+  dateLabels,
+  normalizePerformanceSeries,
+  performanceVolumeBarGeometry
+} from "../src/components/CompanyJournalPerformanceChart";
 import { allGlossaryEntries } from "../src/glossary/stockGlossary";
 
 const annual = aggregateQuarterlySeriesToAnnual([
@@ -78,9 +86,103 @@ assert.equal(
 );
 
 assert.equal(companyJournalHistoryYears(2026), 6);
+assert.deepEqual(
+  mergeCompanyJournalValuationPrices(
+    [
+      { timestamp: "2024-12-31T05:00:00.000Z", close: 120 },
+      { timestamp: "2025-12-31T05:00:00.000Z", close: 150 }
+    ],
+    [
+      { timestamp: "2021-12-31T05:00:00.000Z", close: 80 },
+      { timestamp: "2024-12-31T20:00:00.000Z", close: 125 }
+    ]
+  ),
+  [
+    { timestamp: "2021-12-31T05:00:00.000Z", close: 80 },
+    { timestamp: "2024-12-31T20:00:00.000Z", close: 125 },
+    { timestamp: "2025-12-31T05:00:00.000Z", close: 150 }
+  ],
+  "stored evidence must supplement, not truncate, the full valuation price history"
+);
+
+const marketCandles = [
+  { timestamp: "2024-07-01T00:00:00.000Z", open: 100, high: 101, low: 99, close: 100, volume: 10, isClosed: true },
+  { timestamp: "2024-07-02T00:00:00.000Z", open: 100, high: 103, low: 99, close: 102, volume: 12, isClosed: true },
+  { timestamp: "2024-07-03T00:00:00.000Z", open: 102, high: 104, low: 101, close: 103, volume: 14, isClosed: true },
+  { timestamp: "2024-07-04T00:00:00.000Z", open: 103, high: 105, low: 102, close: 104, volume: 16, isClosed: true }
+];
+const normalizedWithSparseBenchmark = normalizePerformanceSeries([
+  { symbol: "MSFT", label: "MSFT", tone: "company", candles: marketCandles },
+  { symbol: "SPY", label: "S&P 500", tone: "benchmark", candles: marketCandles.slice(0, 1) },
+  { symbol: "XLK", label: "XLK", tone: "sector", candles: marketCandles }
+]);
+assert.deepEqual(normalizedWithSparseBenchmark.map((series) => series.symbol), ["MSFT", "XLK"]);
+assert.equal(normalizedWithSparseBenchmark[0]?.points.length, 4, "one sparse benchmark must not collapse the company history to one day");
+assert.deepEqual(
+  normalizePerformanceSeries([{ symbol: "MSFT", label: "MSFT", tone: "company", candles: marketCandles.slice(0, 1) }]),
+  [],
+  "a single market point must render the existing insufficient-data state"
+);
+assert.deepEqual(dateLabels(marketCandles.slice(0, 1)).map((label) => label.label), ["24.07"]);
+assert.deepEqual(dateLabels(marketCandles.slice(0, 2)).map((label) => label.label), ["24.07.01", "24.07.02"]);
+const singleBar = performanceVolumeBarGeometry(44, 44, 742, 1);
+assert.ok(singleBar.width <= 14);
+assert.ok(singleBar.x >= 44 && singleBar.x + singleBar.width <= 742, "volume bars must stay inside the plot bounds");
+const analystActionBase = {
+  firm: "JP모건",
+  action: "maintain",
+  fromGrade: "Overweight",
+  toGrade: "Overweight",
+  priorPriceTarget: 180,
+  priceTarget: 200,
+  actionAt: "2026-07-15 12:00:00.000",
+  source: "yahoo-finance"
+};
+assert.deepEqual(
+  formatCompanyJournalAnalystOpinion(analystActionBase, "마이크론"),
+  {
+    actionAt: "2026-07-15 12:00:00.000",
+    dateLabel: "2026년 7월 15일",
+    message: "JP모건은 Overweight 의견을 유지하면서 목표주가를 180달러에서 200달러로 높였습니다.",
+    tone: "neutral"
+  }
+);
+assert.equal(
+  formatCompanyJournalAnalystOpinion(
+    { ...analystActionBase, action: "upgrade", fromGrade: "Neutral", priorPriceTarget: 150, priceTarget: 180 },
+    "마이크론"
+  )?.message,
+  "JP모건은 마이크론의 투자의견을 Neutral에서 Overweight로 상향하고, 목표주가를 150달러에서 180달러로 높였습니다."
+);
+assert.equal(
+  formatCompanyJournalAnalystOpinion(
+    { ...analystActionBase, action: "downgrade", fromGrade: "Overweight", toGrade: "Neutral", priorPriceTarget: 200, priceTarget: 170 },
+    "마이크론"
+  )?.message,
+  "JP모건은 마이크론의 투자의견을 Overweight에서 Neutral로 하향하고, 목표주가를 200달러에서 170달러로 낮췄습니다."
+);
+assert.equal(
+  formatCompanyJournalAnalystOpinion(
+    { ...analystActionBase, priorPriceTarget: null, priceTarget: null },
+    "마이크론"
+  )?.message,
+  "JP모건은 Overweight 의견을 유지했습니다."
+);
+assert.equal(
+  formatCompanyJournalAnalystOpinion(
+    { ...analystActionBase, firm: "모건스탠리" },
+    "NVIDIA"
+  )?.message,
+  "모건스탠리는 Overweight 의견을 유지하면서 목표주가를 180달러에서 200달러로 높였습니다."
+);
 assert.equal(nearestFinancialYear({ text: "EPS 21년도 성장", matchedText: "EPS", startIndex: 0 }), 2021);
 const stabilityCopy = "2025년 기준 부채비율과 유동비율, 이자보상배율이 개선됐습니다.";
 assert.equal(nearestFinancialYear({ text: stabilityCopy, matchedText: "이자보상배율", startIndex: stabilityCopy.indexOf("이자보상배율") }), 2025);
+assert.deepEqual(
+  financialYearsForContext({ text: "2025년 EPS ↔ 2024년 EPS", matchedText: "EPS", startIndex: 6 }),
+  [2025, 2024],
+  "comparison copy must preserve both explicitly named years"
+);
 assert.deepEqual(
   companyJournalAnnualHistory([
     { period: "2020FY" },
@@ -126,6 +228,62 @@ assert.equal(diagnosis.signals.find((signal) => signal.view === "profitability")
 assert.equal(diagnosis.signals.find((signal) => signal.view === "stability")?.tone, "positive");
 assert.equal(diagnosis.statusLabel, "선별 확인");
 assert.match(diagnosis.summary, /가치/);
+const readingEvidence = {
+  financialPeriodMode: "annual" as const,
+  selectedFinancialPeriod: null,
+  financialSeries: [
+    { period: "2024FY", revenue: 80, operatingIncome: 16, netIncome: 12, totalAssets: 150, totalLiabilities: 60, totalEquity: 90, currentAssets: 60, currentLiabilities: 40, interestExpense: 4, totalDebt: 40, cashAndCashEquivalents: 20, sharesOutstanding: 10, eps: 1.2, freeCashFlow: 8 },
+    { period: "2025FY", revenue: 100, operatingIncome: 25, netIncome: 20, totalAssets: 180, totalLiabilities: 55, totalEquity: 125, currentAssets: 80, currentLiabilities: 35, interestExpense: 3, totalDebt: 35, cashAndCashEquivalents: 40, sharesOutstanding: 10, eps: 2, freeCashFlow: 15 }
+  ],
+  earningsSeries: [
+    { period: "2025Q4", actualEps: 2.2, estimatedEps: 2, actualRevenue: 105, estimatedRevenue: 100 }
+  ]
+};
+const readingItem = {
+  symbol: "NVDA",
+  companyName: "NVIDIA",
+  sector: "Information Technology",
+  industry: "Semiconductors",
+  marketCap: 1_000,
+  lastPrice: 100,
+  eps: 2,
+  totalEquity: 125,
+  revenue: 100,
+  freeCashFlow: 15,
+  changePercent: 1
+};
+const emptyReadingEvidence = {
+  financialPeriodMode: "annual" as const,
+  selectedFinancialPeriod: null,
+  financialSeries: [],
+  earningsSeries: []
+};
+const emptyReading = buildCompanyJournalReading({
+  view: "earnings",
+  item: readingItem,
+  evidence: emptyReadingEvidence,
+  diagnosis: buildCompanyJournalDiagnosis(readingItem, emptyReadingEvidence)
+});
+assert.equal(emptyReading.find((section) => section.id === "strengths")?.tone, "neutral");
+assert.doesNotMatch(emptyReading.map((section) => section.summary).join(" "), /현재 큰 재무 경고는 없|긍정 신호는 .*나타납니다/);
+assert.equal(emptyReading.find((section) => section.id === "comparisons")?.links.length, 0);
+const earningsReading = buildCompanyJournalReading({ view: "earnings", item: readingItem, evidence: readingEvidence, diagnosis });
+assert.deepEqual(earningsReading.map((section) => section.id), ["current-flow", "strengths", "risks", "comparisons", "judgment"]);
+assert.equal(earningsReading.filter((section) => section.kind === "judgment").length, 1);
+const earningsComparisons = earningsReading.find((section) => section.kind === "comparison")?.links ?? [];
+assert.ok(earningsComparisons.length <= 3);
+assert.ok(earningsComparisons.every((target) => target.years.length === 2));
+assert.deepEqual(earningsComparisons[0]?.years, [2025, 2024]);
+for (const view of ["valuation", "profitability", "stability"] as const) {
+  const reading = buildCompanyJournalReading({ view, item: readingItem, evidence: readingEvidence, diagnosis });
+  assert.deepEqual(reading.map((section) => section.id), ["current-state", "key-change", "comparisons", "impact", "judgment"]);
+  assert.equal(reading.filter((section) => section.kind === "judgment").length, 1);
+  assert.ok((reading.find((section) => section.kind === "comparison")?.links.length ?? 0) <= 3);
+}
+assert.doesNotMatch(
+  earningsReading.map((section) => `${section.summary} ${section.detail}`).join(" "),
+  /OpenAI|Bedrock|ClickHouse|저장소|소스 누락|데이터 복구/i
+);
 for (const glossaryId of ["current_ratio", "interest_coverage", "net_debt", "bps", "sps", "cps", "operating_margin", "net_margin", "roe", "fcf_margin"]) {
   assert.ok(allGlossaryEntries.some((item) => item.id === glossaryId), `${glossaryId} glossary entry must exist`);
 }
@@ -137,6 +295,8 @@ assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-b
 assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-reading[\s\S]*?overflow: visible/);
 assert.match(styles, /\.company-journal-evidence \{[\s\S]*?overflow-y: auto/);
 assert.match(styles, /\.company-journal-evidence \.company-valuation-dashboard,[\s\S]*?overflow: visible/);
+assert.match(styles, /\.company-journal-performance \{[\s\S]*?padding: 15px 0 4px/);
+assert.match(styles, /\.company-journal-performance svg text\.axis-value \{[\s\S]*?text-anchor: start/);
 assert.match(styles, /::-webkit-scrollbar-thumb[\s\S]*?background-clip: padding-box/);
 assert.match(styles, /\.workspace-panel-frame \.company-journal-panel :is\([\s\S]*?\.company-journal-evidence[\s\S]*?scrollbar-width: thin !important/);
 assert.match(styles, /::-webkit-scrollbar[\s\S]*?display: block !important/);
@@ -146,20 +306,38 @@ assert.match(styles, /\.company-journal-tabs button\.is-positive[\s\S]*?var\(--c
 assert.match(styles, /\.company-journal-tabs button\.is-negative[\s\S]*?var\(--color-down\)/);
 assert.match(styles, /\.company-journal-tab-signal[\s\S]*?background: var\(--company-journal-tab-signal\)/);
 assert.match(styles, /\.company-journal-insight-tags[\s\S]*?flex-wrap: wrap/);
+assert.match(styles, /\.company-journal-insight-tags > button/);
+assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-reading[\s\S]*?order: -1/);
 assert.match(styles, /\.company-financial-table td\.is-evidence-focus/);
 assert.match(styles, /\.company-financial-table td\.is-primary-evidence-focus/);
 assert.doesNotMatch(styles, /\.company-journal-diagnosis-row/);
 assert.match(journalPanelSource, /\["이자보상배율", "interest-coverage"\]/);
 assert.match(journalPanelSource, /nearestFinancialYear/);
 assert.match(journalPanelSource, /focusedFinancialYear/);
+assert.match(journalPanelSource, /comparisonFinancialYear/);
+assert.match(journalPanelSource, /selectReadingTarget/);
+assert.match(journalPanelSource, /onFinancialSelectionChange=\{clearMetricFocus\}/);
 assert.doesNotMatch(journalPanelSource, /previewEnabled \|\| hasStoredCompanyEvidence/);
 assert.match(journalSummarySource, /data-journal-stability-focus/);
 assert.match(journalSummarySource, /data-journal-financial-metric/);
 assert.match(journalSummarySource, /data-journal-financial-year/);
+assert.match(journalSummarySource, /focus\?\.periods\.includes/);
+assert.match(journalSummarySource, /comparisonPeriod/);
+assert.match(journalSummarySource, /onFinancialSelectionChange\?\.\(\)/);
+assert.match(journalSummarySource, /focusedMetric === "fcf-yield"/);
+assert.match(journalSummarySource, /company-stability-money-dot/);
 assert.match(journalSummarySource, /formatUsdCompactTable\(point\.revenue\)/);
 assert.match(journalSummarySource, /formatUsdCompactTable\(point\.netIncome\)/);
-assert.match(journalSummarySource, /"debt-ratio", "current-ratio", "interest-coverage", focusedMetric/);
+assert.match(journalSummarySource, /rowMarkers: \[focusedMetric as FinancialTableRow\["marker"\]\]/);
+assert.match(journalSummarySource, /focusedMetric === "current-ratio"[\s\S]*?focusedMetric === "interest-coverage"[\s\S]*?focusedMetric === "financial-cost-burden"/);
 assert.match(journalSummarySource, /const estimateX = x;\s*const actualX = x;/);
+assert.match(journalSummarySource, /company-earnings-analyst-opinion/);
 assert.doesNotMatch(journalSummarySource, /comparisonGap/);
+assert.match(
+  journalSummarySource,
+  /fetchCompanyFinancialSeries\(normalizedSymbol,[\s\S]*?years: companyJournalHistoryYears\(\),[\s\S]*?period: "quarterly"/,
+  "annual and quarterly journal views must share the same full quarterly source series"
+);
+assert.doesNotMatch(journalSummarySource, /period: financialPeriodMode/);
 
 console.log("company journal financial aggregation tests passed");

@@ -11,6 +11,7 @@ import {
 } from "./portfolioPerformanceApi";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 import { selectPortfolioHoldingSymbol, usePortfolioSelectedSymbol } from "./portfolioSelection";
+import "./PortfolioPerformanceChart.css";
 
 type SortMode = "custom" | "value" | "return";
 type AllocationMode = "asset" | "symbol" | "sector";
@@ -582,7 +583,7 @@ export function PortfolioPerformancePanel() {
 
   return (
     <section
-      className="portfolio-split-panel portfolio-performance-split-panel portfolio-dashboard-panel"
+      className="portfolio-split-panel portfolio-performance-split-panel portfolio-performance-panel-v2 portfolio-dashboard-panel"
       aria-label="포트폴리오 성과 패널"
     >
       <PortfolioSplitHeader
@@ -1265,44 +1266,52 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
 
   const portfolioPoints = response?.portfolio.points ?? [];
   const benchmarkPoints = response?.benchmark.points ?? [];
-  const normalizedMoneySeries = (key: "portfolioValue" | "holdingsCostBasis"): PerformanceChartPoint[] => {
-    const observed = portfolioPoints.flatMap((point) => {
-      const amount = point[key];
-      return typeof amount === "number" && Number.isFinite(amount) ? [{ time: point.time, amount }] : [];
-    });
-    const base = observed[0]?.amount;
-    if (base == null || base === 0) return [];
-    return observed.map((point) => ({ time: point.time, value: (point.amount / base - 1) * 100 }));
-  };
-  const portfolioValuePoints = normalizedMoneySeries("portfolioValue");
+  const moneySeries = (key: "portfolioValue" | "netInvestedPrincipal"): PerformanceChartPoint[] => portfolioPoints.flatMap((point) => {
+    const amount = point[key];
+    return typeof amount === "number" && Number.isFinite(amount) ? [{ time: point.time, value: amount }] : [];
+  });
+  const portfolioValuePoints = moneySeries("portfolioValue");
+  const principalPoints = moneySeries("netInvestedPrincipal");
   const reportedReturnPoints: PerformanceChartPoint[] = portfolioPoints.map((point) => ({
     time: point.time,
     value: point.returnPercent
   }));
-  const primaryPoints = portfolioValuePoints.length >= 2 ? portfolioValuePoints : reportedReturnPoints;
-  const principalPoints = normalizedMoneySeries("holdingsCostBasis");
   const benchmarkReturnPoints: PerformanceChartPoint[] = benchmarkPoints.map((point) => ({
     time: point.time,
     value: point.returnPercent
   }));
-  const allPoints = [...primaryPoints, ...principalPoints, ...benchmarkReturnPoints];
-  const portfolioPeriodReturn = primaryPoints.at(-1)?.value ?? null;
+  const benchmarkBaseValue = portfolioValuePoints[0]?.value;
+  const benchmarkValuePoints: PerformanceChartPoint[] = benchmarkBaseValue != null && benchmarkBaseValue > 0
+    ? benchmarkReturnPoints.map((point) => ({
+        time: point.time,
+        value: benchmarkBaseValue * (1 + point.value / 100)
+      }))
+    : [];
+  const hasMoneyHistory = portfolioValuePoints.length >= 2;
+  const displayedPortfolioPoints = hasMoneyHistory ? portfolioValuePoints : reportedReturnPoints;
+  const displayedPrincipalPoints = hasMoneyHistory ? principalPoints : [];
+  const displayedBenchmarkPoints = hasMoneyHistory ? benchmarkValuePoints : benchmarkReturnPoints;
+  const allPoints = [...displayedPortfolioPoints, ...displayedPrincipalPoints, ...displayedBenchmarkPoints];
+  const portfolioBaseValue = portfolioValuePoints[0]?.value;
+  const portfolioPeriodReturn = portfolioBaseValue != null && portfolioBaseValue !== 0 && portfolioValuePoints.at(-1)
+    ? (portfolioValuePoints.at(-1)!.value / portfolioBaseValue - 1) * 100
+    : reportedReturnPoints.at(-1)?.value ?? null;
   const benchmarkPeriodReturn = benchmarkReturnPoints.at(-1)?.value ?? null;
-  const latestPortfolioValue = [...portfolioPoints].reverse().find((point) => point.portfolioValue != null)?.portfolioValue ?? null;
-  const latestHoldingsCostBasis = [...portfolioPoints].reverse().find((point) => point.holdingsCostBasis != null)?.holdingsCostBasis ?? null;
+  const latestPortfolioValue = portfolioValuePoints.at(-1)?.value ?? null;
+  const latestNetPrincipal = principalPoints.at(-1)?.value ?? null;
   const width = 720;
   const height = 300;
-  const padding = { top: 18, right: 18, bottom: 34, left: 48 };
+  const padding = { top: 16, right: 18, bottom: 34, left: 64 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const timestamps = allPoints.map((point) => Date.parse(point.time)).filter(Number.isFinite);
   const values = allPoints.map((point) => point.value).filter(Number.isFinite);
   const minTime = timestamps.length ? Math.min(...timestamps) : 0;
   const maxTime = timestamps.length ? Math.max(...timestamps) : 1;
-  const rawMin = values.length ? Math.min(...values, 0) : 0;
-  const rawMax = values.length ? Math.max(...values, 0) : 1;
-  const valuePadding = Math.max((rawMax - rawMin) * 0.12, 0.5);
-  const minValue = rawMin - valuePadding;
+  const rawMin = values.length ? Math.min(...values, ...(hasMoneyHistory ? [] : [0])) : 0;
+  const rawMax = values.length ? Math.max(...values, ...(hasMoneyHistory ? [] : [0])) : 1;
+  const valuePadding = Math.max((rawMax - rawMin) * 0.14, Math.abs(rawMax || 1) * 0.012, 1);
+  const minValue = hasMoneyHistory ? Math.max(0, rawMin - valuePadding) : rawMin - valuePadding;
   const maxValue = rawMax + valuePadding;
   const valueSpan = maxValue - minValue || 1;
   const xFor = (time: string) => padding.left + ((Date.parse(time) - minTime) / Math.max(maxTime - minTime, 1)) * chartWidth;
@@ -1318,24 +1327,10 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
   const xTicks = timestamps.length
     ? [0, 0.25, 0.5, 0.75, 1].map((ratio) => minTime + (maxTime - minTime) * ratio)
     : [];
-  const hasChart = response?.status === "ready" && primaryPoints.length >= 2;
+  const hasChart = response?.status === "ready" && displayedPortfolioPoints.length >= 2;
 
   return (
-    <div className="portfolio-terminal-chart portfolio-performance-chart">
-      <div className="portfolio-performance-range-tabs" role="tablist" aria-label="성과 기간">
-        {portfolioPerformanceRanges.map((item) => (
-          <button
-            key={item.value}
-            type="button"
-            role="tab"
-            aria-selected={range === item.value}
-            className={range === item.value ? "active" : ""}
-            onClick={() => setRange(item.value)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+    <div className="portfolio-terminal-chart portfolio-performance-chart portfolio-performance-chart-v2">
       {loading ? (
         <div className="portfolio-chart-empty"><LoaderCircle size={18} className="spin" /><span>성과 추이를 불러오는 중입니다</span></div>
       ) : error ? (
@@ -1344,49 +1339,69 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
         <div className="portfolio-chart-empty"><span>성과 이력이 두 시점 이상 쌓이면 표시합니다</span></div>
       ) : (
         <>
-          <div className="portfolio-performance-return-summary" aria-label="선택 기간 평가금과 수익률">
-            <span>
-              <i className="portfolio" />평가금
-              <strong className={directionClass(portfolioPeriodReturn)}>
-                {latestPortfolioValue != null ? `${formatPanelMoney(latestPortfolioValue, "USD")} · ` : ""}{formatSignedPercentPlain(portfolioPeriodReturn)}
-              </strong>
-            </span>
-            <span title="입출금 원장이 아닌 현재 보유 종목의 매입원가입니다.">
-              <i className="principal" />보유 원금
-              <strong className="neutral">{formatPanelMoney(latestHoldingsCostBasis, "USD")}</strong>
-            </span>
-            <span>
-              <i className="benchmark" />S&amp;P 500
-              <strong className={directionClass(benchmarkPeriodReturn)}>{formatSignedPercentPlain(benchmarkPeriodReturn)}</strong>
-            </span>
+          <div className="portfolio-performance-toolbar">
+            <div className="portfolio-performance-return-summary" aria-label={hasMoneyHistory ? "선택 기간 평가금, 투자 원금과 S&P 500" : "선택 기간 수익률과 S&P 500"}>
+              <span>
+                <i className="portfolio" />평가금
+                <strong className={directionClass(portfolioPeriodReturn)}>
+                  {latestPortfolioValue != null ? `${formatPanelMoney(latestPortfolioValue, "USD")} · ` : ""}{formatSignedPercentPlain(portfolioPeriodReturn)}
+                </strong>
+              </span>
+              {latestNetPrincipal != null && (
+                <span title="가상계좌 시작 원금입니다. 매수·매도에는 변하지 않고 계좌 초기화 시 갱신됩니다.">
+                  <i className="principal" />투자 원금
+                  <strong className="neutral">{formatPanelMoney(latestNetPrincipal, "USD")}</strong>
+                </span>
+              )}
+              <span>
+                <i className="benchmark" />S&amp;P 500
+                <strong className={directionClass(benchmarkPeriodReturn)}>{formatSignedPercentPlain(benchmarkPeriodReturn)}</strong>
+              </span>
+            </div>
+            <div className="portfolio-performance-range-tabs" role="tablist" aria-label="성과 기간">
+              {portfolioPerformanceRanges.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={range === item.value}
+                  className={range === item.value ? "active" : ""}
+                  onClick={() => setRange(item.value)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={`${range} 평가금, 보유 원금, S&P 500 변화율 비교`}>
+          <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={hasMoneyHistory ? `${range} 평가금, 투자 원금과 S&P 500 비교 평가금` : `${range} 포트폴리오와 S&P 500 수익률`}>
             {yTicks.map((tick) => {
               const y = yFor(tick);
               return (
                 <g key={tick}>
                   <line x1={padding.left} x2={width - padding.right} y1={y} y2={y} className="portfolio-terminal-grid-line" />
-                  <text x={padding.left - 8} y={y + 4} textAnchor="end" className="portfolio-terminal-axis-label">{formatAxisPercent(tick)}</text>
+                  <text x={padding.left - 8} y={y + 4} textAnchor="end" className="portfolio-terminal-axis-label">{hasMoneyHistory ? formatCompactMoney(tick, "USD") : formatAxisPercent(tick)}</text>
                 </g>
               );
             })}
-            <line x1={padding.left} x2={width - padding.right} y1={yFor(0)} y2={yFor(0)} className="portfolio-terminal-zero-line" />
-            <path d={pathFor(primaryPoints)} className="portfolio-performance-return-line portfolio" />
-            {principalPoints.length >= 2 && <path d={stepPathFor(principalPoints)} className="portfolio-performance-return-line principal" />}
-            {benchmarkReturnPoints.length >= 2 && <path d={pathFor(benchmarkReturnPoints)} className="portfolio-performance-return-line benchmark" />}
-            {primaryPoints.at(-1) && (
-              <circle cx={xFor(primaryPoints.at(-1)!.time)} cy={yFor(primaryPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point portfolio">
-                <title>{`평가금 ${formatPanelMoney(latestPortfolioValue, "USD")} · ${formatSignedPercentPlain(portfolioPeriodReturn)}`}</title>
+            {!hasMoneyHistory && (
+              <line x1={padding.left} x2={width - padding.right} y1={yFor(0)} y2={yFor(0)} className="portfolio-terminal-zero-line" />
+            )}
+            <path d={pathFor(displayedPortfolioPoints)} className="portfolio-performance-return-line portfolio" />
+            {displayedPrincipalPoints.length >= 2 && <path d={stepPathFor(displayedPrincipalPoints)} className="portfolio-performance-return-line principal" />}
+            {displayedBenchmarkPoints.length >= 2 && <path d={pathFor(displayedBenchmarkPoints)} className="portfolio-performance-return-line benchmark" />}
+            {displayedPortfolioPoints.at(-1) && (
+              <circle cx={xFor(displayedPortfolioPoints.at(-1)!.time)} cy={yFor(displayedPortfolioPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point portfolio">
+                <title>{hasMoneyHistory ? `평가금 ${formatPanelMoney(latestPortfolioValue, "USD")} · ${formatSignedPercentPlain(portfolioPeriodReturn)}` : `포트폴리오 ${formatSignedPercentPlain(portfolioPeriodReturn)}`}</title>
               </circle>
             )}
-            {principalPoints.at(-1) && (
-              <circle cx={xFor(principalPoints.at(-1)!.time)} cy={yFor(principalPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point principal">
-                <title>{`보유 원금 ${formatPanelMoney(latestHoldingsCostBasis, "USD")} · ${formatSignedPercentPlain(principalPoints.at(-1)!.value)}`}</title>
+            {displayedPrincipalPoints.at(-1) && (
+              <circle cx={xFor(displayedPrincipalPoints.at(-1)!.time)} cy={yFor(displayedPrincipalPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point principal">
+                <title>{`투자 원금 ${formatPanelMoney(latestNetPrincipal, "USD")}`}</title>
               </circle>
             )}
-            {benchmarkReturnPoints.at(-1) && (
-              <circle cx={xFor(benchmarkReturnPoints.at(-1)!.time)} cy={yFor(benchmarkReturnPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point benchmark">
-                <title>{`S&P 500 ${formatSignedPercentPlain(benchmarkPeriodReturn)}`}</title>
+            {displayedBenchmarkPoints.at(-1) && (
+              <circle cx={xFor(displayedBenchmarkPoints.at(-1)!.time)} cy={yFor(displayedBenchmarkPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point benchmark">
+                <title>{hasMoneyHistory ? `S&P 500 비교 평가금 ${formatPanelMoney(displayedBenchmarkPoints.at(-1)!.value, "USD")} · ${formatSignedPercentPlain(benchmarkPeriodReturn)}` : `S&P 500 ${formatSignedPercentPlain(benchmarkPeriodReturn)}`}</title>
               </circle>
             )}
             {xTicks.map((tick, index) => (
@@ -1395,11 +1410,6 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
               </text>
             ))}
           </svg>
-          <div className="portfolio-terminal-chart-legend">
-            <span><i className="portfolio" />평가금 변화</span>
-            <span title="현재 보유 종목의 매입원가 변화"><i className="principal" />보유 원금</span>
-            <span><i className="benchmark" />S&amp;P 500</span>
-          </div>
         </>
       )}
     </div>

@@ -26,10 +26,16 @@ import {
 import {
   fetchCompanyJournal,
   fetchCompanyJournalEvidence,
+  type CompanyJournalAnalystAction,
   type CompanyJournalEvidenceResponse,
   type CompanyJournalReport
 } from "./companyJournalApi";
 import { buildCompanyJournalDiagnosis } from "./companyJournalDiagnosis";
+import {
+  buildCompanyJournalReading,
+  type CompanyJournalReadingSection,
+  type CompanyJournalReadingTarget
+} from "./companyJournalReading";
 
 type CompanyJournalView = Extract<CompanyPanelView, "profitability" | "stability" | "valuation"> | "earnings";
 type CompanyJournalStatus = "loading" | "ready" | "pending" | "error" | "simulation_unavailable";
@@ -119,6 +125,19 @@ const companyJournalPreviewValuationPrices: ValuationPricePoint[] = [
   { timestamp: "2026-06-30T00:00:00Z", close: 194.72 }
 ];
 
+const companyJournalPreviewAnalystActions: readonly CompanyJournalAnalystAction[] = [
+  {
+    firm: "모건스탠리",
+    action: "maintain",
+    fromGrade: "Overweight",
+    toGrade: "Overweight",
+    priorPriceTarget: 200,
+    priceTarget: 220,
+    actionAt: "2026-07-16T13:00:00Z",
+    source: "dev-preview"
+  }
+];
+
 export function CompanyJournalPanel({
   symbol,
   item,
@@ -163,6 +182,7 @@ export function CompanyJournalPanel({
   const [focusedStabilityMetric, setFocusedStabilityMetric] = useState<string | null>(null);
   const [focusedFinancialMetric, setFocusedFinancialMetric] = useState<string | null>(null);
   const [focusedFinancialYear, setFocusedFinancialYear] = useState<number | null>(null);
+  const [comparisonFinancialYear, setComparisonFinancialYear] = useState<number | null>(null);
   const [financialPeriodMode, setFinancialPeriodMode] = useState<FinancialPeriodMode>("annual");
   const [selectedInsightId, setSelectedInsightId] = useState("");
   const [journalReport, setJournalReport] = useState<CompanyJournalReport | null>(null);
@@ -255,78 +275,65 @@ export function CompanyJournalPanel({
       : buildStoredJournalOverview(journalReport, journalStatus, deterministicOverview.headline),
     [deterministicOverview, journalReport, journalStatus, previewEnabled]
   );
-  const narrative = useMemo(
-    () => previewEnabled
-      ? buildJournalNarrative(activeView, normalizedSymbol, effectiveItem, evidence)
-      : buildStoredJournalNarrative(activeView, journalReport, journalStatus),
-    [activeView, effectiveItem, evidence, journalReport, journalStatus, normalizedSymbol, previewEnabled]
+  const readingInsights = useMemo(
+    () => buildCompanyJournalReading({
+      view: activeView,
+      item: effectiveItem,
+      evidence,
+      diagnosis
+    }),
+    [activeView, diagnosis, effectiveItem, evidence]
   );
-  const insights = useMemo(
-    () => buildJournalInsights({
-      activeView,
-      report: journalReport,
-      status: journalStatus,
-      previewEnabled,
-      companyName: effectiveItem?.companyName || normalizedSymbol,
-      narrative
-    }).map((insight) => ({
-      ...insight,
-      evidenceTargets: journalEvidenceTargets(activeView, insight.id)
-    })),
-    [activeView, effectiveItem?.companyName, journalReport, journalStatus, narrative, normalizedSymbol, previewEnabled]
-  );
-  const readingInsights = useMemo(() => {
-    const activeSignal = diagnosis.signals.find((signal) => signal.view === activeView);
-    const movementTags = activeView === "earnings"
-      ? splitInsightTags(insights.find((insight) => insight.id === "movement")?.lead)
-      : [];
-    const primaryTags = Array.from(new Set([...(activeSignal?.metrics ?? []), ...movementTags]));
-    return insights
-      .filter((insight) => (
-        (activeView === "earnings" && insight.id === "movement")
-        || insight.id === "tab-focus"
-        || insight.id === "summary"
-        || insight.id === "first-check"
-      ))
-      .map((insight) => ({
-        ...insight,
-        title: insight.id === "movement"
-          ? "최근 시장·기관 의견"
-          : insight.id === "tab-focus"
-            ? `${journalViewLabel(activeView)} 핵심`
-            : insight.id === "summary"
-              ? "GOPS AI 판단"
-              : "다음으로 볼 지표",
-        tags: insight.id === "tab-focus" ? primaryTags : splitInsightTags(insight.lead)
-      }));
-  }, [activeView, diagnosis.signals, insights]);
-  const selectedInsight = insights.find((insight) => insight.id === selectedInsightId);
-  const activeEvidenceTargets = selectedInsight?.evidenceTargets ?? [];
-  const selectView = useCallback((view: CompanyJournalView) => {
-    setActiveView(view);
+  const selectedInsight = readingInsights.find((insight) => insight.id === selectedInsightId);
+  const hasExplicitFocus = Boolean(focusedFinancialMetric || focusedValuationMetric || focusedStabilityMetric);
+  const activeEvidenceTargets = hasExplicitFocus || !selectedInsight
+    ? []
+    : readingEvidenceTargets(activeView, selectedInsight.id);
+  const clearMetricFocus = useCallback(() => {
     setFocusedValuationMetric(null);
     setFocusedStabilityMetric(null);
     setFocusedFinancialMetric(null);
     setFocusedFinancialYear(null);
-    setSelectedInsightId("");
+    setComparisonFinancialYear(null);
   }, []);
+  const changeFinancialPeriodMode = useCallback((mode: FinancialPeriodMode) => {
+    clearMetricFocus();
+    setFinancialPeriodMode(mode);
+  }, [clearMetricFocus]);
+  const selectView = useCallback((view: CompanyJournalView) => {
+    setActiveView(view);
+    clearMetricFocus();
+    setSelectedInsightId("");
+  }, [clearMetricFocus]);
   const selectInsightTerm = useCallback((entry: GlossaryEntry, context: GlossarySelectionContext) => {
     const target = journalGlossaryTarget(entry.term);
     if (!target) return false;
-    const year = nearestFinancialYear(context);
+    const years = financialYearsForContext(context);
     setActiveView(target.view);
     setFocusedValuationMetric(target.valuationMetric ?? null);
     setFocusedStabilityMetric(target.stabilityMetric ?? null);
     setFocusedFinancialMetric(target.financialMetric ?? target.stabilityMetric ?? target.valuationMetric ?? null);
-    setFocusedFinancialYear(year);
-    setSelectedInsightId("tab-focus");
+    setFocusedFinancialYear(years[0] ?? null);
+    setComparisonFinancialYear(years[1] ?? null);
+    if (years.length > 0) setFinancialPeriodMode("annual");
     return true;
   }, []);
-  const highlightInsight = useCallback((insight: JournalInsight) => {
+  const selectReadingTarget = useCallback((target: CompanyJournalReadingTarget, insightId: string) => {
+    const isValuationMultiple = ["per", "pbr", "psr", "fcf-yield"].includes(target.metric);
+    setActiveView(target.view);
+    setFocusedValuationMetric(target.view === "valuation" && isValuationMultiple ? target.metric : null);
+    setFocusedStabilityMetric(target.view === "stability" ? target.metric : null);
+    setFocusedFinancialMetric(target.metric);
+    setFocusedFinancialYear(target.years[0] ?? null);
+    setComparisonFinancialYear(target.years[1] ?? null);
+    if (target.years.length > 0) setFinancialPeriodMode("annual");
+    setSelectedInsightId(insightId);
+  }, []);
+  const highlightInsight = useCallback((insight: CompanyJournalReadingSection) => {
     const opening = selectedInsightId !== insight.id;
     setSelectedInsightId(opening ? insight.id : "");
     if (!opening) return;
-    const primaryTarget = insight.evidenceTargets[0];
+    const primaryTarget = readingEvidenceTargets(activeView, insight.id)[0];
     if (!primaryTarget) return;
     window.requestAnimationFrame(() => {
       const target = evidencePanelRef.current?.querySelector(`[data-journal-mark="${primaryTarget}"]`);
@@ -354,7 +361,7 @@ export function CompanyJournalPanel({
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
       });
     });
-  }, [selectedInsightId]);
+  }, [activeView, selectedInsightId]);
   useEffect(() => {
     if (activeView !== "valuation" || !focusedValuationMetric) return;
     const frame = window.requestAnimationFrame(() => {
@@ -389,9 +396,18 @@ export function CompanyJournalPanel({
         left: container.scrollLeft,
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
       });
+      const table = target.closest<HTMLElement>(".company-financial-table-wrap");
+      if (table) {
+        const left = target.offsetLeft - Math.max(0, (table.clientWidth - target.offsetWidth) / 2);
+        table.scrollTo({
+          left: Math.max(0, left),
+          top: table.scrollTop,
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+        });
+      }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeView, focusedFinancialMetric, focusedFinancialYear]);
+  }, [activeView, evidence.financialSeries.length, focusedFinancialMetric, focusedFinancialYear]);
 
   return (
     <section className="company-journal-panel" aria-label={`${normalizedSymbol} AI 기업저널`}>
@@ -431,8 +447,8 @@ export function CompanyJournalPanel({
           })}
         </div>
         <div className="company-journal-period-toggle" role="group" aria-label="재무 표시 기간">
-          <button type="button" aria-pressed={financialPeriodMode === "annual"} onClick={() => setFinancialPeriodMode("annual")}>연간</button>
-          <button type="button" aria-pressed={financialPeriodMode === "quarterly"} onClick={() => setFinancialPeriodMode("quarterly")}>분기</button>
+          <button type="button" aria-pressed={financialPeriodMode === "annual"} onClick={() => changeFinancialPeriodMode("annual")}>연간</button>
+          <button type="button" aria-pressed={financialPeriodMode === "quarterly"} onClick={() => changeFinancialPeriodMode("quarterly")}>분기</button>
         </div>
       </div>
 
@@ -456,14 +472,19 @@ export function CompanyJournalPanel({
                 items={items}
                 view="valuation"
                 valuationContent="earnings"
-                valuationPriceFixture={previewEnabled ? companyJournalPreviewValuationPrices : storedValuationPrices}
+                valuationPriceSeries={previewEnabled ? companyJournalPreviewValuationPrices : storedValuationPrices}
                 onEvidenceChange={onEvidenceChange}
                 disableRemoteFetch={previewEnabled}
                 journalPresentation
                 focusedFinancialMetric={focusedFinancialMetric}
                 focusedFinancialYear={focusedFinancialYear}
+                comparisonFinancialYear={comparisonFinancialYear}
                 financialPeriodMode={financialPeriodMode}
                 onFinancialPeriodModeChange={setFinancialPeriodMode}
+                onFinancialSelectionChange={clearMetricFocus}
+                analystActions={previewEnabled
+                  ? companyJournalPreviewAnalystActions
+                  : journalReport?.serverMetrics.analystOutlook?.recentActions}
               />
               <CompanyJournalPerformanceChart
                 symbol={normalizedSymbol}
@@ -481,7 +502,7 @@ export function CompanyJournalPanel({
               view={activeView}
               valuationContent={activeView === "valuation" ? "valuation" : "combined"}
               stabilityContent={activeView === "stability" ? "stability-dashboard" : "stability"}
-              valuationPriceFixture={previewEnabled ? companyJournalPreviewValuationPrices : storedValuationPrices}
+              valuationPriceSeries={previewEnabled ? companyJournalPreviewValuationPrices : storedValuationPrices}
               onEvidenceChange={onEvidenceChange}
               disableRemoteFetch={previewEnabled}
               journalPresentation
@@ -489,8 +510,10 @@ export function CompanyJournalPanel({
               focusedStabilityMetric={activeView === "stability" ? focusedStabilityMetric : null}
               focusedFinancialMetric={focusedFinancialMetric}
               focusedFinancialYear={focusedFinancialYear}
+              comparisonFinancialYear={comparisonFinancialYear}
               financialPeriodMode={financialPeriodMode}
               onFinancialPeriodModeChange={setFinancialPeriodMode}
+              onFinancialSelectionChange={clearMetricFocus}
             />
           )}
         </div>
@@ -500,9 +523,9 @@ export function CompanyJournalPanel({
             <JournalInsightSection
               key={insight.id}
               insight={insight}
-      selected={selectedInsightId === insight.id}
+              selected={selectedInsightId === insight.id}
               onHighlight={() => highlightInsight(insight)}
-              onAction={selectView}
+              onTarget={(target) => selectReadingTarget(target, insight.id)}
               onTermSelect={selectInsightTerm}
             />
           ))}
@@ -516,80 +539,62 @@ function JournalInsightSection({
   insight,
   selected,
   onHighlight,
-  onAction,
+  onTarget,
   onTermSelect
 }: {
-  insight: JournalInsight;
+  insight: CompanyJournalReadingSection;
   selected: boolean;
   onHighlight: () => void;
-  onAction: (view: CompanyJournalView) => void;
+  onTarget: (target: CompanyJournalReadingTarget) => void;
   onTermSelect: (entry: GlossaryEntry, context: GlossarySelectionContext) => boolean;
 }) {
+  const detailId = `company-journal-insight-${insight.id}`;
   return (
     <section
-      className={`company-journal-insight ${selected ? "is-selected" : ""}`}
-      tabIndex={0}
-      aria-label={`${insight.title} 설명과 관련 차트 보기`}
-      onClick={onHighlight}
-      role="button"
-      aria-expanded={selected}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        onHighlight();
-      }}
+      className={`company-journal-insight is-${insight.tone} ${selected ? "is-selected" : ""}`}
+      data-insight-kind={insight.kind}
     >
-      <h3>{insight.title}</h3>
-      {insight.tags && insight.tags.length > 0 && (
+      <button
+        type="button"
+        className="company-journal-insight-disclosure"
+        aria-expanded={selected}
+        aria-controls={detailId}
+        onClick={onHighlight}
+      >
+        <span>
+          <h3>{insight.title}</h3>
+          <strong className="company-journal-insight-emphasis">{insight.summary}</strong>
+        </span>
+        <i aria-hidden="true" />
+      </button>
+      {insight.links.length > 0 && (
         <div className="company-journal-insight-tags" aria-label={`${insight.title} 핵심 지표`}>
-          {insight.tags.map((tag) => (
-            <span
-              key={tag}
-              title="관련 차트에서 보기"
+          {insight.links.map((target) => (
+            <button
+              key={`${target.view}-${target.metric}-${target.label}`}
+              type="button"
+              title="관련 차트와 표에서 보기"
+              onClick={() => onTarget(target)}
             >
-              <GlossaryText text={tag} onTermSelect={onTermSelect} />
-            </span>
+              {target.label}
+            </button>
           ))}
         </div>
       )}
-      {insight.emphasis && (
-        <strong className="company-journal-insight-emphasis"><GlossaryText text={insight.emphasis} onTermSelect={onTermSelect} /></strong>
-      )}
-      {selected && insight.text && <p><GlossaryText text={compactInsightText(insight.text)} onTermSelect={onTermSelect} /></p>}
-      {selected && insight.evidenceTargets.length > 0 && (
-        <span className="company-journal-insight-evidence-hint">
-          차트에 표시 중
-        </span>
-      )}
-      {insight.actions && insight.actions.length > 0 && (
-        <div className="company-journal-insight-actions" aria-label="관련 기업분석 화면">
-          {insight.actions.map((action) => (
-            <button
-              key={action.targetView}
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onAction(action.targetView);
-              }}
-            >
-              {action.label}
-            </button>
-          ))}
+      {selected && (
+        <div id={detailId} className="company-journal-insight-detail">
+          <p><GlossaryText text={compactInsightText(insight.detail)} onTermSelect={onTermSelect} /></p>
+          {insight.missingNote && <small>{insight.missingNote}</small>}
+          <span className="company-journal-insight-evidence-hint">관련 근거가 차트와 표에 표시됩니다</span>
         </div>
       )}
     </section>
   );
 }
 
-function splitInsightTags(value: string | undefined): string[] {
-  return value
-    ? value.split("·").map((tag) => tag.trim()).filter(Boolean).slice(0, 6)
-    : [];
-}
-
 function compactInsightText(value: string): string {
   const sentences = value.replace(/([.!?])\s+/g, "$1\n").split("\n").map((sentence) => sentence.trim()).filter(Boolean);
-  return sentences.slice(0, 2).join(" ") || value;
+  return sentences.slice(0, 3).join(" ") || value;
 }
 
 function journalGlossaryTarget(term: string): {
@@ -611,25 +616,39 @@ function journalGlossaryTarget(term: string): {
   if (perShareMetric) return { view: "valuation", financialMetric: perShareMetric };
   const profitabilityMetric = new Map([
     ["매출", "revenue"],
+    ["매출액", "revenue"],
     ["영업이익률", "operating-margin"],
     ["순이익률", "net-margin"],
+    ["당기순이익", "net-income"],
     ["ROE", "roe"],
     ["ROA", "roa"],
-    ["FCF Margin", "fcf-margin"]
+    ["FCF Margin", "fcf-margin"],
+    ["영업현금흐름", "operating-cash-flow"],
+    ["잉여현금흐름", "free-cash-flow"]
   ]).get(term);
   if (profitabilityMetric) return { view: "profitability", financialMetric: profitabilityMetric };
   const stabilityMetric = new Map([
+    ["총자본", "equity"],
+    ["총부채", "liabilities"],
     ["부채비율", "debt-ratio"],
+    ["유동부채비율", "current-liability-ratio"],
+    ["비유동부채비율", "noncurrent-liability-ratio"],
     ["유동비율", "current-ratio"],
+    ["이자발생부채", "total-debt"],
     ["이자보상배율", "interest-coverage"],
+    ["금융비용부담률", "financial-cost-burden"],
     ["순부채", "net-debt"]
   ]).get(term);
-  if (stabilityMetric) return { view: "stability", stabilityMetric };
+  if (stabilityMetric) return { view: "stability", stabilityMetric, financialMetric: stabilityMetric };
   return null;
 }
 
 export function nearestFinancialYear(context: GlossarySelectionContext): number | null {
-  const matches = Array.from(context.text.matchAll(/(?:FY\s*)?(20\d{2}|\d{2})\s*(?:년(?:도)?|년도)?/gi))
+  return financialYearsForContext(context)[0] ?? null;
+}
+
+export function financialYearsForContext(context: GlossarySelectionContext): number[] {
+  const matches = Array.from(context.text.matchAll(/(?:FY\s*)?(20\d{2}|\d{2})\s*(?:년(?:도)?|년도|FY)?/gi))
     .filter((match) => /FY/i.test(match[0]) || /년/.test(match[0]))
     .map((match) => {
       const rawYear = Number(match[1]);
@@ -641,10 +660,22 @@ export function nearestFinancialYear(context: GlossarySelectionContext): number 
     })
     .filter((match) => match.year >= 2000 && match.year <= 2100)
     .sort((left, right) => left.distance - right.distance);
-  return matches[0]?.year ?? null;
+  return Array.from(new Set(matches.map((match) => match.year))).slice(0, 2);
 }
 
-function buildJournalInsights({
+function readingEvidenceTargets(view: CompanyJournalView, insightId: string): JournalEvidenceTarget[] {
+  if (view === "earnings") {
+    if (insightId === "current-flow" || insightId === "judgment") return ["earnings-latest", "market-latest"];
+    if (insightId === "strengths") return ["earnings-latest", "profitability-latest"];
+    if (insightId === "risks") return ["valuation-latest", "stability-ratios-latest"];
+    return [];
+  }
+  if (view === "valuation") return insightId === "judgment" ? ["per-share-latest", "valuation-latest"] : ["valuation-latest"];
+  if (view === "profitability") return insightId === "judgment" ? ["profitability-latest", "returns-latest"] : ["profitability-latest"];
+  return insightId === "judgment" ? ["stability-capital-latest", "stability-ratios-latest"] : ["stability-ratios-latest"];
+}
+
+export function buildJournalInsights({
   activeView,
   report,
   status,
@@ -813,7 +844,7 @@ function buildJournalInsights({
   ];
 }
 
-function journalEvidenceTargets(view: CompanyJournalView, insightId: string): JournalEvidenceTarget[] {
+export function journalEvidenceTargets(view: CompanyJournalView, insightId: string): JournalEvidenceTarget[] {
   if (view === "earnings") {
     if (insightId === "movement") return ["market-latest"];
     if (insightId === "tab-focus" || insightId === "watch") return ["earnings-latest"];
@@ -906,7 +937,7 @@ function consumerJournalInsight(
 }
 
 function isOperationalJournalCopy(value: string): boolean {
-  return /\bnull\b|[a-z]+_[a-z_]+|복구|입력되는지|제공되는지|확인해\s*주세요|데이터\s*(?:연결|복구|입력)|계산되지\s*않|확인할\s*구간|먼저\s*확인할|판단할\s*수\s*없/iu.test(value);
+  return /\bnull\b|[a-z]+_[a-z_]+|복구|입력되는지|제공되는지|확인해\s*주세요|데이터\s*(?:연결|복구|입력)|계산되지\s*않|확인할\s*구간|먼저\s*확인할|판단할\s*수\s*없|OpenAI|Bedrock|ClickHouse|Redis|저장소|모델명/iu.test(value);
 }
 
 function journalViewLabel(view: CompanyJournalView) {
@@ -949,22 +980,19 @@ function buildStoredJournalOverview(
   fallbackHeadline: string
 ): { headline: string; metrics: JournalMetric[] } {
   if (!report) {
-    const headline = status === "simulation_unavailable"
-      ? "시뮬레이터 가상시각 기준 기업저널 데이터가 준비되지 않았습니다."
-      : status === "error"
-      ? "저장된 기업저널을 불러올 수 없습니다. 기존 재무 차트와 뉴스는 계속 확인할 수 있습니다."
-      : "최신 뉴스·주가·재무 근거로 기업저널을 준비하고 있습니다. 기존 차트는 먼저 확인할 수 있습니다.";
     return {
-      headline,
+      headline: status === "simulation_unavailable"
+        ? "선택한 가상시각에는 아직 기업저널 자료가 없습니다."
+        : fallbackHeadline,
       metrics: [
-        metric("최근 움직임", "데이터 연결 대기", "ClickHouse 검증본 준비 중", "neutral"),
-        metric("시장 대비", "계산되지 않음", "S&P 500 기준", "neutral"),
-        metric("재무 안정성", "데이터 연결 대기", "SEC 기준", "neutral"),
+        metric("최근 움직임", "자료 부족", "확인 가능한 가격 기준", "neutral"),
+        metric("시장 대비", "자료 부족", "같은 기간 비교", "neutral"),
+        metric("재무 안정성", "자료 부족", "확인 가능한 재무 기준", "neutral"),
         metric(
           "분석 상태",
-          status === "simulation_unavailable" ? "시점 데이터 없음" : status === "error" ? "연결 확인 필요" : "생성 대기",
-          status === "simulation_unavailable" ? "미래정보 차단" : "기존 차트는 사용 가능",
-          status === "error" || status === "simulation_unavailable" ? "caution" : "neutral"
+          status === "simulation_unavailable" ? "시점 자료 없음" : status === "error" ? "자료 부족" : "계산 중",
+          status === "simulation_unavailable" ? "미래 자료 제외" : "확인된 근거만 표시",
+          status === "simulation_unavailable" || status === "error" ? "caution" : "neutral"
         )
       ]
     };
@@ -998,7 +1026,7 @@ function buildStoredJournalOverview(
   };
 }
 
-function buildStoredJournalNarrative(
+export function buildStoredJournalNarrative(
   view: CompanyJournalView,
   report: CompanyJournalReport | null,
   status: CompanyJournalStatus
@@ -1068,7 +1096,7 @@ function buildJournalOverview(item: Sp500UniverseItem | undefined, evidence: Com
   };
 }
 
-function buildJournalNarrative(
+export function buildJournalNarrative(
   view: CompanyJournalView,
   symbol: string,
   item: Sp500UniverseItem | undefined,

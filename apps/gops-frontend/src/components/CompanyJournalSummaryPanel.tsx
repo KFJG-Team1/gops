@@ -1,45 +1,56 @@
-import { Building2, ChevronLeft, ChevronRight, CircleDollarSign, ShieldCheck, TrendingUp } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { fetchCandles } from "../chart/cdcClient";
 import type { CandleDto } from "../chart/types";
 import { GlossaryText } from "../glossary/GlossaryText";
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
-import { buildStockLogoUrl, stockLogoInitials } from "../market/stockLogo";
 import { CANVAS_FONT_FAMILY, TYPE_ROLE } from "../theme/typography";
 import { LogoDevAttribution } from "./StockLogo";
+import { formatCompanyJournalAnalystOpinion, type CompanyJournalAnalystOpinion } from "./companyJournalAnalystOpinion";
+import type { CompanyJournalAnalystAction } from "./companyJournalApi";
+import {
+  buildHistoricalValuationSeries,
+  financialPriceRequestRange,
+  mergeValuationPriceSeries,
+  perShareMetricsForPoint,
+  type FinancialChartPoint,
+  type FinancialPeriodMode,
+  type HistoricalValuationPoint,
+  type PerShareMetrics,
+  type ValuationPricePoint
+} from "./companyFinancialHistory";
+
+export { formatCompanyJournalAnalystOpinion } from "./companyJournalAnalystOpinion";
+export { mergeValuationPriceSeries as mergeCompanyJournalValuationPrices } from "./companyFinancialHistory";
+export type { FinancialChartPoint, FinancialPeriodMode, ValuationPricePoint } from "./companyFinancialHistory";
 
 type CompanySummaryPanelProps = {
   symbol: string;
   item?: Sp500UniverseItem;
   items?: Sp500UniverseItem[];
-  view?: CompanyPanelView | "all";
+  view: CompanyPanelView;
   onEvidenceChange?: (evidence: CompanyJournalEvidence) => void;
   disableRemoteFetch?: boolean;
   valuationContent?: "combined" | "earnings" | "valuation";
-  valuationPriceFixture?: ValuationPricePoint[];
+  valuationPriceSeries?: ValuationPricePoint[];
   stabilityContent?: "stability" | "stability-dashboard";
   journalPresentation?: boolean;
   focusedValuationMetric?: string | null;
   focusedStabilityMetric?: string | null;
   focusedFinancialMetric?: string | null;
   focusedFinancialYear?: number | null;
+  comparisonFinancialYear?: number | null;
   financialPeriodMode?: FinancialPeriodMode;
   onFinancialPeriodModeChange?: (mode: FinancialPeriodMode) => void;
+  onFinancialSelectionChange?: () => void;
+  analystActions?: readonly CompanyJournalAnalystAction[];
 };
 
-export type CompanyPanelView = "info" | "valuation" | "profitability" | "stability";
-export type FinancialPeriodMode = "quarterly" | "annual";
-export type ValuationPricePoint = { timestamp: string; close: number };
+export type CompanyPanelView = "valuation" | "profitability" | "stability";
 
-const emptyValuationPriceFixture: ValuationPricePoint[] = [];
-
-const companyMultiViews = [
-  { id: "info", label: "기업", title: "기업정보", icon: Building2 },
-  { id: "valuation", label: "가치", title: "가치평가", icon: CircleDollarSign },
-  { id: "profitability", label: "수익", title: "수익성", icon: TrendingUp },
-  { id: "stability", label: "안정", title: "안정성", icon: ShieldCheck }
-] as const;
+const emptyValuationPriceSeries: ValuationPricePoint[] = [];
+const emptyAnalystActions: readonly CompanyJournalAnalystAction[] = [];
 
 type EarningsMetric = "eps" | "revenue";
 
@@ -62,33 +73,6 @@ type EarningsChartPoint = {
   estimatedEps?: number | null;
   actualRevenue?: number | null;
   estimatedRevenue?: number | null;
-};
-
-export type FinancialChartPoint = {
-  period: string;
-  periodEndDate?: string | null;
-  revenue?: number | null;
-  operatingIncome?: number | null;
-  netIncome?: number | null;
-  eps?: number | null;
-  totalAssets?: number | null;
-  totalLiabilities?: number | null;
-  totalEquity?: number | null;
-  currentAssets?: number | null;
-  currentLiabilities?: number | null;
-  cashAndCashEquivalents?: number | null;
-  interestExpense?: number | null;
-  operatingCashFlow?: number | null;
-  freeCashFlow?: number | null;
-  sharesOutstanding?: number | null;
-  debtRatio?: number | null;
-  currentLiabilityRatio?: number | null;
-  noncurrentLiabilityRatio?: number | null;
-  currentRatio?: number | null;
-  totalDebt?: number | null;
-  interestCoverage?: number | null;
-  financialCostBurdenRatio?: number | null;
-  netDebt?: number | null;
 };
 
 export const COMPANY_JOURNAL_HISTORY_START_YEAR = 2021;
@@ -214,7 +198,7 @@ function JournalChartAnnotation({
   );
 }
 
-export function CompanySummaryPanel({ symbol, item, items = [], view = "all", onEvidenceChange, disableRemoteFetch = false, valuationContent = "combined", valuationPriceFixture = emptyValuationPriceFixture, stabilityContent = "stability", journalPresentation = false, focusedValuationMetric = null, focusedStabilityMetric = null, focusedFinancialMetric = null, focusedFinancialYear = null, financialPeriodMode: controlledFinancialPeriodMode, onFinancialPeriodModeChange }: CompanySummaryPanelProps) {
+export function CompanySummaryPanel({ symbol, item, items = [], view, onEvidenceChange, disableRemoteFetch = false, valuationContent = "combined", valuationPriceSeries = emptyValuationPriceSeries, stabilityContent = "stability", journalPresentation = false, focusedValuationMetric = null, focusedStabilityMetric = null, focusedFinancialMetric = null, focusedFinancialYear = null, comparisonFinancialYear = null, financialPeriodMode: controlledFinancialPeriodMode, onFinancialPeriodModeChange, onFinancialSelectionChange, analystActions = emptyAnalystActions }: CompanySummaryPanelProps) {
   const [earningsMetric, setEarningsMetric] = useState<EarningsMetric>("eps");
   const [internalFinancialPeriodMode, setInternalFinancialPeriodMode] = useState<FinancialPeriodMode>(journalPresentation ? "annual" : "quarterly");
   const financialPeriodMode = controlledFinancialPeriodMode ?? internalFinancialPeriodMode;
@@ -224,21 +208,8 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
   const [valuationCandles, setValuationCandles] = useState<CandleDto[] | null>(null);
   const normalizedSymbol = symbol.toUpperCase();
   const companyName = item?.companyName || normalizedSymbol;
-  const companyNameHeaderLines = splitCompanyNameForHeader(companyName);
-  const companyTabTextWidthCh = Math.min(
-    28,
-    Math.max(10, ...companyNameHeaderLines.map((line) => Math.ceil(Array.from(line).length * 1.3) + 1))
-  );
-  const companyLogoBackdropUrl = useMemo(
-    () => buildStockLogoUrl(normalizedSymbol, { size: 256 }),
-    [normalizedSymbol]
-  );
-  const [failedCompanyLogoBackdropUrl, setFailedCompanyLogoBackdropUrl] = useState<string | null>(null);
   const price = item?.lastPrice ?? item?.layoutPrice ?? null;
   const marketCap = item?.marketCap ?? item?.layoutMarketCap ?? null;
-  const changePercent = item?.changePercent ?? null;
-  const changeTone = changePercent == null ? "neutral" : changePercent > 0 ? "up" : changePercent < 0 ? "down" : "neutral";
-  const dataAsOf = item?.fundamentalsAsOf ?? item?.periodEndDate ?? item?.filedAt ?? item?.priceUpdatedAt ?? item?.layoutPriceUpdatedAt ?? null;
   const comparison = buildComparison(normalizedSymbol, item, items);
   const baseFinancialSeries = useMemo(
     () => buildFinancialSeries(financialSeries?.length ? financialSeries : item?.financialSeries, item),
@@ -268,23 +239,25 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
     [price, marketCap, item]
   );
   const valuationPrices = useMemo<ValuationPricePoint[]>(
-    () => valuationPriceFixture.length
-      ? valuationPriceFixture
-      : (valuationCandles ?? []).map((candle) => ({ timestamp: candle.timestamp, close: candle.close })),
-    [valuationCandles, valuationPriceFixture]
+    () => mergeValuationPriceSeries(
+      valuationPriceSeries,
+      (valuationCandles ?? []).map((candle) => ({ timestamp: candle.timestamp, close: candle.close }))
+    ),
+    [valuationCandles, valuationPriceSeries]
   );
 
   const changeFinancialPeriodMode = useCallback((mode: FinancialPeriodMode) => {
     setSelectedFinancialPeriod(null);
+    onFinancialSelectionChange?.();
     if (controlledFinancialPeriodMode === undefined) {
       setInternalFinancialPeriodMode(mode);
     }
     onFinancialPeriodModeChange?.(mode);
-  }, [controlledFinancialPeriodMode, onFinancialPeriodModeChange]);
-
-  useEffect(() => {
-    setFailedCompanyLogoBackdropUrl(null);
-  }, [companyLogoBackdropUrl]);
+  }, [controlledFinancialPeriodMode, onFinancialPeriodModeChange, onFinancialSelectionChange]);
+  const selectFinancialPeriod = useCallback((period: string) => {
+    setSelectedFinancialPeriod(period);
+    onFinancialSelectionChange?.();
+  }, [onFinancialSelectionChange]);
 
   useEffect(() => {
     if (disableRemoteFetch) {
@@ -295,16 +268,16 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
     setFinancialSeries(null);
     fetchCompanyFinancialSeries(normalizedSymbol, controller.signal, {
       years: companyJournalHistoryYears(),
-      period: financialPeriodMode
+      period: "quarterly"
     })
       .then((series) => setFinancialSeries(series))
       .catch(() => {
         if (!controller.signal.aborted) {
           setFinancialSeries([]);
         }
-      });
+    });
     return () => controller.abort();
-  }, [disableRemoteFetch, financialPeriodMode, normalizedSymbol]);
+  }, [disableRemoteFetch, normalizedSymbol]);
 
   useEffect(() => {
     if (disableRemoteFetch) {
@@ -324,7 +297,7 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
   }, [disableRemoteFetch, normalizedSymbol]);
 
   useEffect(() => {
-    if (disableRemoteFetch || valuationPriceFixture.length) {
+    if (disableRemoteFetch) {
       setValuationCandles([]);
       return undefined;
     }
@@ -347,7 +320,7 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
         if (!controller.signal.aborted) setValuationCandles([]);
       });
     return () => controller.abort();
-  }, [disableRemoteFetch, normalizedSymbol, profitabilitySeries, valuationPriceFixture.length]);
+  }, [disableRemoteFetch, normalizedSymbol, profitabilitySeries]);
 
   useEffect(() => {
     if (selectedFinancialPeriod && !profitabilitySeries.some((point) => financialPointKey(point) === selectedFinancialPeriod)) {
@@ -370,66 +343,6 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
     });
   }, [financialPeriodMode, onEvidenceChange, periodEarningsSeries, profitabilitySeries, selectedFinancialPeriod]);
 
-  const infoRows: ReadonlyArray<readonly [string, string, ("up" | "down" | "neutral")?]> = [
-    ["현재가", formatUsd(price)],
-    ["등락률", formatPercent(changePercent), changeTone],
-    ["시가총액", formatUsdCompact(marketCap)],
-    ["발행주식수", formatShares(item?.sharesOutstanding ?? null)],
-    ["거래소", formatExchange(item?.exchange)],
-    ["상장일", formatDate(item?.listingDate)],
-    ["섹터", item?.sector || "확인 중"],
-    ["산업", item?.industry || "확인 중"],
-    ["CIK", item?.cik || "확인 중"],
-    ["시장", formatMarket(item?.market, item?.country)],
-    ["기업정보 원천", formatCompanySource(item)],
-    ["데이터 기준", formatDate(dataAsOf)]
-  ];
-
-  const infoSection = (
-    <section
-      className="company-info-section"
-      aria-label={`${normalizedSymbol} 기본 기업정보`}
-      style={{ "--company-tab-text-width": `${companyTabTextWidthCh}ch` } as CSSProperties}
-    >
-      <div className="company-info-backdrop" aria-hidden="true">
-        {companyLogoBackdropUrl && failedCompanyLogoBackdropUrl !== companyLogoBackdropUrl ? (
-          <>
-            <img
-              className="company-info-backdrop-fill"
-              src={companyLogoBackdropUrl}
-              alt=""
-              loading="lazy"
-              referrerPolicy="origin"
-              onError={() => setFailedCompanyLogoBackdropUrl(companyLogoBackdropUrl)}
-            />
-            <img
-              className="company-info-backdrop-mark"
-              src={companyLogoBackdropUrl}
-              alt=""
-              loading="lazy"
-              referrerPolicy="origin"
-              onError={() => setFailedCompanyLogoBackdropUrl(companyLogoBackdropUrl)}
-            />
-          </>
-        ) : (
-          <span>{stockLogoInitials(normalizedSymbol)}</span>
-        )}
-      </div>
-      <strong className="company-info-tab-title" aria-label={companyName}>
-        {companyNameHeaderLines.map((line) => <span key={line} aria-hidden="true">{line}</span>)}
-      </strong>
-      <div className="company-info-sheet">
-        <dl className="company-info-grid">
-          {infoRows.map(([label, value, tone]) => (
-            <div key={label} className="company-info-cell">
-              <dt>{label}</dt>
-              <dd className={tone ? `company-summary-value ${tone}` : "company-summary-value"}>{value}</dd>
-            </div>
-          ))}
-        </dl>
-      </div>
-    </section>
-  );
   const valuationSection = (
     <ValuationPagedPanel
       key={normalizedSymbol}
@@ -443,13 +356,16 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
       periodMode={financialPeriodMode}
       selectedPeriod={selectedFinancialPeriod}
       onPeriodModeChange={changeFinancialPeriodMode}
-      onPeriodSelect={setSelectedFinancialPeriod}
+      onPeriodSelect={selectFinancialPeriod}
       contentMode={valuationContent}
       valuationPrices={valuationPrices}
       compactJournal={journalPresentation}
       focusedValuationMetric={focusedValuationMetric}
       focusedFinancialMetric={focusedFinancialMetric}
       focusedFinancialYear={focusedFinancialYear}
+      comparisonFinancialYear={comparisonFinancialYear}
+      analystActions={analystActions}
+      companyName={companyName}
     />
   );
   const profitabilitySection = (
@@ -459,10 +375,11 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
         periodMode={financialPeriodMode}
         selectedPeriod={selectedFinancialPeriod}
         onPeriodModeChange={changeFinancialPeriodMode}
-        onPeriodSelect={setSelectedFinancialPeriod}
+        onPeriodSelect={selectFinancialPeriod}
         compactJournal={journalPresentation}
         focusedMetric={focusedFinancialMetric}
         focusedYear={focusedFinancialYear}
+        comparisonYear={comparisonFinancialYear}
       />
     </section>
   );
@@ -476,147 +393,26 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
           compactJournal={journalPresentation}
           focusedMetric={focusedStabilityMetric}
           focusedYear={focusedFinancialYear}
+          comparisonYear={comparisonFinancialYear}
         />
       ) : <StabilityFinanceChart series={profitabilitySeries} />}
     </section>
   );
 
-  if (view !== "all") {
-    const activeSection = view === "info"
-      ? infoSection
-      : view === "valuation"
-        ? valuationSection
-        : view === "profitability"
-          ? profitabilitySection
-          : stabilitySection;
-    return (
-      <section className={`company-summary-panel company-single-panel is-${view}`} aria-label={`${normalizedSymbol} ${companyPanelViewLabel(view)}`}>
-        {view === "info" ? activeSection : (
-          <section className="company-fundamental-section company-single-fundamental-section">
-            {activeSection}
-          </section>
-        )}
-        <LogoDevAttribution className="panel-logo-attribution" />
-      </section>
-    );
-  }
-
+  const activeSection = view === "valuation"
+    ? valuationSection
+    : view === "profitability"
+      ? profitabilitySection
+      : stabilitySection;
+  const activeLabel = view === "valuation" ? "가치평가" : view === "profitability" ? "수익성" : "안정성";
   return (
-    <section className="company-summary-panel" aria-label={`${normalizedSymbol} 기업정보`}>
-      {infoSection}
-
-      <section className="company-fundamental-section" aria-label={`${normalizedSymbol} 투자지표와 비교`}>
-        <div className="company-fundamental-grid">
-          {valuationSection}
-          {profitabilitySection}
-          {stabilitySection}
-        </div>
+    <section className={`company-summary-panel company-single-panel is-${view}`} aria-label={`${normalizedSymbol} ${activeLabel}`}>
+      <section className="company-fundamental-section company-single-fundamental-section">
+        {activeSection}
       </section>
-
-      <p className="company-summary-note">
-        {hasFundamentalShares(item)
-          ? "시가총액은 현재가와 발행주식수로 계산합니다."
-          : "재무 데이터가 없으면 기준 유니버스 값을 임시로 표시합니다."}
-      </p>
       <LogoDevAttribution className="panel-logo-attribution" />
     </section>
   );
-}
-
-export function CompanyInfoPanel(props: CompanySummaryPanelProps) {
-  return <CompanySummaryPanel {...props} view="info" />;
-}
-
-export function CompanyValuationPanel(props: CompanySummaryPanelProps) {
-  return <CompanySummaryPanel {...props} view="valuation" />;
-}
-
-export function CompanyProfitabilityPanel(props: CompanySummaryPanelProps) {
-  return <CompanySummaryPanel {...props} view="profitability" />;
-}
-
-export function CompanyStabilityPanel(props: CompanySummaryPanelProps) {
-  return <CompanySummaryPanel {...props} view="stability" />;
-}
-
-export function CompanyMultiPanel(props: CompanySummaryPanelProps) {
-  const [activeView, setActiveView] = useState<CompanyPanelView>("info");
-  const [direction, setDirection] = useState<"next" | "previous">("next");
-  const activeIndex = companyMultiViews.findIndex((candidate) => candidate.id === activeView);
-  const selectView = (index: number) => {
-    const nextIndex = Math.max(0, Math.min(companyMultiViews.length - 1, index));
-    const nextView = companyMultiViews[nextIndex];
-    if (!nextView || nextView.id === activeView) {
-      return;
-    }
-    setDirection(nextIndex > activeIndex ? "next" : "previous");
-    setActiveView(nextView.id);
-  };
-
-  return (
-    <section className="company-multi-panel" aria-label={`${props.symbol.toUpperCase()} 기업 멀티패널`}>
-      <div className="company-multi-tabs" role="tablist" aria-label="기업 분석 화면">
-        {companyMultiViews.map((candidate, index) => {
-          const Icon = candidate.icon;
-          const selected = candidate.id === activeView;
-          return (
-            <button
-              key={candidate.id}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              className={selected ? "active" : ""}
-              title={candidate.title}
-              onClick={() => selectView(index)}
-            >
-              <Icon aria-hidden="true" />
-              <span>{candidate.label}</span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="company-multi-stage">
-        <div key={activeView} className={`company-multi-view is-${direction}`} role="tabpanel">
-          <CompanySummaryPanel {...props} view={activeView} />
-        </div>
-        <button type="button" className="company-multi-arrow previous" aria-label="이전 기업 분석" disabled={activeIndex === 0} onClick={() => selectView(activeIndex - 1)}>
-          <ChevronLeft aria-hidden="true" />
-        </button>
-        <button type="button" className="company-multi-arrow next" aria-label="다음 기업 분석" disabled={activeIndex === companyMultiViews.length - 1} onClick={() => selectView(activeIndex + 1)}>
-          <ChevronRight aria-hidden="true" />
-        </button>
-        <div className="company-multi-dots" aria-hidden="true">
-          {companyMultiViews.map((candidate) => <i key={candidate.id} className={candidate.id === activeView ? "active" : ""} />)}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function companyPanelViewLabel(view: CompanyPanelView): string {
-  return companyMultiViews.find((candidate) => candidate.id === view)?.title ?? "기업정보";
-}
-
-function splitCompanyNameForHeader(companyName: string): string[] {
-  const normalizedName = companyName.trim();
-  const words = normalizedName.split(/\s+/).filter(Boolean);
-  if (normalizedName.length <= 20 || words.length < 2) {
-    return [normalizedName];
-  }
-
-  let bestBreakIndex = 1;
-  let bestDifference = Number.POSITIVE_INFINITY;
-  for (let index = 1; index < words.length; index += 1) {
-    const firstLineLength = words.slice(0, index).join(" ").length;
-    const secondLineLength = words.slice(index).join(" ").length;
-    const difference = Math.abs(firstLineLength - secondLineLength);
-    if (difference < bestDifference) {
-      bestDifference = difference;
-      bestBreakIndex = index;
-    }
-  }
-
-  return [words.slice(0, bestBreakIndex).join(" "), words.slice(bestBreakIndex).join(" ")];
 }
 
 function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; series: EarningsChartPoint[] }) {
@@ -746,7 +542,8 @@ function ProfitabilityDashboard({
   onPeriodSelect,
   compactJournal = false,
   focusedMetric = null,
-  focusedYear = null
+  focusedYear = null,
+  comparisonYear = null
 }: {
   series: FinancialChartPoint[];
   periodMode: FinancialPeriodMode;
@@ -756,17 +553,20 @@ function ProfitabilityDashboard({
   compactJournal?: boolean;
   focusedMetric?: string | null;
   focusedYear?: number | null;
+  comparisonYear?: number | null;
 }) {
   const renderablePoints = series.filter(isRenderableProfitabilityPoint);
   const points = periodMode === "annual" ? companyJournalAnnualHistory(renderablePoints) : renderablePoints.slice(-12);
   const tablePoints = points.slice(periodMode === "annual" ? -companyJournalHistoryYears() : -8);
   const selectedPoint = points.find((point) => financialPointKey(point) === selectedPeriod) ?? points.at(-1);
   const focusedPoint = focusedYear == null ? null : tablePoints.find((point) => financialPointYear(point) === focusedYear);
+  const comparisonPoint = comparisonYear == null ? null : tablePoints.find((point) => financialPointYear(point) === comparisonYear);
   const financialFocus = focusedMetric && focusedPoint ? {
-    period: financialPointKey(focusedPoint),
+    periods: [focusedPoint, comparisonPoint].filter((point): point is FinancialChartPoint => point != null).map(financialPointKey),
     rowMarkers: [focusedMetric as FinancialTableRow["marker"]],
     primaryRowMarker: focusedMetric as FinancialTableRow["marker"]
   } : undefined;
+  const comparisonPeriod = comparisonPoint ? financialPointKey(comparisonPoint) : null;
   return (
     <section className="company-profitability-dashboard" aria-label="수익성과 투자수익률">
       {!compactJournal && <header className="company-profitability-dashboard-header">
@@ -781,7 +581,7 @@ function ProfitabilityDashboard({
       </header>}
       <div className="company-profitability-chart-grid">
         <section className="company-financial-metric-block" aria-label="수익 성장지표와 기간별 수치">
-          <ProfitGrowthChart points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedMetric} />
+          <ProfitGrowthChart points={points} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedMetric} />
           <section className="company-profitability-table-section" aria-label="기간별 수익 성장 수치">
             <div className="company-profitability-table-heading">
               <strong>기간별 수익 성장 수치</strong>
@@ -796,7 +596,7 @@ function ProfitabilityDashboard({
           </section>
         </section>
         <section className="company-financial-metric-block" aria-label="투자수익률과 기간별 수치">
-          <InvestmentReturnChart points={points} periodMode={periodMode} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedMetric} />
+          <InvestmentReturnChart points={points} periodMode={periodMode} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedMetric} />
           <section className="company-profitability-table-section" aria-label="기간별 투자수익률 수치">
             <div className="company-profitability-table-heading">
               <strong>기간별 투자수익률 수치</strong>
@@ -815,17 +615,17 @@ function ProfitabilityDashboard({
   );
 }
 
-function ProfitGrowthChart({ points, selectedPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps) {
+function ProfitGrowthChart({ points, selectedPeriod, comparisonPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps) {
   return (
     <FinancialStaticChartCard
       title="수익 성장지표"
     >
-      <ProfitGrowthPlot points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedMetric} />
+      <ProfitGrowthPlot points={points} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedMetric} />
     </FinancialStaticChartCard>
   );
 }
 
-function ProfitGrowthPlot({ points, selectedPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps) {
+function ProfitGrowthPlot({ points, selectedPeriod, comparisonPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps) {
   const { chartRef, chartWidth, chartHeight } = useFinancialChartSize();
   if (!points.length) return <div className="company-profitability-empty-card">재무 시계열 확인 중</div>;
   const moneyValues = points.map((point) => point.revenue).filter((value): value is number => Number.isFinite(value ?? NaN));
@@ -867,7 +667,7 @@ function ProfitGrowthPlot({ points, selectedPeriod, onPeriodSelect, focusedMetri
         return (
           <g
             key={`${key}-${index}`}
-            className={`company-financial-period-point ${key === selectedPeriod ? "is-selected" : ""}`}
+            className={`company-financial-period-point ${key === selectedPeriod ? "is-selected" : ""} ${key === comparisonPeriod ? "is-comparison" : ""}`}
             data-journal-mark={index === points.length - 1 ? "profitability-latest" : undefined}
             role="button"
             tabIndex={0}
@@ -875,7 +675,7 @@ function ProfitGrowthPlot({ points, selectedPeriod, onPeriodSelect, focusedMetri
             onClick={() => onPeriodSelect(key)}
             onKeyDown={(event) => handleFinancialPointKeyDown(event.key, () => onPeriodSelect(key))}
           >
-            {revenue != null && <rect className={`company-profitability-bar revenue ${focusedMetric === "revenue" && key === selectedPeriod ? "is-focused" : ""}`} x={x - barWidth / 2} y={Math.min(moneyY(revenue), zeroY)} width={barWidth} height={Math.max(2, Math.abs(zeroY - moneyY(revenue)))} rx={5} />}
+            {revenue != null && <rect data-journal-financial-metric={focusedMetric === "revenue" ? "revenue" : undefined} data-journal-financial-year={focusedMetric === "revenue" ? financialPointYear(point) ?? undefined : undefined} className={`company-profitability-bar revenue ${focusedMetric === "revenue" && (key === selectedPeriod || key === comparisonPeriod) ? "is-focused" : ""}`} x={x - barWidth / 2} y={Math.min(moneyY(revenue), zeroY)} width={barWidth} height={Math.max(2, Math.abs(zeroY - moneyY(revenue)))} rx={5} />}
             {shouldShowPeriodLabel(index, points.length) && <text className="company-profitability-period" x={x} y={chartHeight - 12}>{formatPeriod(point.period, point.periodEndDate)}</text>}
           </g>
         );
@@ -885,7 +685,7 @@ function ProfitGrowthPlot({ points, selectedPeriod, onPeriodSelect, focusedMetri
       {points.flatMap((point, index) => financialRatioDots(point, index, [
         { key: "operating-margin", value: operatingMargins[index], className: "company-profitability-operating-dot" },
         { key: "net-margin", value: netMargins[index], className: "company-profitability-net-dot" }
-      ], xFor, ratioY, selectedPeriod, onPeriodSelect, index === points.length - 1 ? "profitability-latest" : undefined, focusedMetric))}
+      ], xFor, ratioY, selectedPeriod, comparisonPeriod, onPeriodSelect, index === points.length - 1 ? "profitability-latest" : undefined, focusedMetric))}
       <JournalChartAnnotation
         target="profitability-latest"
         label="매출·마진 동반 개선"
@@ -898,7 +698,7 @@ function ProfitGrowthPlot({ points, selectedPeriod, onPeriodSelect, focusedMetri
   );
 }
 
-function InvestmentReturnChart({ points, periodMode, selectedPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps & { periodMode: FinancialPeriodMode }) {
+function InvestmentReturnChart({ points, periodMode, selectedPeriod, comparisonPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps & { periodMode: FinancialPeriodMode }) {
   const multiplier = periodMode === "quarterly" ? 4 : 1;
   const roe = points.map((point, index) => safeDivide(multiplyFinite(point.netIncome, multiplier), averageFinancialBalance(points, index, "totalEquity")));
   const roa = points.map((point, index) => safeDivide(multiplyFinite(point.netIncome, multiplier), averageFinancialBalance(points, index, "totalAssets")));
@@ -907,12 +707,12 @@ function InvestmentReturnChart({ points, periodMode, selectedPeriod, onPeriodSel
     <FinancialStaticChartCard
       title="투자수익률"
     >
-      <InvestmentReturnPlot points={points} ratios={{ roe, roa, fcfMargin }} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedMetric} />
+      <InvestmentReturnPlot points={points} ratios={{ roe, roa, fcfMargin }} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedMetric} />
     </FinancialStaticChartCard>
   );
 }
 
-function InvestmentReturnPlot({ points, ratios, selectedPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps & { ratios: ReturnRatios }) {
+function InvestmentReturnPlot({ points, ratios, selectedPeriod, comparisonPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps & { ratios: ReturnRatios }) {
   const { chartRef, chartWidth, chartHeight } = useFinancialChartSize();
   if (!points.length) return <div className="company-profitability-empty-card">투자수익률 데이터 확인 중</div>;
   const moneyValues = points.map((point) => point.netIncome).filter((value): value is number => Number.isFinite(value ?? NaN));
@@ -949,8 +749,8 @@ function InvestmentReturnPlot({ points, ratios, selectedPeriod, onPeriodSelect, 
         const key = financialPointKey(point);
         const netIncome = Number.isFinite(point.netIncome ?? NaN) ? point.netIncome as number : null;
         return (
-          <g key={`${key}-${index}`} className={`company-financial-period-point ${key === selectedPeriod ? "is-selected" : ""}`} data-journal-mark={index === points.length - 1 ? "returns-latest" : undefined} role="button" tabIndex={0} aria-label={`${formatPeriod(point.period, point.periodEndDate)} 선택`} onClick={() => onPeriodSelect(key)} onKeyDown={(event) => handleFinancialPointKeyDown(event.key, () => onPeriodSelect(key))}>
-            {netIncome != null && <rect className={`company-return-bar net-income ${focusedMetric === "net-income" && key === selectedPeriod ? "is-focused" : ""}`} x={x - barWidth / 2} y={Math.min(moneyY(netIncome), zeroY)} width={barWidth} height={Math.max(2, Math.abs(zeroY - moneyY(netIncome)))} rx={5} />}
+          <g key={`${key}-${index}`} className={`company-financial-period-point ${key === selectedPeriod ? "is-selected" : ""} ${key === comparisonPeriod ? "is-comparison" : ""}`} data-journal-mark={index === points.length - 1 ? "returns-latest" : undefined} role="button" tabIndex={0} aria-label={`${formatPeriod(point.period, point.periodEndDate)} 선택`} onClick={() => onPeriodSelect(key)} onKeyDown={(event) => handleFinancialPointKeyDown(event.key, () => onPeriodSelect(key))}>
+            {netIncome != null && <rect data-journal-financial-metric={focusedMetric === "net-income" ? "net-income" : undefined} data-journal-financial-year={focusedMetric === "net-income" ? financialPointYear(point) ?? undefined : undefined} className={`company-return-bar net-income ${focusedMetric === "net-income" && (key === selectedPeriod || key === comparisonPeriod) ? "is-focused" : ""}`} x={x - barWidth / 2} y={Math.min(moneyY(netIncome), zeroY)} width={barWidth} height={Math.max(2, Math.abs(zeroY - moneyY(netIncome)))} rx={5} />}
             {shouldShowPeriodLabel(index, points.length) && <text className="company-profitability-period" x={x} y={chartHeight - 12}>{formatPeriod(point.period, point.periodEndDate)}</text>}
           </g>
         );
@@ -962,7 +762,7 @@ function InvestmentReturnPlot({ points, ratios, selectedPeriod, onPeriodSelect, 
         { key: "roe", value: ratios.roe[index], className: "company-return-dot roe" },
         { key: "roa", value: ratios.roa[index], className: "company-return-dot roa" },
         { key: "fcf-margin", value: ratios.fcfMargin[index], className: "company-return-dot fcf-margin" }
-      ], xFor, ratioY, selectedPeriod, onPeriodSelect, index === points.length - 1 ? "returns-latest" : undefined, focusedMetric))}
+      ], xFor, ratioY, selectedPeriod, comparisonPeriod, onPeriodSelect, index === points.length - 1 ? "returns-latest" : undefined, focusedMetric))}
       <JournalChartAnnotation
         target="returns-latest"
         label="자본 효율·현금 확인"
@@ -982,6 +782,7 @@ function FinancialStaticChartCard({ title, children, legend, className = "" }: {
 type FinancialInteractiveChartProps = {
   points: FinancialChartPoint[];
   selectedPeriod: string | null;
+  comparisonPeriod?: string | null;
   onPeriodSelect: (period: string) => void;
   focusedMetric?: string | null;
 };
@@ -994,7 +795,8 @@ function StabilityDashboard({
   onPeriodModeChange,
   compactJournal = false,
   focusedMetric = null,
-  focusedYear = null
+  focusedYear = null,
+  comparisonYear = null
 }: {
   financialSeries: FinancialChartPoint[];
   periodMode: FinancialPeriodMode;
@@ -1002,6 +804,7 @@ function StabilityDashboard({
   compactJournal?: boolean;
   focusedMetric?: string | null;
   focusedYear?: number | null;
+  comparisonYear?: number | null;
 }) {
   const renderablePoints = financialSeries.filter(isRenderableStabilityPoint);
   const points = periodMode === "annual" ? companyJournalAnnualHistory(renderablePoints) : renderablePoints.slice(-12);
@@ -1009,10 +812,13 @@ function StabilityDashboard({
   const focusedPoint = focusedYear == null
     ? tablePoints.at(-1)
     : tablePoints.find((point) => financialPointYear(point) === focusedYear);
-  const focusedPeriod = focusedMetric && focusedPoint ? financialPointKey(focusedPoint) : null;
+  const comparisonPoint = comparisonYear == null
+    ? null
+    : tablePoints.find((point) => financialPointYear(point) === comparisonYear);
+  const focusPeriods = [focusedPoint, comparisonPoint].filter((point): point is FinancialChartPoint => point != null).map(financialPointKey);
   const stabilityFocus = focusedMetric ? {
-    period: focusedPeriod,
-    rowMarkers: Array.from(new Set(["debt-ratio", "current-ratio", "interest-coverage", focusedMetric])) as FinancialTableRow["marker"][],
+    periods: focusPeriods,
+    rowMarkers: [focusedMetric as FinancialTableRow["marker"]],
     primaryRowMarker: focusedMetric as FinancialTableRow["marker"]
   } : undefined;
   return (
@@ -1029,7 +835,7 @@ function StabilityDashboard({
       </header>}
       <div className="company-stability-dashboard-grid">
         <section className="company-financial-metric-block" aria-label="자본·부채 구조와 기간별 수치">
-          <StabilityFinanceChart series={points} />
+          <StabilityFinanceChart series={points} focusedMetric={focusedMetric} focusPeriods={focusPeriods} />
           <section className="company-stability-dashboard-table" aria-label="자본·부채 기간별 수치">
             <div className="company-profitability-table-heading">
               <strong>기간별 자본·부채 수치</strong>
@@ -1043,7 +849,7 @@ function StabilityDashboard({
           </section>
         </section>
         <section className="company-financial-metric-block" aria-label="안정성지표와 기간별 수치">
-          <StabilityRatiosChart series={points} />
+          <StabilityRatiosChart series={points} focusedMetric={focusedMetric} focusPeriods={focusPeriods} />
           <section className="company-stability-dashboard-table" aria-label="유동성과 이자 부담 기간별 수치">
             <div className="company-profitability-table-heading">
               <strong>기간별 안정성 수치</strong>
@@ -1061,7 +867,15 @@ function StabilityDashboard({
   );
 }
 
-function StabilityRatiosChart({ series }: { series: FinancialChartPoint[] }) {
+function StabilityRatiosChart({
+  series,
+  focusedMetric = null,
+  focusPeriods = []
+}: {
+  series: FinancialChartPoint[];
+  focusedMetric?: string | null;
+  focusPeriods?: string[];
+}) {
   const { chartRef, chartWidth, chartHeight } = useFinancialChartSize();
   const points = series.filter(isRenderableStabilityRatiosPoint).slice(-12);
   if (!points.length) {
@@ -1078,7 +892,19 @@ function StabilityRatiosChart({ series }: { series: FinancialChartPoint[] }) {
   const debtRatios = points.map(debtRatioFor);
   const currentRatios = points.map(currentLiabilityRatioFor);
   const noncurrentRatios = points.map(noncurrentLiabilityRatioFor);
-  const ratioValues = [...debtRatios, ...currentRatios, ...noncurrentRatios]
+  const focusedHealthDefinition = focusedMetric === "current-ratio"
+    ? { key: "current-ratio", values: points.map(currentRatioFor), className: "current-ratio" }
+    : focusedMetric === "interest-coverage"
+      ? { key: "interest-coverage", values: points.map(interestCoverageFor), className: "interest-coverage" }
+      : focusedMetric === "financial-cost-burden"
+        ? { key: "financial-cost-burden", values: points.map(financialCostBurdenFor), className: "financial-cost-burden" }
+        : null;
+  const ratioDefinitions = focusedHealthDefinition ? [focusedHealthDefinition] : [
+    { key: "debt-ratio", values: debtRatios, className: "debt-ratio" },
+    { key: "current-liability-ratio", values: currentRatios, className: "current-liability-ratio" },
+    { key: "noncurrent-liability-ratio", values: noncurrentRatios, className: "noncurrent-liability-ratio" }
+  ];
+  const ratioValues = ratioDefinitions.flatMap((definition) => definition.values)
     .filter((value): value is number => Number.isFinite(value ?? NaN));
   const ratioDomain = paddedDomain(ratioValues, { includeZero: true, fallbackMax: 1 });
   const plot = responsiveChartPlot(chartWidth, { left: 78, right: 20, top: 10, bottom: 34, compactLeft: 58, compactRight: 12 });
@@ -1087,7 +913,7 @@ function StabilityRatiosChart({ series }: { series: FinancialChartPoint[] }) {
   const xFor = (index: number) => financialChartPointX(index, points.length, plot.left, innerWidth, 6);
   const ratioY = (value: number) => valueToY(value, ratioDomain, plot.top, innerHeight);
   const latestIndex = points.length - 1;
-  const latestYValues = [debtRatios[latestIndex], currentRatios[latestIndex], noncurrentRatios[latestIndex]]
+  const latestYValues = ratioDefinitions.map((definition) => definition.values[latestIndex])
     .filter((value): value is number => Number.isFinite(value ?? NaN))
     .map(ratioY);
   return (
@@ -1096,7 +922,7 @@ function StabilityRatiosChart({ series }: { series: FinancialChartPoint[] }) {
       title="안정성지표"
       table={<FinancialSeriesTable points={points.slice(-6)} rows={buildStabilityRatioTableRows(points.slice(-6))} />}
     >
-      <svg ref={chartRef} className="company-profitability-plot company-stability-ratios-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="부채비율 유동부채비율 비유동부채비율 시계열">
+      <svg ref={chartRef} className="company-profitability-plot company-stability-ratios-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={focusedHealthDefinition ? `${focusedHealthDefinition.key} 시계열` : "부채비율 유동부채비율 비유동부채비율 시계열"}>
         {makeTicks(ratioDomain.min, ratioDomain.max, 5).map((tick) => {
           const y = ratioY(tick);
           return (
@@ -1109,15 +935,9 @@ function StabilityRatiosChart({ series }: { series: FinancialChartPoint[] }) {
         {points.map((point, index) => shouldShowPeriodLabel(index, points.length)
           ? <text key={`${point.period}-${index}-label`} className="company-profitability-period" x={xFor(index)} y={chartHeight - 12}>{formatPeriod(point.period, point.periodEndDate)}</text>
           : null)}
-        <path className="company-stability-metric-line debt-ratio" d={financialLinePath(debtRatios, xFor, ratioY)} />
-        <path className="company-stability-metric-line current-liability-ratio" d={financialLinePath(currentRatios, xFor, ratioY)} />
-        <path className="company-stability-metric-line noncurrent-liability-ratio" d={financialLinePath(noncurrentRatios, xFor, ratioY)} />
-        {points.flatMap((point, index) => [
-          { key: "debt", value: debtRatios[index], className: "debt-ratio" },
-          { key: "current", value: currentRatios[index], className: "current-liability-ratio" },
-          { key: "noncurrent", value: noncurrentRatios[index], className: "noncurrent-liability-ratio" }
-        ].map((metric) => Number.isFinite(metric.value ?? NaN)
-          ? <circle key={`${point.period}-${index}-${metric.key}`} className={`company-stability-metric-dot ${metric.className}`} data-journal-mark={index === points.length - 1 ? "stability-ratios-latest" : undefined} cx={xFor(index)} cy={ratioY(metric.value as number)} r={3.5} />
+        {ratioDefinitions.map((definition) => <path key={definition.key} className={`company-stability-metric-line ${definition.className}`} d={financialLinePath(definition.values, xFor, ratioY)} />)}
+        {points.flatMap((point, index) => ratioDefinitions.map((metric) => Number.isFinite(metric.values[index] ?? NaN)
+          ? <circle key={`${point.period}-${index}-${metric.key}`} className={`company-stability-metric-dot ${metric.className} ${focusedMetric === metric.key && focusPeriods.includes(financialPointKey(point)) ? "is-focused" : ""}`} data-journal-mark={index === points.length - 1 ? "stability-ratios-latest" : undefined} data-journal-financial-metric={focusedMetric === metric.key ? metric.key : undefined} data-journal-financial-year={focusedMetric === metric.key ? financialPointYear(point) ?? undefined : undefined} cx={xFor(index)} cy={ratioY(metric.values[index] as number)} r={focusedMetric === metric.key && focusPeriods.includes(financialPointKey(point)) ? 5 : 3.5} />
           : null))}
         <JournalChartAnnotation
           target="stability-ratios-latest"
@@ -1132,7 +952,15 @@ function StabilityRatiosChart({ series }: { series: FinancialChartPoint[] }) {
   );
 }
 
-function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
+function StabilityFinanceChart({
+  series,
+  focusedMetric = null,
+  focusPeriods = []
+}: {
+  series: FinancialChartPoint[];
+  focusedMetric?: string | null;
+  focusPeriods?: string[];
+}) {
   const { chartRef, chartWidth, chartHeight } = useFinancialChartSize();
   const points = series
     .filter(isRenderableStabilityPoint)
@@ -1149,7 +977,14 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
       </FinancialChartShell>
     );
   }
-  const moneyValues = points.flatMap((point) => [point.totalEquity, point.totalLiabilities]).filter((value): value is number => Number.isFinite(value ?? NaN));
+  const focusedMoneyDefinition = focusedMetric === "total-debt"
+    ? { key: "total-debt", values: points.map((point) => Number.isFinite(point.totalDebt ?? NaN) ? point.totalDebt as number : null) }
+    : focusedMetric === "net-debt"
+      ? { key: "net-debt", values: points.map(netDebtFor) }
+      : null;
+  const moneyValues = points
+    .flatMap((point, index) => [point.totalEquity, point.totalLiabilities, focusedMoneyDefinition?.values[index]])
+    .filter((value): value is number => Number.isFinite(value ?? NaN));
   const ratioValues = points.map(debtRatioFor).filter((value): value is number => Number.isFinite(value ?? NaN));
   const moneyDomain = paddedDomain(moneyValues, { includeZero: true, fallbackMax: 1, minFloor: 0 });
   const ratioDomain = paddedDomain(ratioValues, { includeZero: true, fallbackMax: 1 });
@@ -1172,13 +1007,19 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
     })
     .filter(Boolean)
     .join(" ");
+  const focusedMoneyPath = focusedMoneyDefinition
+    ? financialLinePath(focusedMoneyDefinition.values, xFor, moneyY)
+    : "";
   const latestIndex = points.length - 1;
   const latestPoint = points[latestIndex];
   const latestRatio = latestPoint ? debtRatioFor(latestPoint) : null;
   const latestYValues = [
     Number.isFinite(latestPoint?.totalEquity ?? NaN) ? moneyY(latestPoint?.totalEquity as number) : null,
     Number.isFinite(latestPoint?.totalLiabilities ?? NaN) ? moneyY(latestPoint?.totalLiabilities as number) : null,
-    Number.isFinite(latestRatio ?? NaN) ? ratioY(latestRatio as number) : null
+    Number.isFinite(latestRatio ?? NaN) ? ratioY(latestRatio as number) : null,
+    Number.isFinite(focusedMoneyDefinition?.values[latestIndex] ?? NaN)
+      ? moneyY(focusedMoneyDefinition?.values[latestIndex] as number)
+      : null
   ].filter((value): value is number => value != null);
 
   return (
@@ -1200,13 +1041,17 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
         <line className="company-profitability-zero" x1={plot.left} x2={chartWidth - plot.right} y1={zeroY} y2={zeroY} />
         {points.map((point, index) => {
           const x = xFor(index);
+          const periodKey = financialPointKey(point);
+          const focusedPeriod = focusPeriods.includes(periodKey);
           const totalEquity = Number.isFinite(point.totalEquity ?? NaN) ? point.totalEquity as number : null;
           const totalLiabilities = Number.isFinite(point.totalLiabilities ?? NaN) ? point.totalLiabilities as number : null;
           return (
             <g key={`${point.period}-${index}`} data-journal-mark={index === points.length - 1 ? "stability-capital-latest" : undefined}>
               {totalEquity != null && (
                 <rect
-                  className="company-stability-bar equity"
+                  className={`company-stability-bar equity ${focusedMetric === "equity" && focusedPeriod ? "is-focused" : ""}`}
+                  data-journal-financial-metric={focusedMetric === "equity" ? "equity" : undefined}
+                  data-journal-financial-year={focusedMetric === "equity" ? financialPointYear(point) ?? undefined : undefined}
                   x={x - barWidth - 2}
                   y={moneyY(totalEquity)}
                   width={barWidth}
@@ -1216,7 +1061,9 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
               )}
               {totalLiabilities != null && (
                 <rect
-                  className="company-stability-bar liabilities"
+                  className={`company-stability-bar liabilities ${focusedMetric === "liabilities" && focusedPeriod ? "is-focused" : ""}`}
+                  data-journal-financial-metric={focusedMetric === "liabilities" ? "liabilities" : undefined}
+                  data-journal-financial-year={focusedMetric === "liabilities" ? financialPointYear(point) ?? undefined : undefined}
                   x={x + 2}
                   y={moneyY(totalLiabilities)}
                   width={barWidth}
@@ -1230,11 +1077,30 @@ function StabilityFinanceChart({ series }: { series: FinancialChartPoint[] }) {
             </g>
           );
         })}
+        {focusedMoneyDefinition && focusedMoneyPath && (
+          <path className={`company-stability-money-line ${focusedMoneyDefinition.key}`} d={focusedMoneyPath} />
+        )}
+        {focusedMoneyDefinition && points.map((point, index) => {
+          const value = focusedMoneyDefinition.values[index];
+          if (!Number.isFinite(value ?? NaN)) return null;
+          const focusedPeriod = focusPeriods.includes(financialPointKey(point));
+          return (
+            <circle
+              key={`${point.period}-${index}-${focusedMoneyDefinition.key}`}
+              className={`company-stability-money-dot ${focusedMoneyDefinition.key} ${focusedPeriod ? "is-focused" : ""}`}
+              data-journal-financial-metric={focusedMoneyDefinition.key}
+              data-journal-financial-year={financialPointYear(point) ?? undefined}
+              cx={xFor(index)}
+              cy={moneyY(value as number)}
+              r={focusedPeriod ? 5 : 3.5}
+            />
+          );
+        })}
         {ratioPath && <path className="company-stability-ratio-line" d={ratioPath} />}
         {points.map((point, index) => {
           const ratio = debtRatioFor(point);
           return Number.isFinite(ratio ?? NaN)
-            ? <circle key={`${point.period}-${index}-debt-ratio`} className="company-stability-ratio-dot" data-journal-mark={index === points.length - 1 ? "stability-capital-latest" : undefined} cx={xFor(index)} cy={ratioY(ratio as number)} r={3.5} />
+            ? <circle key={`${point.period}-${index}-debt-ratio`} className={`company-stability-ratio-dot ${focusedMetric === "debt-ratio" && focusPeriods.includes(financialPointKey(point)) ? "is-focused" : ""}`} data-journal-mark={index === points.length - 1 ? "stability-capital-latest" : undefined} data-journal-financial-metric={focusedMetric === "debt-ratio" ? "debt-ratio" : undefined} data-journal-financial-year={focusedMetric === "debt-ratio" ? financialPointYear(point) ?? undefined : undefined} cx={xFor(index)} cy={ratioY(ratio as number)} r={focusedMetric === "debt-ratio" && focusPeriods.includes(financialPointKey(point)) ? 5 : 3.5} />
             : null;
         })}
         <JournalChartAnnotation
@@ -1309,7 +1175,10 @@ function ValuationPagedPanel({
   compactJournal = false,
   focusedValuationMetric = null,
   focusedFinancialMetric = null,
-  focusedFinancialYear = null
+  focusedFinancialYear = null,
+  comparisonFinancialYear = null,
+  analystActions = emptyAnalystActions,
+  companyName
 }: {
   symbol: string;
   metric: EarningsMetric;
@@ -1328,6 +1197,9 @@ function ValuationPagedPanel({
   focusedValuationMetric?: string | null;
   focusedFinancialMetric?: string | null;
   focusedFinancialYear?: number | null;
+  comparisonFinancialYear?: number | null;
+  analystActions?: readonly CompanyJournalAnalystAction[];
+  companyName: string;
 }) {
   const renderablePoints = financialSeries.filter(isRenderablePerSharePoint);
   const points = periodMode === "annual" ? companyJournalAnnualHistory(renderablePoints) : renderablePoints.slice(-12);
@@ -1337,8 +1209,12 @@ function ValuationPagedPanel({
   const focusedPoint = focusedFinancialYear == null
     ? null
     : tablePoints.find((point) => financialPointYear(point) === focusedFinancialYear);
+  const comparisonPoint = comparisonFinancialYear == null
+    ? null
+    : tablePoints.find((point) => financialPointYear(point) === comparisonFinancialYear);
+  const comparisonPeriod = comparisonPoint ? financialPointKey(comparisonPoint) : null;
   const perShareFocus = focusedFinancialMetric && ["eps", "bps", "sps", "cps"].includes(focusedFinancialMetric) && focusedPoint ? {
-    period: financialPointKey(focusedPoint),
+    periods: [focusedPoint, comparisonPoint].filter((point): point is FinancialChartPoint => point != null).map(financialPointKey),
     rowMarkers: [focusedFinancialMetric as FinancialTableRow["marker"]],
     primaryRowMarker: focusedFinancialMetric as FinancialTableRow["marker"]
   } : undefined;
@@ -1365,14 +1241,16 @@ function ValuationPagedPanel({
             onMetricChange={onMetricChange}
             series={series}
             comparison={comparison}
+            analystActions={analystActions}
+            companyName={companyName}
           />
-          {showValuation && <PerShareIndicatorsChart points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedFinancialMetric} />}
+          {showValuation && <PerShareIndicatorsChart points={points} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedFinancialMetric} />}
         </div>
       )}
       {showValuation && !showEarnings && (
         <div className="company-valuation-dashboard-grid is-valuation-only">
           <section className="company-financial-metric-block company-per-share-block" aria-label="주당지표와 기간별 주당지표">
-            <PerShareIndicatorsChart points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedFinancialMetric} />
+            <PerShareIndicatorsChart points={points} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedFinancialMetric} />
             <section className="company-per-share-table-section" aria-label="기간별 주당지표 수치">
               <div className="company-profitability-table-heading">
                 <strong>기간별 주당지표</strong>
@@ -1387,7 +1265,7 @@ function ValuationPagedPanel({
             </section>
           </section>
           <section className="company-financial-metric-block company-valuation-metrics-block" aria-label="가치배수 추이와 현재 가치배수">
-            <HistoricalValuationChart points={historicalValuationSeries} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedValuationMetric} />
+            <HistoricalValuationChart points={historicalValuationSeries} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedValuationMetric} />
             <ValuationMetricsPanel metrics={metrics} focusedMetric={focusedValuationMetric} />
           </section>
         </div>
@@ -1413,36 +1291,30 @@ function ValuationPagedPanel({
   );
 }
 
-function PerShareIndicatorsChart({ points, selectedPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps) {
+function PerShareIndicatorsChart({ points, selectedPeriod, comparisonPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps) {
   return (
     <FinancialStaticChartCard
       title="주당지표"
     >
-      <PerShareIndicatorsPlot points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedMetric} />
+      <PerShareIndicatorsPlot points={points} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedMetric} />
     </FinancialStaticChartCard>
   );
 }
 
-type HistoricalValuationPoint = {
-  financial: FinancialChartPoint;
-  close: number | null;
-  per: number | null;
-  pbr: number | null;
-  psr: number | null;
-};
-
 function HistoricalValuationChart({
   points,
   selectedPeriod,
+  comparisonPeriod,
   onPeriodSelect,
   focusedMetric
 }: {
   points: HistoricalValuationPoint[];
   selectedPeriod: string | null;
+  comparisonPeriod?: string | null;
   onPeriodSelect: (period: string) => void;
   focusedMetric: string | null;
 }) {
-  const historicalFocus = focusedMetric === "per" || focusedMetric === "pbr" || focusedMetric === "psr"
+  const historicalFocus = focusedMetric === "per" || focusedMetric === "pbr" || focusedMetric === "psr" || focusedMetric === "fcf-yield"
     ? focusedMetric
     : null;
   return (
@@ -1454,10 +1326,11 @@ function HistoricalValuationChart({
           <span className={historicalFocus === "per" ? "is-focused" : ""}><i className="per" /><GlossaryText text="PER" /></span>
           <span className={historicalFocus === "pbr" ? "is-focused" : ""}><i className="pbr" /><GlossaryText text="PBR" /></span>
           <span className={historicalFocus === "psr" ? "is-focused" : ""}><i className="psr" /><GlossaryText text="PSR" /></span>
+          <span className={historicalFocus === "fcf-yield" ? "is-focused" : ""}><i className="fcf-yield" /><GlossaryText text="FCF Yield" /></span>
         </div>
       )}
     >
-      <HistoricalValuationPlot points={points} selectedPeriod={selectedPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={historicalFocus} />
+      <HistoricalValuationPlot points={points} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={historicalFocus} />
     </FinancialStaticChartCard>
   );
 }
@@ -1465,11 +1338,13 @@ function HistoricalValuationChart({
 function HistoricalValuationPlot({
   points,
   selectedPeriod,
+  comparisonPeriod,
   onPeriodSelect,
   focusedMetric
 }: {
   points: HistoricalValuationPoint[];
   selectedPeriod: string | null;
+  comparisonPeriod?: string | null;
   onPeriodSelect: (period: string) => void;
   focusedMetric: string | null;
 }) {
@@ -1477,29 +1352,33 @@ function HistoricalValuationPlot({
   const per = points.map((point) => point.per);
   const pbr = points.map((point) => point.pbr);
   const psr = points.map((point) => point.psr);
-  const values = [...per, ...pbr, ...psr].filter((value): value is number => Number.isFinite(value ?? NaN));
+  const fcfYield = points.map((point) => point.fcfYield);
+  const showingFcfYield = focusedMetric === "fcf-yield";
+  const seriesDefinitions: Array<{ key: string; values: Array<number | null>; className: string }> = showingFcfYield
+    ? [{ key: "fcf-yield", values: fcfYield, className: "fcf-yield" }]
+    : [
+      { key: "per", values: per, className: "per" },
+      { key: "pbr", values: pbr, className: "pbr" },
+      { key: "psr", values: psr, className: "psr" }
+    ];
+  const values = seriesDefinitions.flatMap((definition) => definition.values).filter((value): value is number => Number.isFinite(value ?? NaN));
   if (!points.length || !values.length) return <div className="company-profitability-empty-card">결산일 가격 데이터 확인 중</div>;
-  const domain = paddedDomain(values, { includeZero: true, fallbackMax: 10, minFloor: 0 });
+  const domain = paddedDomain(values, { includeZero: true, fallbackMax: showingFcfYield ? 0.05 : 10, minFloor: showingFcfYield ? undefined : 0 });
   const plot = responsiveChartPlot(chartWidth, { left: 70, right: 24, top: 12, bottom: 38, compactLeft: 54, compactRight: 14 });
   const innerWidth = chartWidth - plot.left - plot.right;
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const xFor = (index: number) => financialChartPointX(index, points.length, plot.left, innerWidth, 6);
   const multipleY = (value: number) => valueToY(value, domain, plot.top, innerHeight);
-  const seriesDefinitions = [
-    { key: "per", values: per, className: "per" },
-    { key: "pbr", values: pbr, className: "pbr" },
-    { key: "psr", values: psr, className: "psr" }
-  ] as const;
   const latestIndex = points.length - 1;
   const latestValues = seriesDefinitions
     .map((definition) => definition.values[latestIndex])
     .filter((value): value is number => Number.isFinite(value ?? NaN));
   const latestY = latestValues.length ? Math.min(...latestValues.map(multipleY)) : plot.top;
   return (
-    <svg ref={chartRef} className="company-profitability-plot company-historical-valuation-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="결산일 가격 기준 PER PBR PSR 시계열">
+    <svg ref={chartRef} className="company-profitability-plot company-historical-valuation-plot" style={financialChartAxisTypography} viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={showingFcfYield ? "결산일 가격 기준 FCF Yield 시계열" : "결산일 가격 기준 PER PBR PSR 시계열"}>
       {makeTicks(domain.min, domain.max, 5).map((tick) => {
         const y = multipleY(tick);
-        return <g key={tick}><line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="company-financial-axis-value" x={financialChartAxisLabelX} y={y + 5}>{formatMultipleAxis(tick)}</text></g>;
+        return <g key={tick}><line x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} /><text className="company-financial-axis-value" x={financialChartAxisLabelX} y={y + 5}>{showingFcfYield ? formatRatioPercent(tick) : formatMultipleAxis(tick)}</text></g>;
       })}
       {seriesDefinitions.map((definition) => (
         <path key={definition.key} data-journal-metric={definition.key} className={`company-historical-valuation-line ${definition.className} ${focusedMetric === definition.key ? "is-focused" : focusedMetric ? "is-muted" : ""}`} d={financialLinePath(definition.values, xFor, multipleY)} />
@@ -1507,11 +1386,13 @@ function HistoricalValuationPlot({
       {points.map((point, index) => {
         const periodKey = financialPointKey(point.financial);
         return (
-          <g key={`${periodKey}-${index}`} className={`company-financial-period-point ${periodKey === selectedPeriod ? "is-selected" : ""}`} data-journal-mark={index === points.length - 1 ? "valuation-latest" : undefined} role="button" tabIndex={0} aria-label={`${formatPeriod(point.financial.period, point.financial.periodEndDate)} 가치지표 선택`} onClick={() => onPeriodSelect(periodKey)} onKeyDown={(event) => handleFinancialPointKeyDown(event.key, () => onPeriodSelect(periodKey))}>
+          <g key={`${periodKey}-${index}`} className={`company-financial-period-point ${periodKey === selectedPeriod ? "is-selected" : ""} ${periodKey === comparisonPeriod ? "is-comparison" : ""}`} data-journal-mark={index === points.length - 1 ? "valuation-latest" : undefined} role="button" tabIndex={0} aria-label={`${formatPeriod(point.financial.period, point.financial.periodEndDate)} 가치지표 선택`} onClick={() => onPeriodSelect(periodKey)} onKeyDown={(event) => handleFinancialPointKeyDown(event.key, () => onPeriodSelect(periodKey))}>
             {seriesDefinitions.map((definition) => {
               const value = definition.values[index];
               if (!Number.isFinite(value ?? NaN)) return null;
-              return <circle key={definition.key} data-journal-metric={definition.key} className={`company-historical-valuation-dot ${definition.className} ${periodKey === selectedPeriod ? "is-selected" : ""} ${focusedMetric === definition.key ? "is-focused" : focusedMetric ? "is-muted" : ""}`} cx={xFor(index)} cy={multipleY(value as number)} r={periodKey === selectedPeriod || focusedMetric === definition.key ? 5 : 3.8}><title>{`${formatPeriod(point.financial.period, point.financial.periodEndDate)} · ${definition.key.toUpperCase()} ${formatMultiple(value)}`}</title></circle>;
+              const exactFocus = focusedMetric === definition.key && (periodKey === selectedPeriod || periodKey === comparisonPeriod);
+              const valueLabel = definition.key === "fcf-yield" ? formatRatioPercent(value) : formatMultiple(value);
+              return <circle key={definition.key} data-journal-metric={definition.key} data-journal-financial-metric={exactFocus ? definition.key : undefined} data-journal-financial-year={exactFocus ? financialPointYear(point.financial) ?? undefined : undefined} className={`company-historical-valuation-dot ${definition.className} ${periodKey === selectedPeriod ? "is-selected" : ""} ${periodKey === comparisonPeriod ? "is-comparison" : ""} ${exactFocus ? "is-focused" : focusedMetric ? "is-muted" : ""}`} cx={xFor(index)} cy={multipleY(value as number)} r={periodKey === selectedPeriod || periodKey === comparisonPeriod || exactFocus ? 5 : 3.8}><title>{`${formatPeriod(point.financial.period, point.financial.periodEndDate)} · ${definition.key.toUpperCase()} ${valueLabel}`}</title></circle>;
             })}
             {shouldShowPeriodLabel(index, points.length) && <text className="company-profitability-period" x={xFor(index)} y={chartHeight - 12}>{formatPeriod(point.financial.period, point.financial.periodEndDate)}</text>}
           </g>
@@ -1529,7 +1410,7 @@ function HistoricalValuationPlot({
   );
 }
 
-function PerShareIndicatorsPlot({ points, selectedPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps) {
+function PerShareIndicatorsPlot({ points, selectedPeriod, comparisonPeriod, onPeriodSelect, focusedMetric }: FinancialInteractiveChartProps) {
   const { chartRef, chartWidth, chartHeight } = useFinancialChartSize();
   if (!points.length) return <div className="company-profitability-empty-card">주당지표 시계열 확인 중</div>;
   const metrics = points.map(perShareMetricsForPoint);
@@ -1567,12 +1448,12 @@ function PerShareIndicatorsPlot({ points, selectedPeriod, onPeriodSelect, focuse
         const key = financialPointKey(point);
         const valuesForPoint = metrics[index]!;
         return (
-          <g key={`${key}-${index}`} className={`company-financial-period-point ${key === selectedPeriod ? "is-selected" : ""}`} data-journal-mark={index === points.length - 1 ? "per-share-latest" : undefined} role="button" tabIndex={0} aria-label={`${formatPeriod(point.period, point.periodEndDate)} 선택`} onClick={() => onPeriodSelect(key)} onKeyDown={(event) => handleFinancialPointKeyDown(event.key, () => onPeriodSelect(key))}>
+          <g key={`${key}-${index}`} className={`company-financial-period-point ${key === selectedPeriod ? "is-selected" : ""} ${key === comparisonPeriod ? "is-comparison" : ""}`} data-journal-mark={index === points.length - 1 ? "per-share-latest" : undefined} role="button" tabIndex={0} aria-label={`${formatPeriod(point.period, point.periodEndDate)} 선택`} onClick={() => onPeriodSelect(key)} onKeyDown={(event) => handleFinancialPointKeyDown(event.key, () => onPeriodSelect(key))}>
             {seriesDefinitions.map((definition) => {
               const value = valuesForPoint[definition.key];
               if (!Number.isFinite(value ?? NaN)) return null;
               const y = valueY(value as number);
-              const exactFocus = key === selectedPeriod && definition.key === focusedMetric;
+              const exactFocus = (key === selectedPeriod || key === comparisonPeriod) && definition.key === focusedMetric;
               return <rect key={definition.key} data-journal-financial-metric={exactFocus ? definition.key : undefined} data-journal-financial-year={exactFocus ? financialPointYear(point) ?? undefined : undefined} className={`company-per-share-bar ${definition.className} ${exactFocus ? "is-focused" : ""}`} x={x + definition.offset * barWidth - barWidth / 2} y={Math.min(y, zeroY)} width={barWidth} height={Math.max(2, Math.abs(zeroY - y))} rx={3} />;
             })}
             {shouldShowPeriodLabel(index, points.length) && <text className="company-profitability-period" x={x} y={chartHeight - 12}>{formatPeriod(point.period, point.periodEndDate)}</text>}
@@ -1605,20 +1486,36 @@ function EarningsPanel({
   metric,
   onMetricChange,
   series,
-  comparison
+  comparison,
+  analystActions,
+  companyName
 }: {
   metric: EarningsMetric;
   onMetricChange: (metric: EarningsMetric) => void;
   series: EarningsChartPoint[];
   comparison: ReturnType<typeof buildComparison>;
+  analystActions: readonly CompanyJournalAnalystAction[];
+  companyName: string;
 }) {
+  const analystOpinion = analystActions
+    .map((action) => formatCompanyJournalAnalystOpinion(action, companyName))
+    .find((opinion): opinion is CompanyJournalAnalystOpinion => opinion != null) ?? null;
   return (
     <section className="company-earnings-panel" aria-label="실적 내역">
-      <div className="company-earnings-heading">
-        <h3>실적 내역</h3>
-        <div className="company-earnings-tabs" role="tablist" aria-label="실적 지표">
-          <button type="button" className={metric === "eps" ? "active" : ""} onClick={() => onMetricChange("eps")}>EPS</button>
-          <button type="button" className={metric === "revenue" ? "active" : ""} onClick={() => onMetricChange("revenue")}>수익</button>
+      <div className="company-earnings-panel-header">
+        <aside className={`company-earnings-analyst-opinion is-${analystOpinion?.tone ?? "neutral"}`} aria-label="투자사 의견" aria-live="polite">
+          <div>
+            <strong>투자사 의견</strong>
+            {analystOpinion?.dateLabel && <time dateTime={analystOpinion.actionAt}>{analystOpinion.dateLabel}</time>}
+          </div>
+          <p>{analystOpinion?.message ?? "확인된 투자사 의견이 없습니다."}</p>
+        </aside>
+        <div className="company-earnings-heading">
+          <h3>실적 내역</h3>
+          <div className="company-earnings-tabs" role="tablist" aria-label="실적 지표">
+            <button type="button" className={metric === "eps" ? "active" : ""} onClick={() => onMetricChange("eps")}>EPS</button>
+            <button type="button" className={metric === "revenue" ? "active" : ""} onClick={() => onMetricChange("revenue")}>수익</button>
+          </div>
         </div>
       </div>
       <EarningsHistoryChart metric={metric} series={series} />
@@ -1680,7 +1577,7 @@ function FinancialSeriesTable({
   selectedPeriod?: string | null;
   emptyLabel?: string;
   focus?: {
-    period: string | null;
+    periods: string[];
     rowMarkers: FinancialTableRow["marker"][];
     primaryRowMarker: FinancialTableRow["marker"];
   };
@@ -1707,7 +1604,7 @@ function FinancialSeriesTable({
                 key={`${point.period}-${index}`}
                 className={[
                   financialPointKey(point) === selectedPeriod ? "is-selected" : "",
-                  focus?.period === financialPointKey(point) ? "is-evidence-period" : ""
+                  focus?.periods.includes(financialPointKey(point)) ? "is-evidence-period" : ""
                 ].filter(Boolean).join(" ") || undefined}
               >{formatTablePeriod(point)}</th>
             ))}
@@ -1726,8 +1623,8 @@ function FinancialSeriesTable({
               </th>
               {row.values.map((value, index) => {
                 const point = points[index]!;
-                const evidenceCell = focusedRow && focus?.period === financialPointKey(point);
-                const primaryEvidenceCell = evidenceCell && primaryFocusedRow;
+                const evidenceCell = focusedRow && (focus?.periods.includes(financialPointKey(point)) ?? false);
+                const primaryEvidenceCell = evidenceCell && primaryFocusedRow && focus?.periods[0] === financialPointKey(point);
                 return (
                 <td
                   key={`${row.label}-${index}`}
@@ -1771,25 +1668,6 @@ function valuationMetricKey(label: string): string {
   return label.toLowerCase().replaceAll(" ", "-");
 }
 
-type PerShareMetrics = {
-  eps: number | null;
-  bps: number | null;
-  sps: number | null;
-  cps: number | null;
-};
-
-function perShareMetricsForPoint(point: FinancialChartPoint): PerShareMetrics {
-  const shares = Number.isFinite(point.sharesOutstanding ?? NaN) && (point.sharesOutstanding as number) > 0
-    ? point.sharesOutstanding
-    : null;
-  return {
-    eps: Number.isFinite(point.eps ?? NaN) ? point.eps as number : safeDivide(point.netIncome, shares),
-    bps: safeDivide(point.totalEquity, shares),
-    sps: safeDivide(point.revenue, shares),
-    cps: safeDivide(point.operatingCashFlow, shares)
-  };
-}
-
 function isRenderablePerSharePoint(point: FinancialChartPoint): boolean {
   const metrics = perShareMetricsForPoint(point);
   return [metrics.eps, metrics.bps, metrics.sps, metrics.cps].some((value) => Number.isFinite(value ?? NaN));
@@ -1811,56 +1689,6 @@ function buildPerShareTableRows(points: FinancialChartPoint[], periodMode: Finan
     buildRow("SPS", "sps", "sps"),
     buildRow("CPS", "cps", "cps")
   ];
-}
-
-function buildHistoricalValuationSeries(points: FinancialChartPoint[], prices: ValuationPricePoint[]): HistoricalValuationPoint[] {
-  const sortedPrices = prices
-    .filter((point) => Number.isFinite(point.close) && Number.isFinite(Date.parse(point.timestamp)))
-    .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
-  return points.map((financial) => {
-    const close = periodEndClose(financial.periodEndDate, sortedPrices);
-    const perShare = perShareMetricsForPoint(financial);
-    return {
-      financial,
-      close,
-      per: positiveMultiple(close, perShare.eps),
-      pbr: positiveMultiple(close, perShare.bps),
-      psr: positiveMultiple(close, perShare.sps)
-    };
-  });
-}
-
-function periodEndClose(periodEndDate: string | null | undefined, prices: ValuationPricePoint[]): number | null {
-  if (!periodEndDate) return null;
-  const targetDay = periodEndDate.slice(0, 10);
-  const target = Date.parse(`${targetDay}T00:00:00Z`);
-  if (!Number.isFinite(target)) return null;
-  const maximumGapMs = 10 * 24 * 60 * 60 * 1000;
-  for (let index = prices.length - 1; index >= 0; index -= 1) {
-    const price = prices[index]!;
-    const priceDay = price.timestamp.slice(0, 10);
-    const timestamp = Date.parse(`${priceDay}T00:00:00Z`);
-    if (priceDay <= targetDay && target - timestamp <= maximumGapMs) return price.close;
-  }
-  return null;
-}
-
-function positiveMultiple(numerator: number | null, denominator: number | null): number | null {
-  return numerator != null && denominator != null && numerator > 0 && denominator > 0
-    ? numerator / denominator
-    : null;
-}
-
-function financialPriceRequestRange(points: FinancialChartPoint[]): { from: string; to: string } | null {
-  const timestamps = points
-    .map((point) => point.periodEndDate ? Date.parse(point.periodEndDate) : NaN)
-    .filter(Number.isFinite);
-  if (!timestamps.length) return null;
-  const dayMs = 24 * 60 * 60 * 1000;
-  return {
-    from: new Date(Math.min(...timestamps) - 10 * dayMs).toISOString(),
-    to: new Date(Math.max(...timestamps) + 2 * dayMs).toISOString()
-  };
 }
 
 function buildProfitabilityDashboardRows(points: FinancialChartPoint[], periodMode: FinancialPeriodMode): FinancialTableRow[] {
@@ -2288,19 +2116,23 @@ function financialRatioDots(
   xFor: (index: number) => number,
   yFor: (value: number) => number,
   selectedPeriod: string | null,
+  comparisonPeriod: string | null | undefined,
   onPeriodSelect: (period: string) => void,
   journalMark?: string,
   focusedMetric?: string | null
 ): ReactNode[] {
   const periodKey = financialPointKey(point);
+  const focusedPeriod = periodKey === selectedPeriod || periodKey === comparisonPeriod;
   return metrics.flatMap((metric) => Number.isFinite(metric.value ?? NaN) ? [
     <circle
       key={`${periodKey}-${metric.key}`}
-      className={`${metric.className} ${periodKey === selectedPeriod ? "is-selected" : ""} ${periodKey === selectedPeriod && metric.key === focusedMetric ? "is-focused" : ""}`}
+      className={`${metric.className} ${periodKey === selectedPeriod ? "is-selected" : ""} ${periodKey === comparisonPeriod ? "is-comparison" : ""} ${focusedPeriod && metric.key === focusedMetric ? "is-focused" : ""}`}
       data-journal-mark={journalMark}
+      data-journal-financial-metric={metric.key === focusedMetric ? metric.key : undefined}
+      data-journal-financial-year={metric.key === focusedMetric ? financialPointYear(point) ?? undefined : undefined}
       cx={xFor(index)}
       cy={yFor(metric.value as number)}
-      r={periodKey === selectedPeriod ? 5 : 3.5}
+      r={focusedPeriod ? 5 : 3.5}
       onClick={() => onPeriodSelect(periodKey)}
     />
   ] : []);
@@ -2594,16 +2426,6 @@ function formatAnnualPeriod(point: FinancialChartPoint): string {
   return year ? `${year}년` : point.period;
 }
 
-function formatUsd(value: number | null | undefined): string {
-  if (!Number.isFinite(value ?? NaN)) {
-    return "확인 중";
-  }
-  return `${new Intl.NumberFormat("ko-KR", {
-    minimumFractionDigits: value && value >= 100 ? 2 : 2,
-    maximumFractionDigits: 2
-  }).format(value as number)}달러`;
-}
-
 function formatUsdCompact(value: number | null | undefined): string {
   if (!Number.isFinite(value ?? NaN)) {
     return "확인 중";
@@ -2616,13 +2438,6 @@ function formatUsdCompactTable(value: number | null | undefined): string {
     return "확인 중";
   }
   return `US$${formatKoreanCompact(value as number)}`;
-}
-
-function formatShares(value: number | null | undefined): string {
-  if (!Number.isFinite(value ?? NaN)) {
-    return "확인 중";
-  }
-  return `${formatKoreanCompact(value as number)} 주`;
 }
 
 function formatKoreanCompact(value: number): string {
@@ -2691,66 +2506,6 @@ function formatRatioPercent(value: number | null | undefined): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2
   }).format((value as number) * 100)}%`;
-}
-
-function formatDate(value: string | null | undefined): string {
-  if (!value) {
-    return "확인 중";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("ko-KR", {
-    year: "numeric",
-    month: "long",
-    day: "numeric"
-  }).format(parsed);
-}
-
-function formatExchange(value: string | null | undefined): string {
-  if (!value) {
-    return "확인 중";
-  }
-  const normalized = value.trim().toUpperCase();
-  const labels: Record<string, string> = {
-    NASDAQ: "나스닥",
-    NYSE: "뉴욕증권거래소",
-    AMEX: "NYSE 아메리칸",
-    ARCA: "NYSE 아카",
-    BATS: "Cboe BZX"
-  };
-  return labels[normalized] ?? value;
-}
-
-function formatMarket(market: string | null | undefined, country: string | null | undefined): string {
-  const value = market || country;
-  if (!value) {
-    return "미국";
-  }
-  const normalized = value.trim().toUpperCase();
-  if (["US", "USA", "UNITED STATES", "UNITED STATES OF AMERICA", "미국"].includes(normalized)) {
-    return "미국";
-  }
-  return value;
-}
-
-function formatCompanySource(item: Sp500UniverseItem | undefined): string {
-  const source = item?.fundamentalsSource?.toLowerCase() ?? "";
-  if (source.includes("sec")) {
-    return "SEC 공시";
-  }
-  if (hasFundamentalShares(item)) {
-    return "재무 데이터";
-  }
-  if (item?.marketCapSource === "seed" || item?.layoutMarketCapSource === "seed") {
-    return "기준 유니버스";
-  }
-  return "확인 중";
-}
-
-function hasFundamentalShares(item: Sp500UniverseItem | undefined): boolean {
-  return item?.marketCapSource === "fundamentals" || Number.isFinite(item?.sharesOutstanding ?? NaN);
 }
 
 function safeDivide(numerator: number | null | undefined, denominator: number | null | undefined): number | null {

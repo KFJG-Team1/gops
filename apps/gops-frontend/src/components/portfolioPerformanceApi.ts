@@ -5,6 +5,7 @@ export type PortfolioPerformancePoint = {
   returnPercent: number;
   portfolioValue?: number;
   holdingsCostBasis?: number;
+  netInvestedPrincipal?: number;
 };
 
 export type PortfolioPerformanceResponse = {
@@ -80,11 +81,13 @@ function normalizePoints(value: unknown): PortfolioPerformancePoint[] {
       if (!Number.isFinite(timestamp) || !Number.isFinite(returnPercent)) return null;
       const portfolioValue = finiteOptionalNumber(item.portfolioValue);
       const holdingsCostBasis = finiteOptionalNumber(item.holdingsCostBasis);
+      const netInvestedPrincipal = finiteOptionalNumber(item.netInvestedPrincipal);
       return {
         time: new Date(timestamp).toISOString(),
         returnPercent,
         ...(portfolioValue != null ? { portfolioValue } : {}),
-        ...(holdingsCostBasis != null ? { holdingsCostBasis } : {})
+        ...(holdingsCostBasis != null ? { holdingsCostBasis } : {}),
+        ...(netInvestedPrincipal != null ? { netInvestedPrincipal } : {})
       };
     })
     .filter((item): item is PortfolioPerformancePoint => item != null)

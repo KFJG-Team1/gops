@@ -6161,6 +6161,10 @@ h2 {
   stroke: var(--company-positive-strong);
 }
 
+.company-historical-valuation-line.fcf-yield {
+  stroke: var(--company-brass);
+}
+
 .company-historical-valuation-dot {
   stroke: var(--color-surface);
   stroke-width: 2;
@@ -6183,6 +6187,12 @@ h2 {
 .company-historical-valuation-legend i.psr {
   fill: var(--company-positive-strong);
   background: var(--company-positive-strong);
+}
+
+.company-historical-valuation-dot.fcf-yield,
+.company-historical-valuation-legend i.fcf-yield {
+  fill: var(--company-brass);
+  background: var(--company-brass);
 }
 
 .company-historical-valuation-dot.is-selected {
@@ -6656,6 +6666,15 @@ h2 {
   vector-effect: non-scaling-stroke;
 }
 
+.company-financial-period-point.is-comparison rect,
+.company-financial-period-point.is-comparison circle,
+.company-historical-valuation-dot.is-comparison {
+  stroke: color-mix(in srgb, var(--coinbase-primary) 58%, white);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--coinbase-primary) 30%, transparent));
+  vector-effect: non-scaling-stroke;
+}
+
 .company-financial-period-point:focus-visible rect,
 .company-financial-period-point:hover rect {
   filter: brightness(1.12);
@@ -6755,6 +6774,30 @@ h2 {
   vector-effect: non-scaling-stroke;
 }
 
+.company-stability-money-line {
+  fill: none;
+  stroke: var(--coinbase-primary);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.company-stability-money-line.net-debt {
+  stroke: var(--company-brass);
+}
+
+.company-stability-money-dot {
+  fill: var(--color-surface);
+  stroke: var(--coinbase-primary);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.company-stability-money-dot.net-debt {
+  stroke: var(--company-brass);
+}
+
 .company-stability-legend i.equity {
   background: var(--company-positive);
 }
@@ -6795,6 +6838,21 @@ h2 {
 .company-stability-metric-line.noncurrent-liability-ratio,
 .company-stability-metric-dot.noncurrent-liability-ratio {
   stroke: var(--company-positive-strong);
+}
+
+.company-stability-metric-line.current-ratio,
+.company-stability-metric-dot.current-ratio {
+  stroke: var(--company-positive-strong);
+}
+
+.company-stability-metric-line.interest-coverage,
+.company-stability-metric-dot.interest-coverage {
+  stroke: var(--coinbase-primary);
+}
+
+.company-stability-metric-line.financial-cost-burden,
+.company-stability-metric-dot.financial-cost-burden {
+  stroke: var(--company-brass);
 }
 
 .company-stability-ratios-legend i.debt-ratio {
@@ -7017,7 +7075,11 @@ h2 {
   .company-return-bar,
   .company-profitability-operating-dot,
   .company-profitability-net-dot,
-  .company-return-dot
+  .company-return-dot,
+  .company-stability-bar,
+  .company-stability-ratio-dot,
+  .company-stability-money-dot,
+  .company-stability-metric-dot
 ).is-focused {
   stroke: color-mix(in srgb, var(--color-down) 82%, white);
   stroke-width: 3;
@@ -7042,6 +7104,60 @@ h2 {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 6px;
+}
+
+.company-earnings-panel-header {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.company-earnings-analyst-opinion {
+  --company-analyst-tone: var(--color-muted);
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  border-left: 3px solid var(--company-analyst-tone);
+  border-radius: 0 8px 8px 0;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--company-analyst-tone) 7%, var(--color-surface));
+}
+
+.company-earnings-analyst-opinion.is-positive {
+  --company-analyst-tone: var(--color-up);
+}
+
+.company-earnings-analyst-opinion.is-negative {
+  --company-analyst-tone: var(--color-down);
+}
+
+.company-earnings-analyst-opinion > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.company-earnings-analyst-opinion strong {
+  color: var(--color-text);
+  font: var(--type-body-md);
+  font-weight: 700;
+}
+
+.company-earnings-analyst-opinion time {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font: var(--type-caption);
+}
+
+.company-earnings-analyst-opinion p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font: var(--type-body-md);
+  line-height: 1.55;
 }
 
 .company-earnings-heading h3 {
@@ -27616,7 +27732,7 @@ textarea:focus,
   min-width: 0;
   gap: 8px;
   border-top: 1px solid var(--coinbase-hairline-soft);
-  padding: 15px 4px 4px;
+  padding: 15px 0 4px;
 }
 
 .company-journal-performance > header {
@@ -27714,6 +27830,10 @@ textarea:focus,
   fill: var(--color-muted);
   text-anchor: end;
   font: var(--type-label-sm);
+}
+
+.company-journal-performance svg text.axis-value {
+  text-anchor: start;
 }
 
 .company-journal-performance svg text.date {
@@ -27978,20 +28098,23 @@ textarea:focus,
 }
 
 .company-journal-insight {
+  --company-journal-insight-tone: var(--coinbase-primary);
   display: grid;
   min-width: 0;
-  gap: 5px;
+  gap: 8px;
   padding: 0 0 18px;
   border-radius: 10px;
-  cursor: pointer;
   transition: background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
-.company-journal-insight:hover,
-.company-journal-insight:focus-visible,
+.company-journal-insight.is-positive { --company-journal-insight-tone: var(--color-up); }
+.company-journal-insight.is-caution { --company-journal-insight-tone: var(--color-caution); }
+
+.company-journal-insight:has(.company-journal-insight-disclosure:hover),
+.company-journal-insight:has(.company-journal-insight-disclosure:focus-visible),
 .company-journal-insight.is-selected {
-  background: color-mix(in srgb, var(--coinbase-primary) 7%, transparent);
-  box-shadow: -4px 0 0 color-mix(in srgb, var(--coinbase-primary) 75%, transparent);
+  background: color-mix(in srgb, var(--company-journal-insight-tone) 7%, transparent);
+  box-shadow: -4px 0 0 color-mix(in srgb, var(--company-journal-insight-tone) 75%, transparent);
   outline: none;
   transform: translateX(3px);
 }
@@ -28006,6 +28129,62 @@ textarea:focus,
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.company-journal-insight-disclosure {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 22px;
+  align-items: start;
+  gap: 10px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.company-journal-insight-disclosure:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid color-mix(in srgb, var(--company-journal-insight-tone) 70%, transparent);
+  outline-offset: 4px;
+}
+
+.company-journal-insight-disclosure > span {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.company-journal-insight-disclosure > i {
+  position: relative;
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin-top: 3px;
+}
+
+.company-journal-insight-disclosure > i::before,
+.company-journal-insight-disclosure > i::after {
+  position: absolute;
+  top: 9px;
+  left: 4px;
+  width: 12px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: var(--color-muted);
+  content: "";
+  transition: transform 160ms ease;
+}
+
+.company-journal-insight-disclosure > i::after {
+  transform: rotate(90deg);
+}
+
+.company-journal-insight-disclosure[aria-expanded="true"] > i::after {
+  transform: rotate(0deg);
 }
 
 /* AI explanations point to deterministic chart evidence, never arbitrary coordinates. */
@@ -28119,6 +28298,15 @@ textarea:focus,
   font: var(--type-title-sm);
 }
 
+.company-journal-insight-disclosure .company-journal-insight-emphasis {
+  display: block;
+  border-left: 3px solid var(--company-journal-insight-tone);
+  padding: 2px 0 2px 12px;
+  color: var(--color-text);
+  font: var(--type-title-sm);
+  line-height: 1.48;
+}
+
 .company-journal-insight p {
   color: var(--color-text);
   text-transform: var(--type-body-md-text-transform);
@@ -28147,7 +28335,7 @@ textarea:focus,
   padding: 3px 0 5px;
 }
 
-.company-journal-insight-tags > span {
+.company-journal-insight-tags > button {
   display: inline-flex;
   min-height: 32px;
   align-items: center;
@@ -28158,13 +28346,39 @@ textarea:focus,
   color: var(--color-text);
   font: var(--type-label-sm);
   font-size: 14px;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
 }
 
-.company-journal-insight-tags > span:hover,
-.company-journal-insight-tags > span:focus-within {
+.company-journal-insight-tags > button:hover,
+.company-journal-insight-tags > button:focus-visible {
   border-color: color-mix(in srgb, var(--coinbase-primary) 72%, transparent);
   background: color-mix(in srgb, var(--coinbase-primary) 13%, var(--color-surface));
   color: var(--coinbase-primary);
+  outline: none;
+}
+
+.company-journal-insight[data-insight-kind="comparison"] .company-journal-insight-tags {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.company-journal-insight[data-insight-kind="comparison"] .company-journal-insight-tags > button {
+  justify-content: flex-start;
+  border-radius: 10px;
+  padding: 8px 11px;
+}
+
+.company-journal-insight-detail {
+  display: grid;
+  min-width: 0;
+  gap: 9px;
+}
+
+.company-journal-insight-detail small {
+  color: var(--color-muted);
+  font: var(--type-caption);
 }
 
 .company-journal-insight-evidence-hint {
@@ -28284,8 +28498,10 @@ textarea:focus,
   }
 
   .company-journal-reading {
+    order: -1;
     overflow: visible;
     padding: 24px 20px 32px;
+    border-bottom: 1px solid var(--coinbase-hairline-soft);
   }
 }
 
@@ -28304,6 +28520,14 @@ textarea:focus,
   .company-journal-quote {
     text-align: left;
     text-wrap: pretty;
+  }
+
+  .company-journal-insight h3 {
+    font-size: clamp(18px, 5.4cqw, 21px);
+  }
+
+  .company-journal-insight p {
+    font-size: clamp(16px, 4.6cqw, 18px);
   }
 
   .company-journal-tabs {
