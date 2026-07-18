@@ -95,6 +95,10 @@ const newsPanelSource = readFileSync(
   fileURLToPath(new URL("../src/components/NewsPanel.tsx", import.meta.url)),
   "utf-8"
 );
+const companyJournalSource = readFileSync(
+  fileURLToPath(new URL("../src/components/CompanyJournalPanel.tsx", import.meta.url)),
+  "utf-8"
+);
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
 assert.doesNotMatch(controlSource, /onNotification/);
 assert.doesNotMatch(controlSource, /simulator-breaking-toast|simulator-phase-toast/);
@@ -117,6 +121,10 @@ assert.match(bottomCommandBarSource, /notification\.id < 0/);
 assert.doesNotMatch(newsPanelSource, /시뮬레이션 뉴스 API 응답 오류/);
 assert.doesNotMatch(newsPanelSource, /시뮬레이션 시각 기준 뉴스 데이터가 없어/);
 assert.match(newsPanelSource, /simulatorMode === "simulation" \? "\/api\/market\/news\/latest"/);
+assert.match(companyJournalSource, /latestSimulatorStatus/);
+assert.match(companyJournalSource, /simulatorStatusEvent/);
+assert.match(companyJournalSource, /simulatorMode === "simulation"/);
+assert.match(companyJournalSource, /setJournalStatus\("simulation_unavailable"\)/);
 assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, chart\.interval\)/);
 assert.match(chartPanelSource, /scheduleChartAnalysisAssetRequest/);
 
