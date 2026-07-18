@@ -16,6 +16,7 @@ import "./chartCommentaryHistory.test";
 import "./chartTradeAutomation.test";
 import "./watchlistAgentCommand.test";
 import "./analysisAssetsCache.test";
+import "./chartAnalysisAssetRuntimeStore.test";
 import "./notificationInboxState.test";
 import "./paperHoldingPrice.test";
 import "./chartTradeMarkers.test";

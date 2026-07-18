@@ -90,6 +90,14 @@ import {
   updateChartCommentaryInteraction,
   type ChartCommentaryIndicatorRuntimeStatus
 } from "../chart/chartCommentaryInteractionStore";
+import {
+  chartAnalysisAssetRuntimeIdentity,
+  chartAnalysisAssetSceneContainsLoadedSnapshot,
+  clearChartAnalysisAssetRuntime,
+  updateChartAnalysisAssetRuntime,
+  type ChartAnalysisAssetLoadedCandleSnapshot,
+  type ChartAnalysisAssetLoadPhase
+} from "../chart/chartAnalysisAssetRuntimeStore";
 import { buildPatternBadgeLayout, type PatternBadgeLayout } from "../chart/patternBadge";
 import { createChartPriceSelection, type ChartPriceSelection, type ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
 import { clearChartTradeSetupSnapshot, setChartTradeSetupSnapshot } from "../chart/chartTradeSetupStore";
@@ -515,7 +523,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
   const [analysisAssets, setAnalysisAssets] = useState<AnalysisAssetsResponse | null>(null);
   const [analysisAssetsLoadError, setAnalysisAssetsLoadError] = useState<string | null>(null);
+  const [analysisAssetsLoadPhase, setAnalysisAssetsLoadPhase] = useState<ChartAnalysisAssetLoadPhase>("waiting-for-chart");
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
+  const [analysisSceneReadyToken, setAnalysisSceneReadyToken] = useState<{ requestKey: string; generation: number } | null>(null);
   const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>(() => ({
     ...defaultAnalysisLayerVisibility
   }));
@@ -558,6 +568,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       ? { ...sourceChart, candles: bidAskCandlesForSession(sourceChart.candles, bidAskSessionDate) }
       : sourceChart
   ), [bidAskSessionDate, sourceChart]);
+  const analysisRuntimeIdentity = chartAnalysisAssetRuntimeIdentity(document.id, chart.symbol, chart.interval);
   const holdingOverlay = useMemo(() => (
     findPaperHoldingOverlay(paperAccountSnapshot?.positions ?? [], chart.symbol)
   ), [chart.symbol, paperAccountSnapshot?.positions]);
@@ -764,6 +775,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const activeChartSessionIdRef = useRef(`chart-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
   const analysisLayerVisibilityRef = useRef(analysisLayerVisibility);
   const appliedAnalysisAssetKeyRef = useRef("");
+  const candleLoadGenerationRef = useRef(0);
+  const loadedCandleSnapshotRef = useRef<ChartAnalysisAssetLoadedCandleSnapshot | null>(null);
+  const analysisSceneReadyTokenRef = useRef("");
   const proposalAutoFrameKeyRef = useRef("");
   const tradePlanOverlayKeyRef = useRef("none");
   const tradePlanOverlayLayoutRef = useRef<TradePlanOverlayLayout | null>(null);
@@ -772,15 +786,42 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     mergeIndicatorSeries(baseIndicatorSeries, expansionIndicatorSeries)
   ), [baseIndicatorSeries, expansionIndicatorSeries]);
 
+  useEffect(() => {
+    const loadPhase: ChartAnalysisAssetLoadPhase = isAnalysisAssetInterval(chart.interval)
+      ? "waiting-for-chart"
+      : "ready";
+    setAnalysisAssets(null);
+    setAnalysisAssetsLoadError(null);
+    setAnalysisAssetsLoadPhase(loadPhase);
+    setAnalysisSceneReadyToken(null);
+    loadedCandleSnapshotRef.current = null;
+    analysisSceneReadyTokenRef.current = "";
+    appliedAnalysisAssetKeyRef.current = "";
+    updateChartAnalysisAssetRuntime(document.id, {
+      identity: analysisRuntimeIdentity,
+      phase: loadPhase,
+      response: null,
+      error: null
+    });
+    return () => clearChartAnalysisAssetRuntime(document.id, analysisRuntimeIdentity);
+  }, [analysisRuntimeIdentity, chart.interval, document.id]);
+
   useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
     const activeSymbol = chart.symbol.trim().toUpperCase();
     if (!invalidatedSymbol || invalidatedSymbol === activeSymbol) {
       setAnalysisAssets(null);
       setAnalysisAssetsLoadError(null);
+      setAnalysisAssetsLoadPhase("loading");
       appliedAnalysisAssetKeyRef.current = "";
+      updateChartAnalysisAssetRuntime(document.id, {
+        identity: analysisRuntimeIdentity,
+        phase: "loading",
+        response: null,
+        error: null
+      });
       setAnalysisAssetsRevision((current) => current + 1);
     }
-  }), [chart.symbol]);
+  }), [analysisRuntimeIdentity, chart.symbol, document.id]);
 
   useEffect(() => {
     chartRef.current = chart;
@@ -961,27 +1002,65 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   useEffect(() => {
     const requestedSymbol = chart.symbol.trim().toUpperCase();
+    const requestKey = chartMemoryKey(requestedSymbol, chart.interval);
+    if (
+      !isAnalysisAssetInterval(chart.interval)
+      || !analysisSceneReadyToken
+      || analysisSceneReadyToken.requestKey !== requestKey
+    ) {
+      return undefined;
+    }
     let active = true;
-    setAnalysisAssets((current) => current?.symbol === requestedSymbol ? current : null);
-    setAnalysisAssetsLoadError(null);
-    appliedAnalysisAssetKeyRef.current = "";
-    fetchAnalysisAssets(requestedSymbol, chart.interval)
-      .then((response) => {
-        if (active && response.symbol === requestedSymbol) {
+    const runtimeIdentity = analysisRuntimeIdentity;
+    const cancelScheduledRequest = scheduleChartAnalysisAssetRequest(() => {
+      if (!active) return;
+      setAnalysisAssetsLoadPhase("loading");
+      setAnalysisAssetsLoadError(null);
+      updateChartAnalysisAssetRuntime(document.id, {
+        identity: runtimeIdentity,
+        phase: "loading",
+        response: null,
+        error: null
+      });
+      fetchAnalysisAssets(requestedSymbol, chart.interval)
+        .then((response) => {
+          if (!active || response.symbol !== requestedSymbol) return;
           setAnalysisAssets(response);
           setAnalysisAssetsLoadError(null);
-        }
-      })
-      .catch((reason) => {
-        if (active) {
+          setAnalysisAssetsLoadPhase("ready");
+          updateChartAnalysisAssetRuntime(document.id, {
+            identity: runtimeIdentity,
+            phase: "ready",
+            response,
+            error: null
+          });
+        })
+        .catch((reason) => {
+          if (!active) return;
+          const message = analysisAssetsLoadErrorMessage(reason);
           setAnalysisAssets(null);
-          setAnalysisAssetsLoadError(analysisAssetsLoadErrorMessage(reason));
-        }
-      });
+          setAnalysisAssetsLoadError(message);
+          setAnalysisAssetsLoadPhase("error");
+          updateChartAnalysisAssetRuntime(document.id, {
+            identity: runtimeIdentity,
+            phase: "error",
+            response: null,
+            error: message
+          });
+        });
+    });
     return () => {
       active = false;
+      cancelScheduledRequest();
     };
-  }, [analysisAssetsRevision, chart.interval, chart.symbol]);
+  }, [
+    analysisAssetsRevision,
+    analysisRuntimeIdentity,
+    analysisSceneReadyToken,
+    chart.interval,
+    chart.symbol,
+    document.id
+  ]);
 
   const rawActiveAnalysisAsset = isAnalysisAssetInterval(chart.interval)
     && analysisAssets?.symbol === chart.symbol.trim().toUpperCase()
@@ -1436,6 +1515,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const requestedInterval = chart.interval;
     const requestedSourceInterval = candleSourceInterval(requestedInterval);
     const requestKey = chartMemoryKey(requestedSymbol, requestedInterval);
+    const loadGeneration = candleLoadGenerationRef.current + 1;
+    candleLoadGenerationRef.current = loadGeneration;
+    loadedCandleSnapshotRef.current = null;
     const pendingLoad = pendingViewportAnchorRef.current?.key === requestKey ? pendingViewportAnchorRef.current : null;
     onChartRuntimeAction({
       kind: "chart.data.status",
@@ -1453,6 +1535,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         return;
       }
       const merged = mergeCandlesByTimestamp(response.candles, current.candles);
+      const latestClosed = latestClosedTimestamp(merged);
+      loadedCandleSnapshotRef.current = latestClosed ? {
+        requestKey,
+        generation: loadGeneration,
+        latestClosedTimestamp: latestClosed
+      } : null;
       const nextViewport = viewportAfterSnapshotCandlesChange(
         current.candles,
         merged,
@@ -2371,6 +2459,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
+    const loadedCandleSnapshot = loadedCandleSnapshotRef.current;
+    const sceneRequestKey = chartMemoryKey(scene.chart.symbol, scene.chart.interval);
+    if (chartAnalysisAssetSceneContainsLoadedSnapshot(loadedCandleSnapshot, sceneRequestKey, scene.chart.candles)) {
+      const readyTokenKey = `${loadedCandleSnapshot.requestKey}:${loadedCandleSnapshot.generation}`;
+      if (analysisSceneReadyTokenRef.current !== readyTokenKey) {
+        analysisSceneReadyTokenRef.current = readyTokenKey;
+        setAnalysisSceneReadyToken({
+          requestKey: loadedCandleSnapshot.requestKey,
+          generation: loadedCandleSnapshot.generation
+        });
+      }
+    }
     const settlePendingAtX = (targetX: number, pending: PendingCommentaryNavigation) => {
       const centerX = (scene.plot.left + scene.plot.right) / 2;
       if (Math.abs(targetX - centerX) <= 1 || pending.attempts >= 2) return true;
@@ -3437,6 +3537,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           freshness={activeAnalysisAssetFreshness}
           interpretationMode={analysisTraceDataMode(activeAnalysisAsset)}
           candidateCounts={analysisCandidateCounts}
+          loadPhase={analysisAssetsLoadPhase}
           loadError={analysisAssetsLoadError}
           onToggle={toggleAnalysisLayer}
         />
@@ -4651,6 +4752,19 @@ function latestClosedTimestamp(candles: CandleDto[]): string | null {
     }
   }
   return null;
+}
+
+function scheduleChartAnalysisAssetRequest(callback: () => void): () => void {
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+  if (idleWindow.requestIdleCallback) {
+    const handle = idleWindow.requestIdleCallback(callback, { timeout: 1_000 });
+    return () => idleWindow.cancelIdleCallback?.(handle);
+  }
+  const handle = window.setTimeout(callback, 0);
+  return () => window.clearTimeout(handle);
 }
 
 function isRealtimeStreamInterval(interval: ChartInterval): boolean {

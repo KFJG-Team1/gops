@@ -8,8 +8,6 @@ import {
   type ChartCommentaryState
 } from "../agent/chartCommentaryHistory";
 import {
-  fetchAnalysisAssets,
-  subscribeAnalysisAssetsInvalidation,
   type AnalysisAssetInterval,
   type ChartAnalysisAsset,
   type ChartAssetCommentary,
@@ -17,6 +15,12 @@ import {
   type ChartAssetCommentaryReference,
   type ChartAssetCommentaryV2
 } from "../chart/analysisAssetsApi";
+import {
+  chartAnalysisAssetRuntimeIdentity,
+  getChartAnalysisAssetRuntimeSnapshot,
+  subscribeChartAnalysisAssetRuntime,
+  type ChartAnalysisAssetLoadPhase
+} from "../chart/chartAnalysisAssetRuntimeStore";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import { buildChartCommentaryViewModel, type ChartCommentaryScenario } from "../chart/commentaryModel";
 import { dispatchChartAnalysisLayerToggle } from "../chart/analysisLayerController";
@@ -70,8 +74,6 @@ export function ChartCommentaryPanel({
   onChartSelectionToggle,
   onChartDocumentChange
 }: ChartCommentaryPanelProps) {
-  const [assets, setAssets] = useState<Awaited<ReturnType<typeof fetchAnalysisAssets>> | null>(null);
-  const [revision, setRevision] = useState(0);
   const normalizedSymbol = symbol.trim().toUpperCase();
   const state = useMemo(
     () => normalizeChartCommentaryState(rawCommentaryState, chartDocumentId ?? "unbound"),
@@ -88,26 +90,24 @@ export function ChartCommentaryPanel({
     [holdings.positions, normalizedSymbol]
   );
   const verifiedHolding = holdings.loading || holdings.error ? null : holding;
-  useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
-    if (!invalidatedSymbol || invalidatedSymbol === normalizedSymbol) {
-      setAssets(null);
-      setRevision((current) => current + 1);
-    }
-  }), [normalizedSymbol]);
-
-  useEffect(() => {
-    if (!sourceAvailable || !isAnalysisAssetInterval(interval)) {
-      setAssets(null);
-      return undefined;
-    }
-    let active = true;
-    fetchAnalysisAssets(normalizedSymbol).then((response) => {
-      if (active) setAssets(response);
-    }).catch(() => {
-      if (active) setAssets(null);
-    });
-    return () => { active = false; };
-  }, [interval, normalizedSymbol, revision, sourceAvailable]);
+  const subscribeAssetRuntime = useCallback(
+    (listener: () => void) => subscribeChartAnalysisAssetRuntime(chartDocumentId, listener),
+    [chartDocumentId]
+  );
+  const readAssetRuntime = useCallback(
+    () => getChartAnalysisAssetRuntimeSnapshot(chartDocumentId),
+    [chartDocumentId]
+  );
+  const assetRuntime = useSyncExternalStore(subscribeAssetRuntime, readAssetRuntime, readAssetRuntime);
+  const expectedAssetIdentity = chartDocumentId
+    ? chartAnalysisAssetRuntimeIdentity(chartDocumentId, normalizedSymbol, interval)
+    : "";
+  const runtimeMatchesSource = sourceAvailable && assetRuntime.identity === expectedAssetIdentity;
+  const assets = runtimeMatchesSource ? assetRuntime.response : null;
+  const assetLoadPhase: ChartAnalysisAssetLoadPhase = runtimeMatchesSource
+    ? assetRuntime.phase
+    : "waiting-for-chart";
+  const assetLoadError = runtimeMatchesSource ? assetRuntime.error : null;
 
   useEffect(() => () => {
     if (chartDocumentId) dispatchFocus(chartDocumentId, normalizedSymbol, interval, [], "clear");
@@ -126,7 +126,15 @@ export function ChartCommentaryPanel({
     ? "데이터 불일치"
     : diagnostics?.outdated
       ? `${diagnostics.freshness.lagBars}봉 전`
-      : asset ? "최신" : "분석 없음";
+      : asset
+        ? "최신"
+        : assetLoadPhase === "loading"
+          ? "불러오는 중"
+          : assetLoadPhase === "waiting-for-chart"
+            ? "차트 대기"
+            : assetLoadPhase === "error"
+              ? "조회 오류"
+              : "분석 없음";
 
   return (
     <article className="chart-commentary-shell">
@@ -175,6 +183,8 @@ export function ChartCommentaryPanel({
           holdingsLoading={holdings.loading}
           holdingsError={holdings.error}
           holdingsErrorStatus={holdings.errorStatus}
+          assetLoadPhase={assetLoadPhase}
+          assetLoadError={assetLoadError}
         />}
     </article>
   );
@@ -182,7 +192,7 @@ export function ChartCommentaryPanel({
 
 function CurrentCommentary({
   chartDocumentId, sourceAvailable, symbol, interval, candles, drawingIds, asset, availableAssets,
-  chartLayers, holding, holdingsLoading, holdingsError, holdingsErrorStatus
+  chartLayers, holding, holdingsLoading, holdingsError, holdingsErrorStatus, assetLoadPhase, assetLoadError
 }: {
   chartDocumentId?: string;
   sourceAvailable: boolean;
@@ -197,6 +207,8 @@ function CurrentCommentary({
   holdingsLoading: boolean;
   holdingsError?: string;
   holdingsErrorStatus?: number;
+  assetLoadPhase: ChartAnalysisAssetLoadPhase;
+  assetLoadError: string | null;
 }) {
   const [pinnedStepId, setPinnedStepId] = useState<string | null>(null);
   const drawingIdsKey = drawingIds.join("\u0000");
@@ -220,11 +232,17 @@ function CurrentCommentary({
     ? "연결된 원본 차트가 없습니다"
     : !isAnalysisAssetInterval(interval)
       ? "이 주기는 차트 해설을 지원하지 않습니다"
-      : !asset
-        ? "아직 생성된 차트 해설이 없습니다"
-        : !diagnostics || !viewModel
-          ? "차트 해설을 불러오지 못했습니다"
-          : null;
+      : assetLoadPhase === "waiting-for-chart"
+        ? "차트 로드 후 작도·해설을 불러옵니다"
+        : assetLoadPhase === "loading"
+          ? "작도·해설 불러오는 중"
+          : assetLoadPhase === "error"
+            ? assetLoadError ?? "작도·해설을 불러오지 못했습니다"
+            : !asset
+              ? "아직 생성된 차트 해설이 없습니다"
+              : !diagnostics || !viewModel
+                ? "차트 해설을 불러오지 못했습니다"
+                : null;
   const focusStep = (stepId: string | null, mode: FocusMode) => {
     if (!chartDocumentId) return;
     const step = viewModel?.evidence.find((candidate) => candidate.id === stepId);

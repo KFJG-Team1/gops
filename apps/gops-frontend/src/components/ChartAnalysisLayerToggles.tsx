@@ -1,9 +1,11 @@
 import { formatAnalysisAssetAsOf, type AnalysisAssetFreshness } from "../chart/analysisAssetPresentation";
 import type { AnalysisLayerKey, AnalysisLayerVisibility } from "../chart/analysisLayerController";
 import type { AnalysisTraceDataMode } from "../chart/analysisTraceOverlay";
+import type { ChartAnalysisAssetLoadPhase } from "../chart/chartAnalysisAssetRuntimeStore";
 
 export function ChartAnalysisLayerToggles({
-  visibility, disabled, asOf, freshness = null, interpretationMode = "none", candidateCounts, loadError = null, onToggle
+  visibility, disabled, asOf, freshness = null, interpretationMode = "none", candidateCounts,
+  loadPhase = "ready", loadError = null, onToggle
 }: {
   visibility: AnalysisLayerVisibility;
   disabled: Record<AnalysisLayerKey, boolean>;
@@ -11,6 +13,7 @@ export function ChartAnalysisLayerToggles({
   freshness?: AnalysisAssetFreshness | null;
   interpretationMode?: AnalysisTraceDataMode;
   candidateCounts?: { total: number; visible: number; stored: number } | null;
+  loadPhase?: ChartAnalysisAssetLoadPhase;
   loadError?: string | null;
   onToggle: (layer: AnalysisLayerKey) => void;
 }) {
@@ -23,14 +26,21 @@ export function ChartAnalysisLayerToggles({
         <LayerButton layer="pattern" label="패턴" visibility={visibility} disabled={disabled} onToggle={onToggle} />
         <LayerButton layer="proposal" label="제안" visibility={visibility} disabled={disabled} onToggle={onToggle} />
       </div>
-      {loadError ? <span className="chart-analysis-asof is-error" role="status">{loadError}</span> : asOf && <span className={`chart-analysis-asof ${freshness?.state === "source_invalid" ? "is-stale" : freshness?.state === "outdated_snapshot" ? "is-outdated" : ""}`}>
+      {loadError ? <span className="chart-analysis-asof is-error" role="status">{loadError}</span> : asOf ? <span className={`chart-analysis-asof ${freshness?.state === "source_invalid" ? "is-stale" : freshness?.state === "outdated_snapshot" ? "is-outdated" : ""}`}>
         분석 기준 {formatAnalysisAssetAsOf(asOf)}
         {freshness?.state === "source_invalid" ? " · 데이터 불일치" : freshness?.state === "outdated_snapshot" ? ` · ${freshness.lagBars}봉 전` : ""}
         {interpretationMode === "complete" ? " · 해석 유력 후보" : interpretationMode === "bounded" ? " · 해석 일부 후보" : interpretationMode === "legacy" ? " · 해석 근거만 · 재생성 필요" : ""}
         {interpretationMode === "complete" && candidateCounts ? ` · 유력 후보 ${candidateCounts.visible}/${candidateCounts.total} · 전체 ${candidateCounts.stored}` : ""}
-      </span>}
+      </span> : <span className="chart-analysis-asof" role="status">{analysisAssetLoadStatusText(loadPhase)}</span>}
     </div>
   );
+}
+
+function analysisAssetLoadStatusText(phase: ChartAnalysisAssetLoadPhase): string {
+  if (phase === "waiting-for-chart") return "차트 로드 후 작도·해설을 불러옵니다";
+  if (phase === "loading") return "작도·해설 불러오는 중";
+  if (phase === "error") return "작도·해설을 불러오지 못했습니다";
+  return "생성된 작도 자산 없음";
 }
 
 function LayerButton({ layer, label, accessibleLabel = label, visibility, disabled, onToggle, interpretationMode }: {
