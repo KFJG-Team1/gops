@@ -2,9 +2,15 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   fetchRelatedIndexCommentary,
   fetchRelatedIndices,
+  relatedIndicesSimulatorContextKey,
   type RelatedIndexItem,
   type RelatedIndicesPayload
 } from "../market/relatedIndicesApi";
+import {
+  latestSimulatorStatus,
+  simulatorStatusEvent,
+  type SimulatorStatus
+} from "../simulator/simulatorApi";
 import { IndexWidgetCard } from "./IndexWidgetCard";
 import {
   scheduleHideRelatedIndexTooltip,
@@ -15,7 +21,7 @@ import {
   type RelatedIndexTooltipEntry
 } from "./RelatedIndexTooltip";
 
-type PanelStatus = "loading" | "ready" | "empty";
+type PanelStatus = "loading" | "ready" | "empty" | "error";
 
 export function IndexCommentaryPanel({
   symbol,
@@ -27,6 +33,20 @@ export function IndexCommentaryPanel({
   const normalizedSymbol = resolveIndexCommentarySymbol(symbol, recommendationSymbol);
   const [payload, setPayload] = useState<RelatedIndicesPayload | null>(null);
   const [status, setStatus] = useState<PanelStatus>("loading");
+  const [simulatorContextKey, setSimulatorContextKey] = useState(() => (
+    relatedIndicesSimulatorContextKey(latestSimulatorStatus())
+  ));
+
+  useEffect(() => {
+    const handleSimulatorStatus = (event: Event) => {
+      const next = (event as CustomEvent<SimulatorStatus>).detail;
+      if (next) {
+        setSimulatorContextKey(relatedIndicesSimulatorContextKey(next));
+      }
+    };
+    window.addEventListener(simulatorStatusEvent, handleSimulatorStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleSimulatorStatus);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -39,6 +59,9 @@ export function IndexCommentaryPanel({
         }
         setPayload(initialPayload);
         setStatus(initialPayload.items.length > 0 ? "ready" : "empty");
+        if (initialPayload.simulation) {
+          return;
+        }
         initialPayload.items.forEach((item) => {
           void fetchRelatedIndexCommentary(initialPayload, item, controller.signal)
             .then((commentary) => {
@@ -68,11 +91,11 @@ export function IndexCommentaryPanel({
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setStatus("empty");
+          setStatus("error");
         }
       });
     return () => controller.abort();
-  }, [normalizedSymbol]);
+  }, [normalizedSymbol, simulatorContextKey]);
 
   return (
     <section
@@ -85,6 +108,9 @@ export function IndexCommentaryPanel({
       )}
       {status === "empty" && (
         <div className="related-index-panel-state">표시할 관련 지수 데이터가 없습니다</div>
+      )}
+      {status === "error" && (
+        <div className="related-index-panel-state">관련 지수 데이터를 불러오지 못했습니다</div>
       )}
       {status === "ready" && payload && (
         <div

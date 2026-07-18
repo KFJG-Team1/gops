@@ -1,4 +1,5 @@
 import type { MarketIndexItem } from "./indicesApi";
+import type { SimulatorStatus } from "../simulator/simulatorApi";
 
 export type RelatedIndexRelType = "constituent" | "sector" | "macro";
 
@@ -37,9 +38,22 @@ export type RelatedIndicesPayload = {
     missing: string[];
   };
   items: RelatedIndexItem[];
+  simulation?: boolean;
+  datasetId?: string;
+  runId?: string;
+  virtualTime?: string;
 };
 
 type RawRecord = Record<string, unknown>;
+
+export function relatedIndicesSimulatorContextKey(
+  status: Pick<SimulatorStatus, "mode" | "runId"> | null
+): string {
+  if (status === null) {
+    return "unknown";
+  }
+  return status.mode === "simulation" ? `simulation:${status.runId ?? "pending"}` : "live";
+}
 
 export async function fetchRelatedIndices(symbol: string, signal?: AbortSignal): Promise<RelatedIndicesPayload> {
   const params = new URLSearchParams({ symbol: symbol.trim().toUpperCase() });
@@ -115,7 +129,11 @@ export function normalizeRelatedIndicesPayload(payload: unknown): RelatedIndices
       priced: asNumber(coverage.priced) ?? items.length,
       missing: readArray(coverage.missing).map(asString).filter((value): value is string => Boolean(value))
     },
-    items
+    items,
+    simulation: source.simulation === true,
+    datasetId: asString(source.datasetId),
+    runId: asString(source.runId),
+    virtualTime: asString(source.virtualTime)
   };
 }
 
