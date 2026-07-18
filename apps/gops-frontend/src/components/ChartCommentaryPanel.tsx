@@ -81,7 +81,7 @@ export function ChartCommentaryPanel({
     () => chartDocumentId ? getActiveTradePlan(chartDocumentId) : null,
     () => null
   );
-  const holdings = usePortfolioHoldingsData(undefined, "kis");
+  const holdings = usePortfolioHoldingsData(undefined, "active");
   const holding = useMemo(
     () => holdings.positions.find((position) => position.symbol.trim().toUpperCase() === normalizedSymbol) ?? null,
     [holdings.positions, normalizedSymbol]

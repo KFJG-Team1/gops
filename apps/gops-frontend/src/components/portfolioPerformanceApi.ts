@@ -12,6 +12,7 @@ export type PortfolioPerformanceResponse = {
   range: PortfolioPerformanceRange;
   asOf: string | null;
   isDevFixture: boolean;
+  dataOrigin: "seeded-demo" | "account-history";
   portfolio: {
     name: string;
     points: PortfolioPerformancePoint[];
@@ -52,6 +53,7 @@ export function normalizePortfolioPerformanceResponse(
     range,
     asOf: typeof source.asOf === "string" ? source.asOf : null,
     isDevFixture: source.isDevFixture === true,
+    dataOrigin: source.dataOrigin === "seeded-demo" ? "seeded-demo" : "account-history",
     portfolio: {
       name: typeof portfolio.name === "string" && portfolio.name.trim() ? portfolio.name : "내 포트폴리오",
       points: portfolioPoints
@@ -65,53 +67,6 @@ export function normalizePortfolioPerformanceResponse(
     warnings: Array.isArray(source.warnings)
       ? source.warnings.filter((item): item is string => typeof item === "string")
       : []
-  };
-}
-
-export function buildDevPortfolioPerformanceFixture(
-  range: PortfolioPerformanceRange,
-  now: Date = new Date()
-): PortfolioPerformanceResponse {
-  const durationDays: Record<PortfolioPerformanceRange, number> = {
-    "1W": 7,
-    "1M": 31,
-    "3M": 93,
-    "1Y": 366,
-    "ALL": 366 * 5
-  };
-  const portfolioReturns = [0, 0.8, 0.2, 1.9, 1.4, 3.1, 2.6, 4.7, 4.2, 6.3];
-  const benchmarkReturns = [0, 0.4, 0.7, 1.1, 1.8, 2.2, 2.8, 3.1, 3.7, 4.4];
-  const portfolioValues = [12_000, 12_096, 12_024, 12_728, 12_665, 13_195, 13_131, 13_964, 13_897, 14_646];
-  const holdingsCostBasis = [12_000, 12_000, 12_000, 12_490, 12_490, 12_800, 12_800, 13_340, 13_340, 13_760];
-  const end = now.getTime();
-  const start = end - durationDays[range] * 86_400_000;
-  const pointsFor = (
-    values: number[],
-    assets?: { portfolioValues: number[]; holdingsCostBasis: number[] }
-  ): PortfolioPerformancePoint[] => values.map((returnPercent, index) => ({
-    time: new Date(start + ((end - start) * index) / Math.max(values.length - 1, 1)).toISOString(),
-    returnPercent,
-    ...(assets ? {
-      portfolioValue: assets.portfolioValues[index],
-      holdingsCostBasis: assets.holdingsCostBasis[index]
-    } : {})
-  }));
-  return {
-    status: "ready",
-    range,
-    asOf: now.toISOString(),
-    isDevFixture: true,
-    portfolio: {
-      name: "내 포트폴리오",
-      points: pointsFor(portfolioReturns, { portfolioValues, holdingsCostBasis })
-    },
-    benchmark: {
-      symbol: "^GSPC",
-      name: "S&P 500",
-      method: "price_return",
-      points: pointsFor(benchmarkReturns)
-    },
-    warnings: ["DEV DEMO · 실제 성과 이력이 쌓이기 전 화면 확인용 고정 시계열입니다."]
   };
 }
 

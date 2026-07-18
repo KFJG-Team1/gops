@@ -52,6 +52,23 @@ assert.deepEqual(constrainedViewport, {
   transformOrigin: "bottom center"
 });
 
+const compactNewsPopover = chartEventPopoverPlacement({
+  viewportWidth: 1200,
+  viewportHeight: 800,
+  anchorX: 600,
+  anchorY: 700,
+  contentHeight: 380,
+  preferredWidth: 360
+});
+assert.deepEqual(compactNewsPopover, {
+  left: 420,
+  top: 306,
+  width: 360,
+  maxHeight: 776,
+  placement: "above",
+  transformOrigin: "bottom center"
+});
+
 const overlaySource = readFileSync(
   fileURLToPath(new URL("../src/components/ChartEventOverlay.tsx", import.meta.url)),
   "utf-8"
@@ -62,6 +79,9 @@ assert.match(overlaySource, /chart-event-highlight/);
 assert.match(overlaySource, /chart-event-detail-list/);
 assert.match(overlaySource, /chart-event-section-label/);
 assert.match(overlaySource, /chart-event-source-footer/);
+assert.match(overlaySource, /chart-event-news-meta/);
+assert.match(overlaySource, /chart-event-news-impact/);
+assert.match(overlaySource, /preferredWidth: selected\.event\.type === "news" \? 360/);
 assert.doesNotMatch(overlaySource, /chart-event-metrics/);
 
 const stylesSource = readFileSync(
@@ -72,3 +92,5 @@ assert.match(stylesSource, /\.chart-event-popover-badge\s*\{[\s\S]*clip-path: po
 assert.match(stylesSource, /\.chart-event-highlight\s*\{[\s\S]*font-variant-numeric: tabular-nums/);
 assert.match(stylesSource, /\.chart-event-detail-list\s*\{[\s\S]*grid-template-columns/);
 assert.match(stylesSource, /\.chart-event-source-footer\s*\{[\s\S]*border-top/);
+assert.match(stylesSource, /\.chart-event-popover\.is-news > header\s*\{[\s\S]*border-bottom: 0/);
+assert.match(stylesSource, /\.chart-event-news-meta\s*\{[\s\S]*grid/);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { fetchStockRecommendations, suggestScoreProfile } from "../src/recommendations/recommendationApi";
+import { suggestionRationaleSummary } from "../src/recommendations/ScoreProfileManager";
 
 const item = {
   symbol: "JPM",
@@ -144,5 +145,13 @@ assert.equal(suggested.provenance.source, "llm");
 assert.equal(suggested.profile.type, "custom");
 assert.deepEqual(suggested.intent.matchedKeywords, ["뉴스", "거래량"]);
 assert.equal(suggested.evidence.news[0].symbol, "MSFT");
+assert.equal(
+  suggestionRationaleSummary({
+    ...suggested,
+    rationale: "participationConfirmation을 높이고 raw snapshot을 반영했습니다.",
+    evidence: { ...suggested.evidence, summary: ["gate 통과 후보가 0개이고 신뢰도는 0점입니다."] }
+  }),
+  "뉴스 촉매에 비중을 둔 로직입니다. 체결 여건과 기업 품질까지 함께 반영해 신호의 안정성을 높였습니다."
+);
 
 console.info("recommendation API normalization tests passed");
