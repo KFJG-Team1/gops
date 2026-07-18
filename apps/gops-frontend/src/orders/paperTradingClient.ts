@@ -83,7 +83,7 @@ export async function fetchPaperAccount(signal?: AbortSignal): Promise<PaperAcco
 }
 
 export async function fetchPaperOrders(signal?: AbortSignal): Promise<OrderSnapshot[]> {
-  const response = await fetch("/api/paper/orders?include_previous=true&limit=500", { signal });
+  const response = await fetch("/api/paper/orders?limit=500", { signal });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(errorMessage(body, response.status));
   return Array.isArray(body.orders) ? body.orders : [];

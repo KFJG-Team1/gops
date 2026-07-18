@@ -51,6 +51,7 @@ export type OrderSnapshot = {
   virtualFilledAt?: string | null;
   cancelled_at?: string | null;
   generation?: number;
+  seed_profile?: string | null;
   execution_mode?: "paper" | "simulation";
   order_type?: "market" | "limit";
   reason?: string | null;

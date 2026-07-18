@@ -9,11 +9,13 @@ import { ImprovementCoachPage } from "./ai-coach/ImprovementCoachPage";
 import type { CoachAlertCandidate, CoachReport, ImprovementPlan, PlaybookExperiment, TradingGuardrail, WatchCondition } from "./ai-coach/types";
 import styles from "./ai-coach/AiCoachShell.module.css";
 import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
+import { usePaperAccount } from "../orders/PaperAccountProvider";
 
 const PAGES = ["당일 거래 회고", "장기 습관", "효과·보완 조건", "실행·알람 관리"] as const;
 const DEV_FIXTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_AI_COACH_DEV_FIXTURE === "true";
 
 export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null }) {
+  const { snapshot: paperSnapshot, orders: paperOrders } = usePaperAccount();
   const [page, setPage] = useState(0);
   const [fixture, setFixture] = useState<CoachReport | null>(null);
   const [archivedReport, setArchivedReport] = useState<CoachReport | null>(null);
@@ -22,10 +24,15 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
   const [focusedAlertCandidateId, setFocusedAlertCandidateId] = useState<string | null>(null);
   const [simulatorMode, setSimulatorMode] = useState(() => latestSimulatorStatus()?.mode ?? "live");
   const mainRef = useRef<HTMLElement>(null);
+  const seededPortfolioReport = Boolean(
+    paperSnapshot?.account.seed_profile
+    && paperOrders.length
+    && paperOrders.every((order) => Boolean(order.seed_profile))
+  );
 
   useEffect(() => {
     let active = true;
-    if (!report && DEV_FIXTURE_ENABLED) {
+    if (seededPortfolioReport || (!report && DEV_FIXTURE_ENABLED)) {
       import("./ai-coach/devFixture").then(({ AI_COACH_DEV_FIXTURE }) => {
         if (active) setFixture(AI_COACH_DEV_FIXTURE);
       });
@@ -33,7 +40,7 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
       setFixture(null);
     }
     return () => { active = false; };
-  }, [report]);
+  }, [report, seededPortfolioReport]);
 
   useEffect(() => {
     if (simulatorMode === "simulation") {
@@ -41,7 +48,7 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
       setArchiveState("unavailable");
       return;
     }
-    if (report || DEV_FIXTURE_ENABLED) {
+    if (report || DEV_FIXTURE_ENABLED || seededPortfolioReport) {
       setArchivedReport(null);
       setArchiveState("ready");
       return;
@@ -59,7 +66,7 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
         if (!controller.signal.aborted) setArchiveState("unavailable");
       });
     return () => controller.abort();
-  }, [report, simulatorMode]);
+  }, [report, seededPortfolioReport, simulatorMode]);
 
   useEffect(() => {
     const handleStatus = (event: Event) => {
@@ -69,7 +76,11 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
     return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
   }, []);
 
-  const resolved = simulatorMode === "simulation" ? null : report ?? fixture ?? archivedReport;
+  const resolved = simulatorMode === "simulation"
+    ? null
+    : seededPortfolioReport
+      ? fixture
+      : report ?? fixture ?? archivedReport;
   const plan = planOverride ?? resolved?.page3 ?? null;
   useEffect(() => {
     setPlanOverride(null);

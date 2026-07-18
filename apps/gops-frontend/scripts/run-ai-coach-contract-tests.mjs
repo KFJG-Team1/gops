@@ -25,6 +25,10 @@ assert.match(shell, /PAGES\.length/);
 assert.match(shell, /import\.meta\.env\.DEV\s*&&\s*import\.meta\.env\.VITE_AI_COACH_DEV_FIXTURE/);
 assert.doesNotMatch(shell, /import\s*\{\s*AI_COACH_DEV_FIXTURE\s*\}/);
 assert.match(shell, /import\("\.\/ai-coach\/devFixture"\)/);
+assert.match(shell, /usePaperAccount\(\)/);
+assert.match(shell, /paperSnapshot\?\.account\.seed_profile/);
+assert.match(shell, /paperOrders\.every\(\(order\) => Boolean\(order\.seed_profile\)\)/);
+assert.match(shell, /seededPortfolioReport[\s\S]*?\? fixture[\s\S]*?: report \?\? fixture \?\? archivedReport/);
 assert.match(shell, /fetchLatestCoachReport\(controller\.signal\)/);
 assert.match(analysisNormalizer, /\/api\/ai-coach\/reports\/latest/);
 assert.match(page, /T-60/); assert.match(page, /T\+20/); assert.match(page, /ResizeObserver/);
@@ -114,6 +118,9 @@ for (const field of ["currentValue", "threshold", "operator", "recommendedAction
 }
 assert.match(actions, /추천 행동/);
 assert.match(fixture, /reportsByPeriod: periods/); assert.match(fixture, /reviewsByFillId/); assert.match(fixture, /contractVersion: "coach-report\.v2"/);
+for (const symbol of ["WMT", "AMZN", "AAPL", "MSFT", "JPM"]) assert.ok(fixture.includes(symbol));
+for (const staleSymbol of ["NVDA", "AMD"]) assert.ok(!fixture.includes(staleSymbol));
+assert.match(fixture, /10종목·7섹터/); assert.match(fixture, /정보기술 23\.4%/); assert.match(fixture, /예약금 \$2,178/); assert.match(fixture, /총자산 \$105,023\.52/);
 assert.match(types, /processAssessment/); assert.match(types, /outcomeAssessment/);
 for (const source of ["daily_trade", "entry_habit", "exit_habit", "portfolio_risk"]) {
   assert.ok(fixture.includes(source));

@@ -344,7 +344,9 @@
   flex: 1;
   flex-direction: column;
   gap: var(--panel-gap);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .stock-discovery-logic-page > header {
@@ -363,10 +365,10 @@
 }
 .stock-discovery-logic-scroll {
   display: flex;
-  min-height: 0;
-  flex: 1;
+  min-height: auto;
+  flex: 0 0 auto;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   padding-right: 4px;
 }
 
@@ -762,8 +764,8 @@
 .score-profile-manager {
   position: relative;
   display: flex;
-  min-height: 0;
-  flex: 1;
+  min-height: auto;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 0;
   padding-bottom: 4px;
@@ -1037,11 +1039,11 @@
 
 .score-profile-editor {
   display: flex;
-  min-height: 0;
-  flex: 1;
+  min-height: auto;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 8px;
-  overflow: auto;
+  overflow: visible;
   border: 0;
   border-radius: 0;
   padding: 0;
@@ -27198,16 +27200,6 @@ textarea:focus,
 
 .portfolio-performance-return-summary strong.negative {
   color: var(--color-down);
-}
-
-.portfolio-performance-dev-badge {
-  border: 1px solid color-mix(in srgb, var(--color-caution) 46%, transparent);
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: color-mix(in srgb, var(--color-caution) 12%, transparent);
-  color: var(--color-caution);
-  font: var(--type-legal);
-  font-style: normal;
 }
 
 .portfolio-performance-return-line {

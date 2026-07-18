@@ -86,6 +86,9 @@ assert.match(workspaceStyles, /\.stock-discovery-company,[\s\S]*align-items: fle
 assert.match(workspaceStyles, /\.stock-discovery-company \{[\s\S]*width: 100%;[\s\S]*overflow: hidden;/, "long company names stay inside their own grid column");
 assert.match(workspaceStyles, /\.stock-discovery-row\.is-selected \{ background: #fff;/, "the selected row uses the white selection contract");
 assert.match(workspaceStyles, /\.stock-discovery-logic-page/, "the detailed weight editor fills its panel tab");
+assert.match(workspaceStyles, /\.stock-discovery-logic-page \{[\s\S]*overflow-x: hidden;[\s\S]*overflow-y: auto;[\s\S]*scrollbar-gutter: stable;/, "the complete logic page owns one predictable vertical scrollbar");
+assert.match(workspaceStyles, /\.stock-discovery-logic-scroll \{[\s\S]*flex: 0 0 auto;[\s\S]*overflow: visible;/, "the logic content wrapper does not create a nested scroll region");
+assert.match(workspaceStyles, /\.score-profile-editor \{[\s\S]*flex: 0 0 auto;[\s\S]*overflow: visible;/, "the weight editor expands into the page scrollbar instead of scrolling independently");
 assert.doesNotMatch(workspaceStyles, /\.stock-discovery-logic-sidebar|\.stock-discovery-logic-backdrop/, "legacy side rail styling is removed");
 assert.match(workspaceStyles, /\.stock-discovery-metric-filters/, "detailed metric ranges use a responsive grid");
 assert.match(workspaceStyles, /\.score-profile-weight-input/, "weight sliders and numeric inputs share an explicit control layout");

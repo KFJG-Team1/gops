@@ -150,7 +150,7 @@ function paperSnapshotToPortfolioPayload(snapshot: PaperAccountSnapshot): Portfo
       unrealizedPnlRate: costBasis > 0 ? snapshot.account.unrealized_pnl / costBasis * 100 : 0
     },
     positions,
-    limitations: snapshot.account.seed_profile ? [`${snapshot.account.seed_profile} seeded portfolio`] : []
+    limitations: []
   };
 }
 
@@ -1354,7 +1354,6 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
               <i className="benchmark" />S&amp;P 500
               <strong className={directionClass(benchmarkPeriodReturn)}>{formatSignedPercentPlain(benchmarkPeriodReturn)}</strong>
             </span>
-            {response?.dataOrigin === "seeded-demo" && <em className="portfolio-performance-dev-badge">DEMO DATA</em>}
           </div>
           <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={`${range} 평가금, 보유 원금, S&P 500 변화율 비교`}>
             {yTicks.map((tick) => {
