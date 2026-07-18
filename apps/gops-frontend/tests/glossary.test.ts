@@ -10,8 +10,8 @@ allGlossaryEntries.forEach((entry) => {
 Object.values(stockGlossary).forEach((entry) => {
   assert.equal(entry.aliases.some((alias) => /[A-Za-z]/.test(alias)), true, `${entry.id} requires an English alias`);
 });
-assert.equal(allGlossaryEntries.length, 110);
-assert.equal(new Set(allGlossaryEntries.map((entry) => entry.id)).size, 110);
+assert.equal(allGlossaryEntries.length, 111);
+assert.equal(new Set(allGlossaryEntries.map((entry) => entry.id)).size, 111);
 const glossaryById = new Map(allGlossaryEntries.map((entry) => [entry.id, entry]));
 assert.equal(
   glossaryById.get("invalidation")?.description,
@@ -48,6 +48,12 @@ assert.deepEqual(
 
 const repeated = annotateGlossaryTerms("RSI가 오르고 RSI는 60입니다.");
 assert.equal(repeated.filter((segment) => segment.glossaryId === "rsi").length, 2);
+
+const valuationMultiple = annotateGlossaryTerms("가치배수 추이");
+assert.deepEqual(
+  valuationMultiple.filter((segment) => segment.glossaryId).map((segment) => [segment.text, segment.glossaryId]),
+  [["가치배수", "valuation_multiple"]]
+);
 
 const overlapping = annotateGlossaryTerms("피보나치 되돌림 구간");
 assert.deepEqual(

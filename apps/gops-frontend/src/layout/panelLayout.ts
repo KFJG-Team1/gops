@@ -259,7 +259,10 @@ export function createTiledPanelStateFromSpec(
   const slots: PanelSlot[] = [];
   let instance = 1;
   spec.forEach((item) => {
-    const inheritsSymbol = item.kind === "chart" || item.kind === "company" || item.kind === "compare" || item.kind === "companyCompare";
+    const inheritsSymbol = item.kind === "chart"
+      || item.kind === "compare"
+      || item.kind === "companyCompare"
+      || companyInformationPanelKinds.has(item.kind);
     const symbol = item.symbol ?? (inheritsSymbol ? options.symbol : undefined);
     const content = createPanelContent(item.kind, instance, {
       symbol: symbol?.trim().toUpperCase(),
@@ -1237,6 +1240,7 @@ export function ensurePrimaryChartSymbol(
 
 const companyInformationPanelKinds = new Set<PanelContentKind>([
   "company",
+  "companyJournal",
   "indexCommentary",
   "companyMulti",
   "companyValuation",
@@ -1271,6 +1275,60 @@ export function setCompanyInformationSymbol(
   return chartContent
     ? setPanelContentProps(withChart, chartContent.id, { symbol: normalizedSymbol, view: "company" })
     : state;
+}
+
+export function synchronizeCompanyAnalysisSymbol(
+  state: TiledPanelState,
+  symbol: string
+): TiledPanelState {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  if (!normalizedSymbol) {
+    return state;
+  }
+  return state.slots.reduce((current, slot) => {
+    const content = current.contents[slot.contentId];
+    if (!content) {
+      return current;
+    }
+    if (content.kind === "chart") {
+      return content.props?.symbol === normalizedSymbol
+        ? current
+        : setPanelContentProps(current, content.id, { symbol: normalizedSymbol });
+    }
+    if (content.kind === "compare") {
+      const symbols = Array.isArray(content.props?.symbols) ? content.props.symbols : [];
+      const alreadySynchronized = content.props?.baseSymbol === normalizedSymbol
+        && symbols.length === 1
+        && symbols[0] === normalizedSymbol;
+      return alreadySynchronized
+        ? current
+        : setPanelContentProps(current, content.id, { baseSymbol: normalizedSymbol, symbols: [normalizedSymbol] });
+    }
+    if (!companyInformationPanelKinds.has(content.kind) || content.props?.symbol === normalizedSymbol) {
+      return current;
+    }
+    return setPanelContentProps(current, content.id, { symbol: normalizedSymbol });
+  }, state);
+}
+
+export function synchronizeChartAnalysisSymbol(
+  state: TiledPanelState,
+  symbol: string
+): TiledPanelState {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  if (!normalizedSymbol) {
+    return state;
+  }
+  return state.slots.reduce((current, slot) => {
+    const content = current.contents[slot.contentId];
+    if (content?.kind !== "compare") {
+      return current;
+    }
+    const symbols = Array.isArray(content.props?.symbols) ? content.props.symbols : [];
+    return content.props?.baseSymbol === normalizedSymbol && symbols.length === 1 && symbols[0] === normalizedSymbol
+      ? current
+      : setPanelContentProps(current, content.id, { baseSymbol: normalizedSymbol, symbols: [normalizedSymbol] });
+  }, state);
 }
 
 export function setPrimaryChartView(
@@ -1479,7 +1537,7 @@ function createPanelContent(
   const props = {
     ...(options.props ?? {}),
     ...(kind === "chart" && options.symbol ? { symbol: options.symbol, timeframe: "1D" } : {}),
-    ...(kind === "company" && options.symbol ? { symbol: options.symbol } : {}),
+    ...(companyInformationPanelKinds.has(kind) && options.symbol ? { symbol: options.symbol } : {}),
     ...(kind === "compare" && options.symbol ? { baseSymbol: options.symbol, symbols: [options.symbol], range: "1D" } : {})
   };
   return {

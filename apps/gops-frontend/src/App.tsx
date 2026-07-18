@@ -12,7 +12,7 @@ import {
 import { useAuth } from "./auth/AuthProvider";
 import { submitAlertCommand } from "./alerts/alertApi";
 import { PresetDock } from "./components/PresetDock";
-import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migrateCompanyComparePanelSnapshot, migratePortfolioInvestmentSnapshot, resetChartAnalysisDefaultSymbol, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
+import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migrateCompanyComparePanelSnapshot, migratePortfolioInvestmentSnapshot, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
 import { useLayoutPresets } from "./layout/useLayoutPresets";
 import {
   chartRuntimeReducer,
@@ -39,6 +39,7 @@ import {
 import { agentReferenceChipKind, agentReferenceKey, agentReferenceTicker, buildChartAnalysisContext, chartReferenceForSelection, SEMANTIC_SELECTION_REFERENCE_KEY, type AgentReference, type AgentReferenceChip } from "./agent/agentReferences";
 import { agentReportCompletionMessage, type AgentHeaderNotice, type AgentHeaderNoticeTone } from "./agent/agentHeaderNotice";
 import { resolveWatchlistAgentCommand } from "./agent/watchlistAgentCommand";
+import { resolveCompanyAnalysisCommand } from "./agent/companyAnalysisNavigation";
 import {
   attachChartCommentaryReport,
   beginChartCommentaryRequest,
@@ -89,8 +90,9 @@ import {
   restoreTiledPanelStateSnapshot,
   scaleTiledPanelState,
   serializeTiledPanelState,
-  setCompanyInformationSymbol,
   setPrimaryChartView,
+  synchronizeChartAnalysisSymbol,
+  synchronizeCompanyAnalysisSymbol,
   syncPrimaryChartSymbol,
   workspaceBounds,
   type TiledPanelState,
@@ -686,11 +688,15 @@ export function App() {
     buildLayout: buildPresetLayoutForCurrent
   });
   useEffect(() => {
-    if (presetControls.activePresetId !== "compare") {
+    if (mainView.mode !== "chart") {
       return;
     }
-    setPanelState((current) => resetChartAnalysisDefaultSymbol(current));
-  }, [presetControls.activePresetId]);
+    if (presetControls.activePresetId === "stock") {
+      setPanelState((current) => synchronizeCompanyAnalysisSymbol(current, mainView.symbol));
+    } else if (presetControls.activePresetId === "compare") {
+      setPanelState((current) => synchronizeChartAnalysisSymbol(current, mainView.symbol));
+    }
+  }, [mainView, presetControls.activePresetId]);
   const applyAgentLayoutWithHistory = useCallback((
     state: TiledPanelState,
     proposal: AgentLayoutProposal,
@@ -962,32 +968,23 @@ export function App() {
     const nextView: MainView = { mode: "chart", symbol: normalizedSymbol };
     chartPanelHandlesRef.current.clear();
     setChartRuntime(createInitialChartRuntimeState());
-    setPanelState((current) => {
-      const companyState = setCompanyInformationSymbol(
-        current,
-        normalizedSymbol,
-        viewportSizeRef.current,
-        panelLayoutMetricsRef.current
+    const stockPreset = presetControls.presets.find((preset) => preset.id === "stock");
+    const preparedState = stockPreset
+      ? buildPresetLayout(stockPreset, viewportSizeRef.current, {
+        symbol: normalizedSymbol,
+        layoutMetrics: panelLayoutMetricsRef.current
+      })
+      : null;
+    if (stockPreset && preparedState) {
+      presetControls.applyPreparedPreset(
+        stockPreset.id,
+        synchronizeCompanyAnalysisSymbol(preparedState, normalizedSymbol)
       );
-      const next = ensurePrimaryChartSymbol(
-        companyState,
-        normalizedSymbol,
-        viewportSizeRef.current,
-        panelLayoutMetricsRef.current
-      );
-      if (next !== current) {
-        return next;
-      }
-      const stockPreset = presetControls.presets.find((preset) => preset.id === "stock");
-      return stockPreset
-        ? buildPresetLayout(stockPreset, viewportSizeRef.current, {
-          symbol: normalizedSymbol,
-          layoutMetrics: panelLayoutMetricsRef.current
-        }) ?? current
-        : current;
-    });
+    } else {
+      setPanelState((current) => synchronizeCompanyAnalysisSymbol(current, normalizedSymbol));
+    }
     navigateMainView(nextView);
-  }, [navigateMainView, presetControls.presets]);
+  }, [navigateMainView, presetControls.applyPreparedPreset, presetControls.presets]);
 
   const handleChartHandleChange = useCallback((contentId: string, handle: ChartPanelHandle | null) => {
     if (handle) {
@@ -1346,6 +1343,21 @@ export function App() {
       setTradeAutomationDraft(draft);
       return "ui-action";
     }
+    const companyAnalysisCommand = resolveCompanyAnalysisCommand(
+      prompt,
+      selectedRecommendationSymbol
+        || (mainView.mode === "chart" ? mainView.symbol : resolvePresetSymbol()),
+      universeSymbols
+    );
+    if (companyAnalysisCommand.status === "missing_symbol") {
+      showAgentNotice("기업분석에 사용할 종목을 알려주세요. 예: NVDA 기업분석하자", "info");
+      return "notice";
+    }
+    if (companyAnalysisCommand.status === "ready") {
+      openCompanyPage(companyAnalysisCommand.symbol);
+      showAgentNotice(`${companyAnalysisCommand.symbol} 기업분석 화면을 열었습니다.`);
+      return "ui-action";
+    }
     const recommendationNavigation = resolveRecommendationCompanyNavigation(
       prompt,
       presetControls.activePresetId,
@@ -1356,7 +1368,6 @@ export function App() {
       return "notice";
     }
     if (recommendationNavigation.status === "ready") {
-      presetControls.applyPreset(recommendationNavigation.presetId);
       openCompanyPage(recommendationNavigation.symbol);
       return "ui-action";
     }
@@ -1910,7 +1921,7 @@ export function App() {
 
     void runChartPrompt();
     return "notice";
-  }, [acceptAnalysisReport, addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, buildPresetLayoutForCurrent, canUseAgent, chartDocumentSymbolsByPanelId, chartPriceSelection, chartRuntime, clearChartSemanticSelections, handlePresetLoadResult, mainView, navigateMainView, openCompanyPage, openSymbolPage, panelState, presetControls, resolvePresetSymbol, selectedRecommendationSymbol, semanticSelection, showAgentNotice, viewportSize]);
+  }, [acceptAnalysisReport, addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, buildPresetLayoutForCurrent, canUseAgent, chartDocumentSymbolsByPanelId, chartPriceSelection, chartRuntime, clearChartSemanticSelections, handlePresetLoadResult, mainView, navigateMainView, openCompanyPage, openSymbolPage, panelState, presetControls, resolvePresetSymbol, selectedRecommendationSymbol, semanticSelection, showAgentNotice, universeSymbols, viewportSize]);
 
   const closeTradeAutomationDialog = useCallback(() => {
     tradeAutomationRequestedSnapshotRef.current = null;

@@ -143,7 +143,6 @@ export function CompanyJournalPerformanceChart({
     return length <= 1 ? plot.left + plotWidth / 2 : plot.left + (index / (length - 1)) * plotWidth;
   };
   const ticks = makeTicks(domain.min, domain.max, 5);
-  const periodLabel = normalized.length ? commonCoverageLabel(normalized) : "가격 이력 확인 중";
   const companyPerformance = normalized.find((value) => value.tone === "company") ?? normalized[0];
   const companyLatestIndex = Math.max(0, (companyPerformance?.points.length ?? 1) - 1);
   const companyLatestPoint = companyPerformance?.points[companyLatestIndex];
@@ -155,7 +154,6 @@ export function CompanyJournalPerformanceChart({
       <header>
         <div>
           <h3>시장 대비 주가</h3>
-          <span><strong>{periodLabel}</strong> · 첫 거래일을 0%로 맞춰 같은 기간의 흐름을 비교합니다.</span>
         </div>
         {previewEnabled && <em>DEV PREVIEW</em>}
       </header>
@@ -309,16 +307,6 @@ function buildPreviewPerformanceSeries(symbol: string, sectorSymbol: string): Co
       };
     })
   }));
-}
-
-function commonCoverageLabel(series: Array<{ points: Array<{ timestamp: string }> }>) {
-  const timestamps = series.flatMap((value) => value.points.map((point) => point.timestamp));
-  if (!timestamps.length) return "가격 이력 확인 중";
-  timestamps.sort();
-  const from = timestamps[0]!;
-  const to = timestamps.at(-1)!;
-  const includeDay = formatDate(from) === formatDate(to);
-  return `${formatDate(from, includeDay)}–${formatDate(to, includeDay)}`;
 }
 
 export function dateLabels(candles: CandleDto[]) {

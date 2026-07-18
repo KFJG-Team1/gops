@@ -176,12 +176,31 @@ assert.match(companyJournalSource, /simulatorStatusEvent/);
 assert.match(companyJournalSource, /simulatorMode === "simulation"/);
 assert.doesNotMatch(companyJournalSource, /setJournalStatus\("simulation_unavailable"\)/);
 assert.doesNotMatch(companyJournalSource, /simulatorMode === "simulation"\) \{[\s\S]*?setStoredEvidence\(null\);[\s\S]*?return/);
-assert.match(companyJournalSource, /disableRemoteFetch=\{previewEnabled \|\| simulatorMode === "simulation"\}/);
 assert.match(companyJournalSource, /companyJournalRequestKey/);
-assert.match(companyJournalSource, /disableRemoteFetch=\{simulatorMode === "simulation"\}/);
 assert.match(companyJournalPerformanceSource, /if \(disableRemoteFetch\) \{/);
+assert.doesNotMatch(companyJournalPerformanceSource, /첫 거래일을 0%/);
 assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, requestedInterval\)/);
 assert.match(chartPanelSource, /fetchChartCommentaryAsset\(requestedSymbol, requestedInterval\)/);
+assert.match(companyJournalSource, /fetchCompanyJournalEvidence/);
+assert.match(companyJournalSource, /previewEnabled \|\| simulatorMode === "simulation"/);
+assert.match(companyJournalSource, /buildEvidenceBackedJournalItem/);
+assert.match(companyJournalSource, /disableRemoteFetch/);
+assert.match(
+  companyJournalSource,
+  /<div className="company-journal-earnings-evidence">[\s\S]*?<CompanyJournalAnalystOpinionPanel[\s\S]*?<CompanyJournalPerformanceChart[\s\S]*?<CompanySummaryPanel/,
+  "the earnings view must show analyst opinion, market-relative price, and earnings history in order"
+);
+assert.match(companyJournalSource, /showAnalystOpinion=\{false\}/);
+assert.match(
+  companyJournalSource,
+  /<CompanyJournalPerformanceChart[\s\S]*?storedSeries=\{storedPerformanceSeries\}[\s\S]*?disableRemoteFetch=\{simulatorMode === "simulation"\}/,
+  "the market-relative chart must use stored cutoff evidence without a SIM remote fallback"
+);
+assert.match(
+  companyJournalSource,
+  /<CompanySummaryPanel[\s\S]*?items=\{simulatorMode === "simulation" \? \[\] : items\}[\s\S]*?disableRemoteFetch=\{previewEnabled \|\| simulatorMode === "simulation"\}/,
+  "the earnings history must use evidence-backed data without a SIM remote fallback"
+);
 assert.match(chartPanelSource, /scheduleChartAnalysisAssetRequest/);
 assert.ok(
   chartPanelSource.indexOf("fetchChartCommentaryAsset(requestedSymbol, requestedInterval)")

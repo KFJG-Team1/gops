@@ -5622,6 +5622,7 @@ h2 {
 }
 
 .company-info-sheet {
+  --company-info-cell-pad: clamp(12px, 1.6cqw, 18px);
   --company-diagonal-width: clamp(40px, 8cqw, 84px);
   --company-tab-end: min(
     calc(var(--panel-gap) + var(--company-tab-text-width, 12ch) + (var(--panel-padding) * 3)),
@@ -5658,7 +5659,7 @@ h2 {
   position: absolute;
   z-index: 2;
   top: 28%;
-  left: var(--panel-gap);
+  left: calc(var(--panel-gap) + var(--company-info-cell-pad, 12px));
   right: auto;
   display: inline-flex;
   box-sizing: border-box;
@@ -5762,11 +5763,11 @@ h2 {
   padding: 9px 12px;
 }
 
-.company-info-cell:nth-child(-n + 3) {
+.company-info-cell:nth-child(-n + 2) {
   border-top: 0;
 }
 
-.company-info-cell:nth-child(3n) {
+.company-info-cell:nth-child(even) {
   border-right: 0;
 }
 
@@ -5779,7 +5780,8 @@ h2 {
 .company-info-cell dt {
   text-transform: var(--type-caption-text-transform);
   letter-spacing: var(--type-caption-letter-spacing);
-  font: var(--type-caption);
+  font: var(--type-label-md);
+  font-size: clamp(15px, 1.15cqw, 21px);
   color: #fff;
 }
 
@@ -5788,7 +5790,8 @@ h2 {
   color: #fff;
   text-transform: var(--type-label-md-text-transform);
   letter-spacing: var(--type-label-md-letter-spacing);
-  font: var(--type-label-md);
+  font: var(--type-title-md);
+  font-size: clamp(16px, 1.25cqw, 23px);
   text-align: right;
   overflow-wrap: anywhere;
   text-overflow: clip;
@@ -7112,52 +7115,27 @@ h2 {
   gap: 10px;
 }
 
-.company-earnings-analyst-opinion {
-  --company-analyst-tone: var(--color-muted);
+.company-journal-analyst-opinion {
   display: grid;
   min-width: 0;
-  gap: 5px;
-  border-left: 3px solid var(--company-analyst-tone);
-  border-radius: 0 8px 8px 0;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--company-analyst-tone) 7%, var(--color-surface));
+  gap: 8px;
+  padding: 15px 0 4px;
 }
 
-.company-earnings-analyst-opinion.is-positive {
-  --company-analyst-tone: var(--color-up);
-}
-
-.company-earnings-analyst-opinion.is-negative {
-  --company-analyst-tone: var(--color-down);
-}
-
-.company-earnings-analyst-opinion > div {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.company-earnings-analyst-opinion strong {
+.company-journal-analyst-opinion h3 {
+  margin: 0;
   color: var(--color-text);
-  font: var(--type-body-md);
-  font-weight: 700;
+  font: var(--type-title-sm);
 }
 
-.company-earnings-analyst-opinion time {
-  flex: 0 0 auto;
-  color: var(--color-muted);
-  font: var(--type-caption);
-}
-
-.company-earnings-analyst-opinion p {
+.company-journal-analyst-opinion p {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--color-text);
-  font: var(--type-body-md);
-  line-height: 1.55;
+  font: var(--type-body-lg);
+  font-size: clamp(18px, 1.45cqw, 22px);
+  line-height: 1.6;
 }
 
 .company-earnings-heading h3 {
@@ -19857,7 +19835,53 @@ textarea:focus,
 
 .company-single-panel .company-info-sheet .company-info-cell:nth-child(n),
 .company-multi-panel .company-info-sheet .company-info-cell:nth-child(n) {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  min-height: 0;
+  gap: 7px;
   border: 0;
+  padding: var(--company-info-cell-pad);
+}
+
+.company-info-sheet .company-info-market-metric {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  gap: 7px;
+}
+
+.company-single-panel .company-info-sheet .company-info-grid,
+.company-multi-panel .company-info-sheet .company-info-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  align-content: stretch;
+  border: 0;
+}
+
+.company-info-sheet .company-info-cell dt {
+  color: rgb(255 255 255 / 0.88);
+  font-size: clamp(20px, 2cqw, 30px);
+  font-weight: 760;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.company-info-sheet .company-info-cell .company-summary-value,
+.company-info-sheet .company-info-market-metric .company-summary-value {
+  overflow: visible;
+  font: var(--type-title-sm);
+  font-size: clamp(18px, 1.65cqw, 27px);
+  line-height: 1.25;
+  font-weight: 580;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.company-info-sheet .company-info-market-metric.is-missing .company-summary-value {
+  color: var(--company-panel-muted);
 }
 
 /* Company insight workspace: persistent summary, natural-language tabs, chart and explanation. */
@@ -27900,8 +27924,6 @@ textarea:focus,
 }
 
 .company-journal-performance h3,
-.company-journal-performance header span,
-.company-journal-performance header strong,
 .company-journal-performance p {
   margin: 0;
 }
@@ -27911,15 +27933,9 @@ textarea:focus,
   font: var(--type-title-sm);
 }
 
-.company-journal-performance header span,
 .company-journal-performance-note {
   color: var(--color-muted);
   font: var(--type-body-sm);
-}
-
-.company-journal-performance header strong {
-  color: var(--color-text);
-  font-weight: 600;
 }
 
 .company-journal-performance header em {
@@ -28143,6 +28159,7 @@ textarea:focus,
 .company-journal-evidence .company-profitability-table-heading > strong,
 .company-journal-evidence .company-financial-chart-copy > strong,
 .company-journal-evidence .company-earnings-heading h3,
+.company-journal-evidence .company-journal-analyst-opinion h3,
 .company-journal-evidence .company-journal-performance h3 {
   font-size: clamp(17px, 1.25cqw, 21px);
   font-weight: 650;
@@ -28194,6 +28211,11 @@ textarea:focus,
   container-type: inline-size;
 }
 
+.company-journal-evidence .company-journal-earnings-evidence .company-single-fundamental-section,
+.company-journal-evidence .company-journal-earnings-evidence .company-valuation-dashboard {
+  padding-inline: 0;
+}
+
 .company-journal-evidence .company-single-panel.is-valuation .company-earnings-panel {
   grid-template-rows: auto auto auto;
   min-height: 0;
@@ -28213,8 +28235,8 @@ textarea:focus,
 }
 
 .company-journal-evidence .company-stability-dashboard-grid > .company-financial-chart-card {
-  height: clamp(280px, 44cqw, 340px);
-  min-height: 280px;
+  height: auto;
+  min-height: 0;
 }
 
 .company-journal-evidence .company-stability-dashboard-grid {
@@ -28223,8 +28245,8 @@ textarea:focus,
 }
 
 .company-journal-evidence .company-stability-dashboard-grid .company-financial-chart-card {
-  height: clamp(280px, 44cqw, 340px);
-  min-height: 280px;
+  height: auto;
+  min-height: 0;
 }
 
 .company-journal-evidence .company-stability-dashboard-table {
