@@ -1309,6 +1309,11 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
   const yFor = (value: number) => padding.top + chartHeight - ((value - minValue) / valueSpan) * chartHeight;
   const pathFor = (points: PerformanceChartPoint[]) =>
     points.map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(point.time).toFixed(1)} ${yFor(point.value).toFixed(1)}`).join(" ");
+  const stepPathFor = (points: PerformanceChartPoint[]) => points.map((point, index) => {
+    const x = xFor(point.time).toFixed(1);
+    const y = yFor(point.value).toFixed(1);
+    return index === 0 ? `M ${x} ${y}` : `H ${x} V ${y}`;
+  }).join(" ");
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => maxValue - valueSpan * ratio);
   const xTicks = timestamps.length
     ? [0, 0.25, 0.5, 0.75, 1].map((ratio) => minTime + (maxTime - minTime) * ratio)
@@ -1367,7 +1372,7 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
             })}
             <line x1={padding.left} x2={width - padding.right} y1={yFor(0)} y2={yFor(0)} className="portfolio-terminal-zero-line" />
             <path d={pathFor(primaryPoints)} className="portfolio-performance-return-line portfolio" />
-            {principalPoints.length >= 2 && <path d={pathFor(principalPoints)} className="portfolio-performance-return-line principal" />}
+            {principalPoints.length >= 2 && <path d={stepPathFor(principalPoints)} className="portfolio-performance-return-line principal" />}
             {benchmarkReturnPoints.length >= 2 && <path d={pathFor(benchmarkReturnPoints)} className="portfolio-performance-return-line benchmark" />}
             {primaryPoints.at(-1) && (
               <circle cx={xFor(primaryPoints.at(-1)!.time)} cy={yFor(primaryPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point portfolio">

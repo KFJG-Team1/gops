@@ -29,6 +29,8 @@ assert.match(shell, /usePaperAccount\(\)/);
 assert.match(shell, /paperSnapshot\?\.account\.seed_profile/);
 assert.match(shell, /paperOrders\.every\(\(order\) => Boolean\(order\.seed_profile\)\)/);
 assert.match(shell, /seededPortfolioReport[\s\S]*?\? fixture[\s\S]*?: report \?\? fixture \?\? archivedReport/);
+assert.doesNotMatch(shell, /simulatorMode|simulatorStatusEvent|latestSimulatorStatus/);
+assert.doesNotMatch(shell, /시뮬레이션 시각 기준 분석 데이터가 없어/);
 assert.match(shell, /fetchLatestCoachReport\(controller\.signal\)/);
 assert.match(analysisNormalizer, /\/api\/ai-coach\/reports\/latest/);
 assert.match(page, /T-60/); assert.match(page, /T\+20/); assert.match(page, /ResizeObserver/);

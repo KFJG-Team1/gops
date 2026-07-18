@@ -135,7 +135,7 @@ function habit(stage: InsightStage, period: "6m", sampleSize: number): HabitRepo
     evidenceQuality: sampleSize >= 50 ? "high" : sampleSize >= 20 ? "medium" : "low",
     confidence: sampleSize >= 18 ? "high" : sampleSize >= 8 ? "medium" : "low",
     concentration: stage === "portfolio" ? "정보기술 23.4%" : "10종목·7섹터", regime: "완만한 상승 국면", missingData: [],
-    summary: stage === "entry" ? "13건의 매수를 여러 섹터에 나눴고 GOOGL·MSFT·XOM은 분할 진입으로 평균단가를 관리했습니다." : stage === "exit" ? "4건의 매도 중 GOOGL·XOM·AMZN은 이익을 확정했고 HD는 손실 확대 전에 일부 축소했습니다." : "최대 섹터 비중 23.4%, 최대 단일 종목 비중 19.3%로 분산 상태가 유지되고 있습니다.",
+    summary: stage === "entry" ? "16건의 매수를 여러 섹터에 나눴고 최근 AAPL·JPM·WMT 소규모 리밸런싱으로 원금 변화를 제한했습니다." : stage === "exit" ? "7건의 매도 중 GOOGL·XOM·AMZN은 이익을 확정했고 최근 리밸런싱은 평균단가 부근에서 수량만 조정했습니다." : "최대 섹터 비중 23.4%, 최대 단일 종목 비중 19.3%로 분산 상태가 유지되고 있습니다.",
     behavior: [
       { label: `${labels[stage]} 계획 기록률`, value: { value: Math.round(scale * 100), unit: "%", availability: "ready", interpretation: "사전 기록이 있는 거래만 집계했습니다." } },
       { label: "평균 결과", value: { value: stage === "exit" ? 1.8 : 2.4, unit: "%", denominator: `${sampleSize}건`, availability: "ready" } },
@@ -150,7 +150,7 @@ const wmtReview = review("WMT", 102, "buy", 2.45);
 const amznReview = review("AMZN", 238, "sell", 4.39);
 const aaplReview = review("AAPL", 210, "buy", 2.38);
 const periods = {
-  "6m": { entry: habit("entry", "6m", 13), exit: habit("exit", "6m", 4), portfolio: habit("portfolio", "6m", 17) }
+  "6m": { entry: habit("entry", "6m", 16), exit: habit("exit", "6m", 7), portfolio: habit("portfolio", "6m", 23) }
 };
 const priorityEntry = {
   ...periods["6m"].entry.insights[0],
