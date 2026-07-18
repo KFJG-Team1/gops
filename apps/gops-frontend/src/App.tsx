@@ -128,6 +128,7 @@ import {
 import type { AgentLayoutProposal } from "./layout/agentLayoutTypes";
 import { fetchMarketHeatmap } from "./market/heatmapApi";
 import {
+  shouldOpenHeatmapForSimulatorTransition,
   shouldResetMarketDataForSimulatorTransition,
   simulatorStatusEvent,
   type SimulatorStatus
@@ -604,38 +605,6 @@ export function App() {
     }
   }, []);
 
-  useEffect(() => {
-    const applySimulationQuotes = (event: Event) => {
-      const status = (event as CustomEvent<SimulatorStatus>).detail;
-      if (!status) return;
-      const previousMode = previousSimulatorModeRef.current;
-      const previousRunId = previousSimulatorRunIdRef.current;
-      previousSimulatorModeRef.current = status.mode;
-      previousSimulatorRunIdRef.current = status.runId ?? null;
-      if (shouldResetMarketDataForSimulatorTransition(previousMode, status.mode, previousRunId, status.runId)) {
-        chartPanelHandlesRef.current.clear();
-        setSemanticSelection(null);
-        setChartRuntime((current) => chartRuntimeReducer(current, { kind: "chart.marketData.reset" }));
-        setChartDataResetRevision((current) => current + 1);
-      }
-      if (status.mode !== "simulation" || status.symbols.length === 0) return;
-      const updates = new Map(status.symbols.map((item) => [item.symbol.toUpperCase(), item]));
-      setTreeMapItems((current) => current.map((item) => {
-        const update = updates.get(item.symbol.toUpperCase());
-        if (!update || update.price == null) return item;
-        return {
-          ...item,
-          lastPrice: update.price,
-          changePercent: update.changePercent ?? item.changePercent,
-          priceSource: "gops-simulator",
-          priceUpdatedAt: status.virtualTime
-        };
-      }));
-    };
-    window.addEventListener(simulatorStatusEvent, applySimulationQuotes);
-    return () => window.removeEventListener(simulatorStatusEvent, applySimulationQuotes);
-  }, []);
-
   const applyMainViewState = useCallback((nextView: MainView, _options: { closeBottomMenu?: boolean } = {}) => {
     setSemanticSelection(null);
     if (nextView.mode === "treemap") {
@@ -661,6 +630,41 @@ export function App() {
     }
     applyMainViewState(nextView, { closeBottomMenu: options.closeBottomMenu });
   }, [applyMainViewState]);
+
+  useEffect(() => {
+    const applySimulationQuotes = (event: Event) => {
+      const status = (event as CustomEvent<SimulatorStatus>).detail;
+      if (!status) return;
+      const previousMode = previousSimulatorModeRef.current;
+      const previousRunId = previousSimulatorRunIdRef.current;
+      previousSimulatorModeRef.current = status.mode;
+      previousSimulatorRunIdRef.current = status.runId ?? null;
+      if (shouldResetMarketDataForSimulatorTransition(previousMode, status.mode, previousRunId, status.runId)) {
+        chartPanelHandlesRef.current.clear();
+        setSemanticSelection(null);
+        setChartRuntime((current) => chartRuntimeReducer(current, { kind: "chart.marketData.reset" }));
+        setChartDataResetRevision((current) => current + 1);
+      }
+      if (shouldOpenHeatmapForSimulatorTransition(previousMode, status.mode)) {
+        navigateMainView({ mode: "treemap" }, { replace: true });
+      }
+      if (status.mode !== "simulation" || status.symbols.length === 0) return;
+      const updates = new Map(status.symbols.map((item) => [item.symbol.toUpperCase(), item]));
+      setTreeMapItems((current) => current.map((item) => {
+        const update = updates.get(item.symbol.toUpperCase());
+        if (!update || update.price == null) return item;
+        return {
+          ...item,
+          lastPrice: update.price,
+          changePercent: update.changePercent ?? item.changePercent,
+          priceSource: "gops-simulator",
+          priceUpdatedAt: status.virtualTime
+        };
+      }));
+    };
+    window.addEventListener(simulatorStatusEvent, applySimulationQuotes);
+    return () => window.removeEventListener(simulatorStatusEvent, applySimulationQuotes);
+  }, [navigateMainView]);
 
   const applyPresetLayout = useCallback((state: TiledPanelState) => {
     setPanelState(state);
