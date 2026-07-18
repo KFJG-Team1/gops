@@ -518,6 +518,7 @@ export function PanelContentRenderer({
   if (content.kind === "orderFlow") {
     return (
       <OrderFlowPanel
+        key={`order-flow-panel-${content.id}-${chartDataResetRevision}`}
         panelId={slot.id}
         symbol={readOrderFlowSymbol(content)}
         savedWindow={readOrderFlowWindow(content)}

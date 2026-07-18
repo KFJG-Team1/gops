@@ -41,6 +41,7 @@ type OrderFlowPanelProps = {
 
 type LiveQuote = NonNullable<OrderFlowIntradayResponseDto["liveQuote"]>;
 type StreamState = "connecting" | "live" | "idle" | "error";
+type LoadState = "loading" | "ready" | "empty" | "unsupported" | "error";
 type WheelFeedback = { x: number; y: number; expiresAt: number } | null;
 
 const defaultWindow: OrderFlowWindow = "10m";
@@ -76,6 +77,7 @@ export function OrderFlowPanel({
     clippedHint: boolean;
     streamState: StreamState;
     loading: boolean;
+    error: boolean;
     supported: boolean;
     symbol: string;
     supportedSymbols: string[];
@@ -90,6 +92,7 @@ export function OrderFlowPanel({
     clippedHint: false,
     streamState: "idle",
     loading: true,
+    error: false,
     supported: false,
     symbol: "",
     supportedSymbols: [],
@@ -106,8 +109,10 @@ export function OrderFlowPanel({
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [minutes, setMinutes] = useState<Map<string, OrderFlowMinuteDto>>(new Map());
   const [liveSessionDate, setLiveSessionDate] = useState("");
+  const liveSessionDateRef = useRef("");
   const [liveQuote, setLiveQuote] = useState<LiveQuote | null>(null);
   const [streamState, setStreamState] = useState<StreamState>("idle");
+  const [loadState, setLoadState] = useState<LoadState>("loading");
   const [wheelFeedback, setWheelFeedback] = useState<WheelFeedback>(null);
 
   useEffect(() => {
@@ -161,6 +166,7 @@ export function OrderFlowPanel({
   useEffect(() => {
     const controller = new AbortController();
     setSymbolsLoading(true);
+    setLoadState("loading");
     fetchOrderFlowSymbols(controller.signal)
       .then((response) => {
         if (controller.signal.aborted) {
@@ -172,6 +178,7 @@ export function OrderFlowPanel({
       .catch(() => {
         if (!controller.signal.aborted) {
           setSupportedSymbols([]);
+          setLoadState("error");
         }
       })
       .finally(() => {
@@ -189,30 +196,42 @@ export function OrderFlowPanel({
   }, [normalizedSymbol, onSymbolChange, requestedSymbol, supported, supportedSymbols.length]);
 
   useEffect(() => {
+    if (symbolsLoading) {
+      setLoadState("loading");
+      return;
+    }
     if (!normalizedSymbol || !supported) {
       setMinutes(new Map());
       setLiveSessionDate("");
+      liveSessionDateRef.current = "";
       setLiveQuote(null);
+      setLoadState((current) => current === "error"
+        ? "error"
+        : normalizedSymbol && !symbolsLoading ? "unsupported" : "loading");
       return;
     }
     const controller = new AbortController();
+    setLoadState("loading");
     fetchOrderFlowIntraday(normalizedSymbol, controller.signal)
       .then((response) => {
         if (controller.signal.aborted) {
           return;
         }
+        liveSessionDateRef.current = response.sessionDate;
         setLiveSessionDate(response.sessionDate);
         setLiveQuote(response.liveQuote);
         setMinutes(new Map(response.minutes.map((minute) => [minute.eventMinute, minute])));
+        setLoadState(response.dataStatus);
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setMinutes(new Map());
           setLiveQuote(null);
+          setLoadState("error");
         }
       });
     return () => controller.abort();
-  }, [normalizedSymbol, supported]);
+  }, [normalizedSymbol, supported, symbolsLoading]);
 
   useEffect(() => {
     if (!normalizedSymbol || !supported) {
@@ -221,18 +240,27 @@ export function OrderFlowPanel({
     }
     const handleEvent = (event: CandleEventDto) => {
       if (event.type === "ORDER_FLOW_BINS_UPDATE" && event.symbol.toUpperCase() === normalizedSymbol) {
+        const previousSessionDate = liveSessionDateRef.current;
+        liveSessionDateRef.current = event.data.sessionDate;
         setLiveSessionDate(event.data.sessionDate);
-        setMinutes((current) => replaceOrderFlowMinute(current, event.data));
+        setMinutes((current) => replaceOrderFlowMinute(current, event.data, previousSessionDate));
+        setLoadState("ready");
         return;
       }
       if (event.type === "LIVE_QUOTE_UPDATE" && event.symbol.toUpperCase() === normalizedSymbol) {
         setLiveQuote(normalizeLiveQuote(event));
       }
     };
+    const handleStreamState = (state: StreamState) => {
+      setStreamState(state === "connecting" || state === "live" || state === "error" ? state : "idle");
+      if (state === "error") {
+        setLoadState("error");
+      }
+    };
     const demoCleanup = subscribeOrderFlowDemoTicks(
       normalizedSymbol,
       handleEvent,
-      (state) => setStreamState(state === "connecting" || state === "live" || state === "error" ? state : "idle")
+      handleStreamState
     );
     if (demoCleanup) {
       return demoCleanup;
@@ -241,7 +269,8 @@ export function OrderFlowPanel({
       normalizedSymbol,
       "1m",
       handleEvent,
-      (state) => setStreamState(state === "connecting" || state === "live" || state === "error" ? state : "idle")
+      handleStreamState,
+      { orderFlow: true }
     );
   }, [normalizedSymbol, supported]);
 
@@ -300,7 +329,8 @@ export function OrderFlowPanel({
       lastPrice,
       clippedHint: clipped.clipped,
       streamState,
-      loading: symbolsLoading,
+      loading: loadState === "loading",
+      error: loadState === "error",
       supported,
       symbol: normalizedSymbol,
       supportedSymbols,
@@ -322,7 +352,7 @@ export function OrderFlowPanel({
     streamState,
     supported,
     supportedSymbols,
-    symbolsLoading,
+    loadState,
     wheelFeedback
   ]);
 
@@ -350,7 +380,7 @@ export function OrderFlowPanel({
         applyCanvasTypography(context, "bodyMd", canvasFontFamily);
         context.textAlign = "center";
         context.textBaseline = "middle";
-        context.fillText(emptyPanelMessage(state.loading, state.supported, state.symbol, state.supportedSymbols), rect.width / 2, rect.height / 2, Math.max(80, rect.width - 22));
+        context.fillText(emptyPanelMessage(state.loading, state.error, state.supported, state.symbol, state.supportedSymbols), rect.width / 2, rect.height / 2, Math.max(80, rect.width - 22));
         drawPanelCaptions(context, rect.width, rect.height, state, theme);
         return;
       }
@@ -442,7 +472,7 @@ export function OrderFlowPanel({
       data-order-flow-symbol={normalizedSymbol}
       data-order-flow-window={windowKey}
       data-order-flow-resolution={resolution}
-      data-order-flow-status={symbolsLoading ? "loading" : ladder ? "ready" : supported ? "empty" : "unsupported"}
+      data-order-flow-status={loadState === "error" ? "error" : ladder ? "ready" : loadState}
     >
       <canvas
         ref={canvasRef}
@@ -588,9 +618,12 @@ function normalizeLiveQuote(event: CandleEventDto): LiveQuote {
   };
 }
 
-function emptyPanelMessage(loading: boolean, supported: boolean, symbol: string, supportedSymbols: string[]): string {
+function emptyPanelMessage(loading: boolean, error: boolean, supported: boolean, symbol: string, supportedSymbols: string[]): string {
   if (loading) {
     return "오더플로우 심볼을 확인하는 중입니다";
+  }
+  if (error) {
+    return "오더플로우 데이터를 불러오지 못했습니다";
   }
   if (!supported) {
     const supportedText = supportedSymbols.length ? ` · 지원: ${supportedSymbols.join(", ")}` : "";

@@ -46,6 +46,14 @@ import {
   nearestTypeRole,
   TYPE_ROLE
 } from "../theme/typography";
+import {
+  axisPillHorizontalPadding,
+  axisPillBounds,
+  axisPillTextX,
+  measureAxisPillTextWidth,
+  rightAxisOuterInset,
+  type AxisPillAlign
+} from "./axisPillLayout";
 
 type ChartCanvasProps = {
   chart: ChartState;
@@ -74,8 +82,6 @@ let colors: ThemeColors;
 const canvasFontFamily = CANVAS_FONT_FAMILY;
 
 const bollingerFillAlpha = 0.1;
-const rightAxisOuterInset = 4;
-const axisPillHorizontalPadding = 5;
 const volumeProfileAlpha = {
   poc: 0.28,
   valueAreaBase: 0.12,
@@ -1364,6 +1370,9 @@ function orderFlowStateMessage(scene: ChartScene, orderFlow: ChartState["orderFl
   if (orderFlow.dataStatus === "unsupported") {
     return unsupportedOrderFlowMessage(scene.chart.symbol, orderFlow.supportedSymbols);
   }
+  if (orderFlow.dataStatus === "error") {
+    return "오더플로우 데이터를 불러오지 못했습니다";
+  }
   if (!orderFlow.minutes.size && orderFlow.dataStatus === "empty") {
     return "아직 수집된 오더플로우 데이터가 없어요";
   }
@@ -2512,26 +2521,22 @@ function drawDarkAxisPill(
   text: string,
   x: number,
   y: number,
-  align: "center" | "left" | "right",
+  align: AxisPillAlign,
   color: string
 ) {
   context.save();
   applyCanvasTypography(context, "caption", canvasFontFamily);
-  const metrics = context.measureText(text);
-  const width = metrics.width + axisPillHorizontalPadding * 2;
-  const height = 17;
-  const left = align === "right" ? x - width : align === "left" ? x : x - width / 2;
-  const top = y - height / 2;
+  const bounds = axisPillBounds(measureAxisPillTextWidth(context, text), x, y, align);
   context.fillStyle = color;
   context.strokeStyle = color;
   context.lineWidth = 1;
-  roundedRect(context, left, top, width, height, 4);
+  roundedRect(context, bounds.left, bounds.top, bounds.width, bounds.height, 4);
   context.fill();
   context.stroke();
   context.fillStyle = colors.background;
   context.textAlign = align;
   context.textBaseline = "middle";
-  context.fillText(text, axisPillTextX(x, left, width, align), y + 0.5);
+  context.fillText(text, axisPillTextX(x, bounds, align), y + 0.5);
   context.restore();
 }
 
@@ -3205,27 +3210,23 @@ function drawAxisPill(
   text: string,
   x: number,
   y: number,
-  align: "center" | "left" | "right",
+  align: AxisPillAlign,
   variant: "default" | "currentPrice" | "holdingPrice" = "default"
 ) {
   const isCurrentPrice = variant === "currentPrice";
   const isHoldingPrice = variant === "holdingPrice";
   applyCanvasTypography(context, "caption", canvasFontFamily);
-  const metrics = context.measureText(text);
-  const width = metrics.width + 10;
-  const height = 17;
-  const left = align === "right" ? x - width : align === "left" ? x : x - width / 2;
-  const top = y - height / 2;
+  const bounds = axisPillBounds(measureAxisPillTextWidth(context, text), x, y, align);
   context.fillStyle = isCurrentPrice ? colors.signal : isHoldingPrice ? colors.pointYellow : colors.surfaceStrong;
   context.strokeStyle = isCurrentPrice ? colors.signal : isHoldingPrice ? colors.pointYellow : colors.border;
   context.lineWidth = 1;
-  roundedRect(context, left, top, width, height, 5);
+  roundedRect(context, bounds.left, bounds.top, bounds.width, bounds.height, 5);
   context.fill();
   context.stroke();
   context.fillStyle = isCurrentPrice ? colors.surface : isHoldingPrice ? colors.background : colors.text;
   context.textAlign = align;
   context.textBaseline = "middle";
-  context.fillText(text, axisPillTextX(x, left, width, align), y + 0.5);
+  context.fillText(text, axisPillTextX(x, bounds, align), y + 0.5);
 }
 
 function rightAxisPillX(scene: ChartScene): number {
@@ -3234,21 +3235,6 @@ function rightAxisPillX(scene: ChartScene): number {
 
 function rightAxisTextX(scene: ChartScene): number {
   return rightAxisPillX(scene) - axisPillHorizontalPadding;
-}
-
-function axisPillTextX(
-  x: number,
-  left: number,
-  width: number,
-  align: "center" | "left" | "right"
-): number {
-  if (align === "right") {
-    return x - axisPillHorizontalPadding;
-  }
-  if (align === "left") {
-    return x + axisPillHorizontalPadding;
-  }
-  return left + width / 2;
 }
 
 function drawEmpty(context: CanvasRenderingContext2D, width: number, height: number, message: string) {

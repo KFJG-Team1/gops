@@ -99,6 +99,12 @@ import {
   type ChartAnalysisAssetLoadPhase
 } from "../chart/chartAnalysisAssetRuntimeStore";
 import { buildPatternBadgeLayout, type PatternBadgeLayout } from "../chart/patternBadge";
+import {
+  analysisLevelPriceTargetsEqual,
+  analysisLevelPriceTargetsForScene,
+  type AnalysisLevelPriceTarget
+} from "../chart/analysisLevelPriceTargets";
+import { measureAxisPillTextWidth } from "../chart/axisPillLayout";
 import { createChartPriceSelection, type ChartPriceSelection, type ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
 import { clearChartTradeSetupSnapshot, setChartTradeSetupSnapshot } from "../chart/chartTradeSetupStore";
 import {
@@ -290,7 +296,7 @@ type ExpansionOverlay = {
   status: string;
 };
 
-type OrderFlowChartDataStatus = "ready" | "empty" | "unsupported";
+type OrderFlowChartDataStatus = "loading" | "ready" | "empty" | "unsupported" | "error";
 
 type ComparisonScopeRequest = {
   key: string;
@@ -517,7 +523,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [volumeProfileSceneRange, setVolumeProfileSceneRange] = useState<VolumeProfileSceneRange | null>(null);
   const [orderFlowToday, setOrderFlowToday] = useState<Map<string, OrderFlowMinuteDto>>(new Map());
   const [orderFlowTodaySessionDate, setOrderFlowTodaySessionDate] = useState<string | null>(null);
-  const [orderFlowDataStatus, setOrderFlowDataStatus] = useState<OrderFlowChartDataStatus>("empty");
+  const orderFlowTodaySessionDateRef = useRef<string | null>(null);
+  const [orderFlowDataStatus, setOrderFlowDataStatus] = useState<OrderFlowChartDataStatus>("loading");
   const [orderFlowSupportedSymbols, setOrderFlowSupportedSymbols] = useState<string[] | undefined>();
   const [orderFlowPriceBinSize, setOrderFlowPriceBinSize] = useState(defaultOrderFlowPriceBinSize);
   const [comparisonScopeData, setComparisonScopeData] = useState<Record<string, ComparisonScopeData>>({});
@@ -538,6 +545,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [spotlightEvidenceRefs, setSpotlightEvidenceRefs] = useState<string[]>([]);
   const [tradePlanOverlay, setTradePlanOverlay] = useState<TradePlanOverlayLayout | null>(null);
   const [patternBadge, setPatternBadge] = useState<PatternBadgeLayout | null>(null);
+  const [analysisLevelPriceTargets, setAnalysisLevelPriceTargets] = useState<AnalysisLevelPriceTarget[]>([]);
   const [chartEvents, setChartEvents] = useState<ChartEventsResponse | null>(null);
   const [chartEventMarkers, setChartEventMarkers] = useState<ChartEventMarker[]>([]);
   const [chartTradeMarkers, setChartTradeMarkers] = useState<ChartTradeMarker[]>([]);
@@ -556,12 +564,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (orderFlowTodaySessionDate) {
       return orderFlowTodaySessionDate;
     }
-    if (isOrderFlowDemoRuntimeEnabled()) {
-      return sourceChart.candles.length
-        ? sessionDateFromTimestamp(sourceChart.candles[sourceChart.candles.length - 1].timestamp)
-        : sessionDateFromTimestamp(new Date().toISOString());
-    }
-    return sessionDateFromTimestamp(new Date().toISOString());
+    return sourceChart.candles.length
+      ? sessionDateFromTimestamp(sourceChart.candles[sourceChart.candles.length - 1].timestamp)
+      : sessionDateFromTimestamp(new Date().toISOString());
   }, [orderFlowTodaySessionDate, sourceChart.candles]);
   const chart = useMemo(() => (
     sourceChart.chartType === "bidask"
@@ -1657,10 +1662,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       (event) => {
         if (isOrderFlowEventDto(event)) {
           if (chartRef.current.chartType === "bidask" && chartRef.current.symbol === event.symbol.toUpperCase()) {
+            const previousSessionDate = orderFlowTodaySessionDateRef.current;
+            orderFlowTodaySessionDateRef.current = event.data.sessionDate;
             setOrderFlowTodaySessionDate(event.data.sessionDate);
             setOrderFlowDataStatus("ready");
             setOrderFlowPriceBinSize(normalizeOrderFlowPriceBinSize(event.data.priceBinSize));
-            setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data));
+            setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data, previousSessionDate));
           }
           return;
         }
@@ -1670,14 +1677,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         }
         onChartRuntimeAction({ kind: "chart.live", event: candleEventFromDto(event, chart.interval) });
       },
-      (nextStreamState) => onChartRuntimeAction({
-        kind: "chart.stream.status",
-        symbol: socketSymbol,
-        interval: chart.interval,
-        status: normalizeStreamStatus(nextStreamState)
-      })
+      (nextStreamState) => {
+        if (orderFlowActive && nextStreamState === "error") {
+          setOrderFlowDataStatus("error");
+        }
+        onChartRuntimeAction({
+          kind: "chart.stream.status",
+          symbol: socketSymbol,
+          interval: chart.interval,
+          status: normalizeStreamStatus(nextStreamState)
+        });
+      },
+      { orderFlow: orderFlowActive }
     );
-  }, [chart.interval, chart.symbol, onChartRuntimeAction]);
+  }, [chart.interval, chart.symbol, onChartRuntimeAction, orderFlowActive]);
 
   useEffect(() => {
     if (!comparisonScopeRequests.length) {
@@ -1941,20 +1954,24 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     if (!orderFlowActive) {
       setOrderFlowToday(new Map());
       setOrderFlowTodaySessionDate(null);
+      orderFlowTodaySessionDateRef.current = null;
       setOrderFlowDataStatus("empty");
       setOrderFlowSupportedSymbols(undefined);
       setOrderFlowPriceBinSize(defaultOrderFlowPriceBinSize);
       return;
     }
     const controller = new AbortController();
+    setOrderFlowDataStatus("loading");
     const handleOrderFlowEvent = (event: CandleEventDto) => {
       if (event.type !== "ORDER_FLOW_BINS_UPDATE" || event.symbol.toUpperCase() !== chart.symbol) {
         return;
       }
+      const previousSessionDate = orderFlowTodaySessionDateRef.current;
+      orderFlowTodaySessionDateRef.current = event.data.sessionDate;
       setOrderFlowTodaySessionDate(event.data.sessionDate);
       setOrderFlowDataStatus("ready");
       setOrderFlowPriceBinSize(normalizeOrderFlowPriceBinSize(event.data.priceBinSize));
-      setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data));
+      setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data, previousSessionDate));
     };
     fetchOrderFlowIntraday(chart.symbol, controller.signal, orderFlowDemoAnchor)
       .then((response) => {
@@ -1964,6 +1981,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         ) {
           return;
         }
+        orderFlowTodaySessionDateRef.current = response.sessionDate;
         setOrderFlowTodaySessionDate(response.sessionDate);
         setOrderFlowDataStatus(response.dataStatus);
         setOrderFlowSupportedSymbols(response.supportedSymbols);
@@ -1974,7 +1992,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         if (!controller.signal.aborted) {
           setOrderFlowToday(new Map());
           setOrderFlowTodaySessionDate(null);
-          setOrderFlowDataStatus("empty");
+          orderFlowTodaySessionDateRef.current = null;
+          setOrderFlowDataStatus("error");
           setOrderFlowSupportedSymbols(undefined);
           setOrderFlowPriceBinSize(defaultOrderFlowPriceBinSize);
         }
@@ -2557,6 +2576,23 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const markerCoordinateSpace = chartWrapRef.current
       ? { width: chartWrapRef.current.clientWidth, height: chartWrapRef.current.clientHeight }
       : scene;
+    const baseCanvasContext = chartWrapRef.current
+      ?.querySelector<HTMLCanvasElement>(".chart-canvas-base")
+      ?.getContext("2d") ?? null;
+    const nextAnalysisLevelPriceTargets = analysisLevelPriceTargetsForScene(
+      scene,
+      activeAnalysisAsset,
+      effectiveSpotlightDrawingIds,
+      baseCanvasContext
+        ? (text) => measureAxisPillTextWidth(baseCanvasContext, text)
+        : (text) => text.length * 6,
+      markerCoordinateSpace
+    );
+    setAnalysisLevelPriceTargets((current) => (
+      analysisLevelPriceTargetsEqual(current, nextAnalysisLevelPriceTargets)
+        ? current
+        : nextAnalysisLevelPriceTargets
+    ));
     const nextHoldingPriceMarker = paperHoldingPriceMarkerForScene(scene, markerCoordinateSpace);
     syncPaperHoldingPriceMarkerPosition(holdingPriceMarkerRef.current, nextHoldingPriceMarker);
     setHoldingPriceMarker((current) => (
@@ -3316,17 +3352,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     textAlign: labelEditorLayout.textAlign,
     transform: `scale(${labelEditorScaleX}, ${labelEditorScaleY})`
   } : undefined;
-  const applyTradePlanLabelPrice = useCallback((label: TradePlanOverlayLayout["labels"][number]) => {
+  const applyExactChartPrice = useCallback((price: number, formattedPrice: string) => {
     const selection = createChartPriceSelection({
       chartDocumentId: document.id,
       sourcePanelId: panelId,
       symbol: chart.symbol,
       interval: chart.interval,
-      price: label.price,
-      formattedPrice: label.formattedPrice
+      price,
+      formattedPrice
     });
     if (selection) onPriceSelection?.(selection);
   }, [chart.interval, chart.symbol, document.id, onPriceSelection, panelId]);
+  const applyTradePlanLabelPrice = useCallback((label: TradePlanOverlayLayout["labels"][number]) => {
+    applyExactChartPrice(label.price, label.formattedPrice);
+  }, [applyExactChartPrice]);
 
   return (
     <section
@@ -3442,6 +3481,30 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
+        {analysisLevelPriceTargets.length > 0 && (
+          <div className="chart-analysis-level-price-targets" role="group" aria-label="지지·저항 주문 가격 선택">
+            {analysisLevelPriceTargets.map((target) => <button
+              key={target.drawingId}
+              type="button"
+              className={`chart-analysis-level-price-target is-${target.tone}`}
+              data-analysis-level-drawing-id={target.drawingId}
+              data-analysis-level-price={target.formattedPrice}
+              style={{
+                left: target.bounds.left,
+                top: target.bounds.top,
+                width: target.bounds.width,
+                height: target.bounds.height
+              }}
+              aria-label={`${target.label} 가격 ${target.formattedPrice} 주문창에 적용`}
+              onPointerDown={(event) => event.stopPropagation()}
+              onPointerUp={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                applyExactChartPrice(target.price, target.formattedPrice);
+              }}
+            />)}
+          </div>
+        )}
         {holdingOverlay && holdingPriceMarker && (
           <span
             ref={holdingPriceMarkerRef}

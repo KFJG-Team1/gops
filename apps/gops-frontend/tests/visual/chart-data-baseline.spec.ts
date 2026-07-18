@@ -68,6 +68,52 @@ test("chart modes and bidask intervals remain visually stable", async ({ page })
   expect(intradayRequestCount).toBe(1);
 });
 
+test("SIM virtual session renders order flow and bidask while wall clock is weekend", async ({ page }) => {
+  alignBidAskFixtures = true;
+  await page.addInitScript(() => {
+    const NativeDate = Date;
+    const weekendNow = NativeDate.parse("2026-07-18T12:00:00.000Z");
+    class WeekendDate extends NativeDate {
+      constructor(...args: ConstructorParameters<typeof Date>) {
+        super(...(args.length ? args : [weekendNow]));
+      }
+      static now() {
+        return weekendNow;
+      }
+    }
+    globalThis.Date = WeekendDate as DateConstructor;
+  });
+  await page.route("**/api/simulator/status", async (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      available: true,
+      mode: "simulation",
+      state: "paused",
+      datasetId: "sp500-top20-plus-amd-mu-20260715-kst-v2",
+      runId: "visual-sim-run",
+      virtualTime: `${fixtureSessionDate}T14:30:00.000Z`,
+      startTime: `${fixtureSessionDate}T13:30:00.000Z`,
+      endTime: `${fixtureSessionDate}T20:00:00.000Z`,
+      requestedSpeed: 1,
+      effectiveSpeed: 0,
+      processedEventCount: 100,
+      totalEventCount: 1000,
+      progress: 0.1,
+      lagMs: 0,
+      symbols: [{ symbol: "NVDA", price: 101 }]
+    })
+  }));
+
+  await openFixtureLayout(page, tiledDataLayout());
+  await selectChartToolbarOption(page, "Chart type", "bidask");
+
+  await expect(page.locator(".chart-panel")).toHaveAttribute("data-order-flow-status", "ready");
+  await expect(page.locator(".order-flow-panel")).toHaveAttribute("data-order-flow-status", "ready");
+  await expectNonBlankCanvas(page.locator(".chart-canvas"));
+  await expectNonBlankCanvas(page.locator(".order-flow-canvas"));
+});
+
 test("chart toolbar dropdowns open downward and remain keyboard accessible", async ({ page }) => {
   await openFixtureLayout(page, chartOnlyLayout());
   const panel = page.locator(".workspace-panel-frame").filter({ has: page.locator(".chart-canvas") });

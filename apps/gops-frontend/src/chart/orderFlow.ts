@@ -38,6 +38,7 @@ export type OrderFlowDailyResponseDto = {
 export type OrderFlowMinuteDto = {
   eventMinute: string;
   bins: OrderFlowLevelDto[];
+  updatedAt?: string;
 };
 
 export type OrderFlowIntradayResponseDto = {
@@ -54,6 +55,11 @@ export type OrderFlowIntradayResponseDto = {
     timestamp?: string;
   } | null;
   supportedSymbols?: string[];
+  source?: string;
+  simulation?: boolean;
+  datasetId?: string;
+  runId?: string | null;
+  virtualTime?: string;
 };
 
 export type OrderFlowMinuteUpdate = {
@@ -366,12 +372,16 @@ export function orderFlowDayFromMinutes(
 
 export function replaceOrderFlowMinute(
   current: Map<string, OrderFlowMinuteDto>,
-  update: OrderFlowMinuteUpdate
+  update: OrderFlowMinuteUpdate,
+  currentSessionDate?: string | null
 ): Map<string, OrderFlowMinuteDto> {
-  const next = new Map(current);
+  const next = currentSessionDate && currentSessionDate !== update.sessionDate
+    ? new Map<string, OrderFlowMinuteDto>()
+    : new Map(current);
   next.set(update.eventMinute, {
     eventMinute: update.eventMinute,
-    bins: Array.isArray(update.bins) ? update.bins : []
+    bins: Array.isArray(update.bins) ? update.bins : [],
+    updatedAt: update.updatedAt
   });
   return next;
 }
