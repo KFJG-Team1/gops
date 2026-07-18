@@ -4980,6 +4980,9 @@ assert.deepEqual(
   chartAnalysisLayout.slots.map((slot) => chartAnalysisLayout.contents[slot.contentId]?.kind),
   ["compare", "indices", "watchlistNews"]
 );
+const chartAnalysisCompareContent = chartAnalysisLayout.contents[chartAnalysisLayout.slots[0].contentId];
+assert.equal(chartAnalysisCompareContent?.props?.baseSymbol, "NVDA");
+assert.deepEqual(chartAnalysisCompareContent?.props?.symbols, ["NVDA"]);
 const regularRecommendationPreset = DEFAULT_PRESETS.find((preset) => preset.id === "regular");
 assert.ok(regularRecommendationPreset);
 const regularRecommendationLayout = buildPresetLayout(regularRecommendationPreset, { width: 1280, height: 720 });
