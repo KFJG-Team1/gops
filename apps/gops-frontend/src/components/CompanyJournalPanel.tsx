@@ -10,6 +10,7 @@ import type { AgentReference } from "../agent/agentReferences";
 import { GlossaryText, type GlossarySelectionContext } from "../glossary/GlossaryText";
 import type { GlossaryEntry } from "../glossary/stockGlossary";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
+import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 import {
   CompanySummaryPanel,
   type CompanyJournalEvidence,
@@ -31,6 +32,7 @@ import {
 import { buildCompanyJournalDiagnosis } from "./companyJournalDiagnosis";
 
 type CompanyJournalView = Extract<CompanyPanelView, "profitability" | "stability" | "valuation"> | "earnings";
+type CompanyJournalStatus = "loading" | "ready" | "pending" | "error" | "simulation_unavailable";
 type JournalEvidenceTarget =
   | "market-latest"
   | "earnings-latest"
@@ -124,9 +126,12 @@ export function CompanyJournalPanel({
 }: CompanyJournalPanelProps) {
   const normalizedSymbol = symbol.trim().toUpperCase();
   const previewEnabled = companyJournalPreviewEnabled();
+  const [simulatorMode, setSimulatorMode] = useState(() => latestSimulatorStatus()?.mode ?? "live");
   const resolvedItem = useMemo(
-    () => previewEnabled ? buildCompanyJournalPreviewItem(item, normalizedSymbol) : item,
-    [item, normalizedSymbol, previewEnabled]
+    () => simulatorMode === "simulation" && !previewEnabled
+      ? undefined
+      : previewEnabled ? buildCompanyJournalPreviewItem(item, normalizedSymbol) : item,
+    [item, normalizedSymbol, previewEnabled, simulatorMode]
   );
   const [storedEvidence, setStoredEvidence] = useState<CompanyJournalEvidenceResponse | null>(null);
   const effectiveItem = useMemo<Sp500UniverseItem | undefined>(() => storedEvidence && resolvedItem ? {
@@ -161,7 +166,7 @@ export function CompanyJournalPanel({
   const [financialPeriodMode, setFinancialPeriodMode] = useState<FinancialPeriodMode>("annual");
   const [selectedInsightId, setSelectedInsightId] = useState("");
   const [journalReport, setJournalReport] = useState<CompanyJournalReport | null>(null);
-  const [journalStatus, setJournalStatus] = useState<"loading" | "ready" | "pending" | "error">(
+  const [journalStatus, setJournalStatus] = useState<CompanyJournalStatus>(
     previewEnabled ? "ready" : "loading"
   );
   const [journalRefresh, setJournalRefresh] = useState(0);
@@ -176,9 +181,24 @@ export function CompanyJournalPanel({
     setEvidenceBySymbol((current) => ({ ...current, [normalizedSymbol]: nextEvidence }));
   }, [normalizedSymbol]);
   useEffect(() => {
+    const handleStatus = (event: Event) => {
+      const status = (event as CustomEvent<SimulatorStatus>).detail;
+      setSimulatorMode(status?.mode ?? "live");
+    };
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
+  }, []);
+  useEffect(() => {
     if (previewEnabled) {
       setJournalReport(null);
       setJournalStatus("ready");
+      return;
+    }
+    if (simulatorMode === "simulation") {
+      setJournalReport(null);
+      setStoredEvidence(null);
+      setEvidenceBySymbol({});
+      setJournalStatus("simulation_unavailable");
       return;
     }
     const controller = new AbortController();
@@ -205,9 +225,13 @@ export function CompanyJournalPanel({
       controller.abort();
       if (pollTimer !== undefined) window.clearTimeout(pollTimer);
     };
-  }, [journalRefresh, normalizedSymbol, previewEnabled]);
+  }, [journalRefresh, normalizedSymbol, previewEnabled, simulatorMode]);
   useEffect(() => {
     if (previewEnabled) {
+      setStoredEvidence(null);
+      return undefined;
+    }
+    if (simulatorMode === "simulation") {
       setStoredEvidence(null);
       return undefined;
     }
@@ -220,7 +244,7 @@ export function CompanyJournalPanel({
         if (!controller.signal.aborted) setStoredEvidence(null);
       });
     return () => controller.abort();
-  }, [normalizedSymbol, previewEnabled, resolvedItem?.industry, resolvedItem?.sector]);
+  }, [normalizedSymbol, previewEnabled, resolvedItem?.industry, resolvedItem?.sector, simulatorMode]);
   const deterministicOverview = useMemo(
     () => buildJournalOverview(effectiveItem, evidence),
     [effectiveItem, evidence]
@@ -420,7 +444,11 @@ export function CompanyJournalPanel({
           data-evidence-targets={activeEvidenceTargets.join(" ")}
           role="tabpanel"
         >
-          {activeView === "earnings" ? (
+          {journalStatus === "simulation_unavailable" ? (
+            <div className="company-journal-performance-empty">
+              시뮬레이터 가상시각 기준 기업저널 데이터가 준비되지 않았습니다.
+            </div>
+          ) : activeView === "earnings" ? (
             <div className="company-journal-earnings-evidence">
               <CompanySummaryPanel
                 symbol={normalizedSymbol}
@@ -626,7 +654,7 @@ function buildJournalInsights({
 }: {
   activeView: CompanyJournalView;
   report: CompanyJournalReport | null;
-  status: "loading" | "ready" | "pending" | "error";
+  status: CompanyJournalStatus;
   previewEnabled: boolean;
   companyName: string;
   narrative: JournalNarrative;
@@ -702,7 +730,9 @@ function buildJournalInsights({
   }
 
   if (!report) {
-    const waiting = status === "error"
+    const waiting = status === "simulation_unavailable"
+      ? "시뮬레이터 가상시각 이후의 기업저널 근거는 표시하지 않습니다."
+      : status === "error"
       ? "저장된 기업저널을 불러오지 못했습니다. 연결을 확인하는 동안 기존 차트와 뉴스는 계속 볼 수 있습니다."
       : "검증된 기업저널 문장을 준비하고 있습니다. 기존 차트는 먼저 확인할 수 있습니다.";
     const tab = previewTabInsight(activeView, narrative);
@@ -915,11 +945,13 @@ function previewTabInsight(activeView: CompanyJournalView, narrative: JournalNar
 
 function buildStoredJournalOverview(
   report: CompanyJournalReport | null,
-  status: "loading" | "ready" | "pending" | "error",
+  status: CompanyJournalStatus,
   fallbackHeadline: string
 ): { headline: string; metrics: JournalMetric[] } {
   if (!report) {
-    const headline = status === "error"
+    const headline = status === "simulation_unavailable"
+      ? "시뮬레이터 가상시각 기준 기업저널 데이터가 준비되지 않았습니다."
+      : status === "error"
       ? "저장된 기업저널을 불러올 수 없습니다. 기존 재무 차트와 뉴스는 계속 확인할 수 있습니다."
       : "최신 뉴스·주가·재무 근거로 기업저널을 준비하고 있습니다. 기존 차트는 먼저 확인할 수 있습니다.";
     return {
@@ -928,7 +960,12 @@ function buildStoredJournalOverview(
         metric("최근 움직임", "데이터 연결 대기", "ClickHouse 검증본 준비 중", "neutral"),
         metric("시장 대비", "계산되지 않음", "S&P 500 기준", "neutral"),
         metric("재무 안정성", "데이터 연결 대기", "SEC 기준", "neutral"),
-        metric("분석 상태", status === "error" ? "연결 확인 필요" : "생성 대기", "기존 차트는 사용 가능", status === "error" ? "caution" : "neutral")
+        metric(
+          "분석 상태",
+          status === "simulation_unavailable" ? "시점 데이터 없음" : status === "error" ? "연결 확인 필요" : "생성 대기",
+          status === "simulation_unavailable" ? "미래정보 차단" : "기존 차트는 사용 가능",
+          status === "error" || status === "simulation_unavailable" ? "caution" : "neutral"
+        )
       ]
     };
   }
@@ -964,17 +1001,23 @@ function buildStoredJournalOverview(
 function buildStoredJournalNarrative(
   view: CompanyJournalView,
   report: CompanyJournalReport | null,
-  status: "loading" | "ready" | "pending" | "error"
+  status: CompanyJournalStatus
 ): JournalNarrative {
   if (!report) {
-    const unavailable = status === "error"
+    const unavailable = status === "simulation_unavailable"
+      ? "시뮬레이터 가상시각에 사용할 수 있는 기업저널이 없습니다."
+      : status === "error"
       ? "기업저널 저장소 연결을 확인해야 합니다."
       : "검증된 기업저널 문장을 준비하고 있습니다.";
     return {
       headline: unavailable,
-      observation: "차트와 뉴스는 기존 데이터 원천에서 표시되며, AI 문장은 검증된 결과가 저장된 뒤 나타납니다.",
+      observation: status === "simulation_unavailable"
+        ? "해당 가상시각 이후에 생성되거나 수집된 보고서·재무 근거를 숨겼습니다."
+        : "차트와 뉴스는 기존 데이터 원천에서 표시되며, AI 문장은 검증된 결과가 저장된 뒤 나타납니다.",
       companyMeaning: "준비되지 않은 숫자나 원인을 임의로 채우지 않습니다.",
-      nextCheck: "잠시 뒤 다시 확인하면 최신 검증 결과가 자동으로 표시됩니다.",
+      nextCheck: status === "simulation_unavailable"
+        ? "point-in-time 기업저널이 연결된 뒤 이 시점의 근거를 확인할 수 있습니다."
+        : "잠시 뒤 다시 확인하면 최신 검증 결과가 자동으로 표시됩니다.",
       counterpoint: "현재 상태는 기업에 대한 부정적 평가가 아니라 분석 결과가 아직 준비되지 않았다는 뜻입니다."
     };
   }
