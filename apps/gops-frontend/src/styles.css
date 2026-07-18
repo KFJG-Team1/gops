@@ -5956,6 +5956,32 @@ h2 {
   stroke-width: 3;
 }
 
+.company-historical-valuation-line.is-muted,
+.company-historical-valuation-dot.is-muted {
+  opacity: 0.18;
+}
+
+.company-historical-valuation-line.is-focused {
+  stroke-width: 5;
+  filter: drop-shadow(0 0 5px currentColor);
+}
+
+.company-historical-valuation-dot.is-focused {
+  stroke: var(--color-text);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+
+.company-financial-static-card.has-focused-valuation-metric .company-historical-valuation-legend > span {
+  opacity: 0.36;
+}
+
+.company-financial-static-card.has-focused-valuation-metric .company-historical-valuation-legend > span.is-focused {
+  opacity: 1;
+  color: var(--color-text);
+  font-weight: 700;
+}
+
 .company-valuation-metric-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -6005,6 +6031,20 @@ h2 {
   letter-spacing: var(--type-label-md-letter-spacing);
   font: var(--type-label-md);
   text-align: right;
+}
+
+.company-valuation-metric-row.is-focused {
+  border-color: color-mix(in srgb, var(--coinbase-primary) 68%, transparent);
+  background: color-mix(in srgb, var(--coinbase-primary) 13%, var(--color-surface));
+  box-shadow:
+    inset 3px 0 0 var(--coinbase-primary),
+    0 0 18px color-mix(in srgb, var(--coinbase-primary) 16%, transparent);
+}
+
+.company-valuation-metric-row.is-focused dt,
+.company-valuation-metric-row.is-focused dd > strong {
+  color: var(--coinbase-primary);
+  font-weight: 700;
 }
 
 .company-financial-chart-card {
@@ -6703,6 +6743,52 @@ h2 {
 .company-financial-table th.is-selected,
 .company-financial-table td.is-selected {
   background: color-mix(in srgb, var(--coinbase-primary) 9%, transparent) !important;
+}
+
+.company-financial-table thead th.is-evidence-period {
+  color: color-mix(in srgb, var(--coinbase-primary) 72%, var(--color-text));
+  background: color-mix(in srgb, var(--coinbase-primary) 8%, transparent);
+  font-weight: 700;
+}
+
+.company-financial-table tbody th.is-related-evidence-row,
+.company-financial-table tbody th.is-primary-evidence-row {
+  background: color-mix(in srgb, var(--coinbase-primary) 9%, var(--color-surface));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--coinbase-primary) 62%, transparent);
+}
+
+.company-financial-table tbody th.is-primary-evidence-row {
+  color: color-mix(in srgb, var(--coinbase-primary) 60%, var(--color-text));
+  box-shadow: inset 3px 0 0 var(--coinbase-primary);
+}
+
+.company-financial-table td.is-evidence-focus {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--coinbase-primary) 13%, var(--color-surface)) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--coinbase-primary) 34%, transparent);
+  font-weight: 650;
+}
+
+.company-financial-table td.is-primary-evidence-focus {
+  color: color-mix(in srgb, var(--coinbase-primary) 58%, white);
+  background: color-mix(in srgb, var(--coinbase-primary) 22%, var(--color-surface)) !important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--coinbase-primary) 78%, white),
+    0 0 14px color-mix(in srgb, var(--coinbase-primary) 24%, transparent);
+}
+
+.company-journal-evidence :is(
+  .company-per-share-bar,
+  .company-profitability-bar,
+  .company-return-bar,
+  .company-profitability-operating-dot,
+  .company-profitability-net-dot,
+  .company-return-dot
+).is-focused {
+  stroke: color-mix(in srgb, var(--color-down) 82%, white);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--color-down) 70%, transparent));
+  vector-effect: non-scaling-stroke;
 }
 
 .company-financial-table-empty {
@@ -27081,10 +27167,9 @@ textarea:focus,
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 4px;
-  border-top: 1px solid var(--coinbase-hairline-soft);
+  gap: 10px;
   border-bottom: 1px solid var(--coinbase-hairline-soft);
-  padding: 7px 14px;
+  padding: 10px 14px;
 }
 
 .company-journal-tabs {
@@ -27092,7 +27177,12 @@ textarea:focus,
   min-width: 0;
   flex: 1 1 auto;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  border: 1px solid color-mix(in srgb, var(--color-text) 7%, transparent);
+  border-radius: 14px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 4%, transparent);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -27102,20 +27192,40 @@ textarea:focus,
 }
 
 .company-journal-tabs button {
+  --company-journal-tab-signal: var(--color-muted);
   display: inline-flex;
   min-height: 34px;
   flex: 0 0 auto;
   align-items: center;
   gap: 7px;
   border: 0;
-  border-radius: 999px;
-  padding: 0 13px;
+  border-radius: 10px;
+  padding: 0 14px;
   background: transparent;
   color: var(--color-muted);
   text-transform: var(--type-label-md-text-transform);
   letter-spacing: var(--type-label-md-letter-spacing);
   font: var(--type-label-md);
   cursor: pointer;
+  box-shadow: none;
+  transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.company-journal-tabs button.is-positive { --company-journal-tab-signal: var(--color-up); }
+.company-journal-tabs button.is-appropriate { --company-journal-tab-signal: var(--coinbase-primary); }
+.company-journal-tabs button.is-caution { --company-journal-tab-signal: var(--color-caution); }
+.company-journal-tabs button.is-negative { --company-journal-tab-signal: var(--color-down); }
+.company-journal-tabs button.is-insufficient { --company-journal-tab-signal: var(--color-muted); }
+
+.company-journal-tab-signal {
+  display: block;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border: 1px solid color-mix(in srgb, var(--company-journal-tab-signal) 48%, transparent);
+  border-radius: 50%;
+  background: var(--company-journal-tab-signal);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--company-journal-tab-signal) 58%, transparent);
 }
 
 .company-journal-tabs button svg {
@@ -27125,14 +27235,17 @@ textarea:focus,
 
 .company-journal-tabs button:hover,
 .company-journal-tabs button:focus-visible {
-  background: color-mix(in srgb, var(--coinbase-primary) 10%, transparent);
+  background: color-mix(in srgb, white 5%, transparent);
   color: var(--color-text);
   outline: none;
 }
 
 .company-journal-tabs button.active {
-  background: var(--coinbase-primary);
-  color: var(--coinbase-on-primary);
+  background: color-mix(in srgb, white 10%, var(--color-surface));
+  color: var(--color-text);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, white 9%, transparent),
+    0 2px 8px rgb(0 0 0 / 0.22);
 }
 
 .company-journal-period-toggle {
@@ -27788,6 +27901,34 @@ textarea:focus,
   line-height: 1.5;
 }
 
+.company-journal-insight-tags {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 3px 0 5px;
+}
+
+.company-journal-insight-tags > span {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  border: 1px solid var(--coinbase-hairline-strong);
+  border-radius: 999px;
+  padding: 0 11px;
+  background: color-mix(in srgb, var(--color-surface) 90%, transparent);
+  color: var(--color-text);
+  font: var(--type-label-sm);
+  font-size: 14px;
+}
+
+.company-journal-insight-tags > span:hover,
+.company-journal-insight-tags > span:focus-within {
+  border-color: color-mix(in srgb, var(--coinbase-primary) 72%, transparent);
+  background: color-mix(in srgb, var(--coinbase-primary) 13%, var(--color-surface));
+  color: var(--coinbase-primary);
+}
+
 .company-journal-insight-evidence-hint {
   display: inline-flex;
   width: fit-content;
@@ -27795,7 +27936,7 @@ textarea:focus,
   align-items: center;
   border-radius: 999px;
   padding: 0 9px;
-  background: color-mix(in srgb, var(--coinbase-primary) 14%, transparent);
+  background: color-mix(in srgb, var(--coinbase-primary) 10%, transparent);
   color: var(--coinbase-primary);
   font: var(--type-label-sm);
 }

@@ -310,10 +310,80 @@ export const extraGlossary: GlossaryEntry[] = [
     category: "fundamental"
   },
   {
+    id: "current_ratio",
+    term: "유동비율",
+    aliases: ["유동비율", "current ratio"],
+    description: "1년 안에 현금화할 자산을 1년 안에 갚을 부채와 비교한 값입니다. 100%보다 높으면 단기 자산이 단기 부채보다 많다는 뜻입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "interest_coverage",
+    term: "이자보상배율",
+    aliases: ["이자보상배율", "이자보상", "interest coverage ratio"],
+    description: "영업이익이 이자비용의 몇 배인지 보여줍니다. 높을수록 영업으로 번 돈으로 이자를 감당할 여유가 큽니다.",
+    category: "fundamental"
+  },
+  {
+    id: "net_debt",
+    term: "순부채",
+    aliases: ["순부채", "net debt"],
+    description: "이자를 내는 부채에서 현금성 자산을 뺀 금액입니다. 작을수록 실제로 남은 빚 부담이 적고, 음수면 현금이 부채보다 많다는 뜻입니다.",
+    category: "fundamental"
+  },
+  {
     id: "eps",
     term: "EPS",
     aliases: ["EPS", "주당순이익", "earnings per share"],
     description: "기업의 순이익을 주식 수로 나눈 값으로, 주식 한 주가 벌어들인 이익을 뜻합니다.",
+    category: "fundamental"
+  },
+  {
+    id: "bps",
+    term: "BPS",
+    aliases: ["BPS", "주당순자산", "book value per share"],
+    description: "자기자본을 주식 수로 나눈 값으로, 한 주에 해당하는 장부상 순자산입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "sps",
+    term: "SPS",
+    aliases: ["SPS", "주당매출", "sales per share"],
+    description: "매출을 주식 수로 나눈 값으로, 한 주가 만들어 낸 매출 규모를 보여줍니다.",
+    category: "fundamental"
+  },
+  {
+    id: "cps",
+    term: "CPS",
+    aliases: ["CPS", "주당현금흐름", "cash flow per share"],
+    description: "영업현금흐름을 주식 수로 나눈 값으로, 한 주가 실제 사업에서 만든 현금 규모를 보여줍니다.",
+    category: "fundamental"
+  },
+  {
+    id: "operating_margin",
+    term: "영업이익률",
+    aliases: ["영업이익률", "영업 이익률", "operating margin"],
+    description: "매출 가운데 본업의 영업이익으로 남은 비율입니다. 높아지면 매출 증가가 이익 개선으로 이어지고 있다는 뜻입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "net_margin",
+    term: "순이익률",
+    aliases: ["순이익률", "순 이익률", "net margin"],
+    description: "매출에서 모든 비용과 세금을 반영한 뒤 순이익으로 남은 비율입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "roe",
+    term: "ROE",
+    aliases: ["ROE", "자기자본이익률", "return on equity"],
+    description: "주주가 맡긴 자기자본으로 얼마나 많은 순이익을 만들었는지 보여주는 비율입니다.",
+    category: "fundamental"
+  },
+  {
+    id: "fcf_margin",
+    term: "FCF Margin",
+    aliases: ["FCF Margin", "잉여현금흐름 마진", "free cash flow margin"],
+    description: "매출 가운데 투자 지출을 반영하고도 잉여현금흐름으로 남은 비율입니다.",
     category: "fundamental"
   },
   {

@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentReference } from "../agent/agentReferences";
-import { GlossaryText } from "../glossary/GlossaryText";
+import { GlossaryText, type GlossarySelectionContext } from "../glossary/GlossaryText";
+import type { GlossaryEntry } from "../glossary/stockGlossary";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import {
   CompanySummaryPanel,
@@ -27,6 +28,7 @@ import {
   type CompanyJournalEvidenceResponse,
   type CompanyJournalReport
 } from "./companyJournalApi";
+import { buildCompanyJournalDiagnosis } from "./companyJournalDiagnosis";
 
 type CompanyJournalView = Extract<CompanyPanelView, "profitability" | "stability" | "valuation"> | "earnings";
 type JournalEvidenceTarget =
@@ -69,6 +71,7 @@ type JournalInsight = {
   id: string;
   title: string;
   lead?: string;
+  tags?: string[];
   emphasis?: string;
   text: string;
   evidenceTargets: JournalEvidenceTarget[];
@@ -136,9 +139,6 @@ export function CompanyJournalPanel({
       : resolvedItem.earningsSeries,
     fundamentalsAsOf: storedEvidence.sourceAsOf ?? resolvedItem?.fundamentalsAsOf
   } : resolvedItem, [resolvedItem, storedEvidence]);
-  const hasStoredCompanyEvidence = Boolean(
-    storedEvidence?.financialSeries.length && storedEvidence?.earningsSeries.length
-  );
   const storedPerformanceSeries = useMemo<CompanyJournalPerformanceSeries[]>(() => {
     const sectorSymbol = companyJournalSectorBenchmarkSymbol(effectiveItem?.sector, effectiveItem?.industry);
     return (storedEvidence?.performanceSeries ?? []).map((series) => ({
@@ -154,8 +154,12 @@ export function CompanyJournalPanel({
     })) ?? []
   ), [normalizedSymbol, storedPerformanceSeries]);
   const [activeView, setActiveView] = useState<CompanyJournalView>("earnings");
+  const [focusedValuationMetric, setFocusedValuationMetric] = useState<string | null>(null);
+  const [focusedStabilityMetric, setFocusedStabilityMetric] = useState<string | null>(null);
+  const [focusedFinancialMetric, setFocusedFinancialMetric] = useState<string | null>(null);
+  const [focusedFinancialYear, setFocusedFinancialYear] = useState<number | null>(null);
   const [financialPeriodMode, setFinancialPeriodMode] = useState<FinancialPeriodMode>("annual");
-  const [selectedInsightId, setSelectedInsightId] = useState("tab-focus");
+  const [selectedInsightId, setSelectedInsightId] = useState("");
   const [journalReport, setJournalReport] = useState<CompanyJournalReport | null>(null);
   const [journalStatus, setJournalStatus] = useState<"loading" | "ready" | "pending" | "error">(
     previewEnabled ? "ready" : "loading"
@@ -164,6 +168,10 @@ export function CompanyJournalPanel({
   const [evidenceBySymbol, setEvidenceBySymbol] = useState<Record<string, CompanyJournalEvidence>>({});
   const evidencePanelRef = useRef<HTMLDivElement | null>(null);
   const evidence = evidenceBySymbol[normalizedSymbol] ?? emptyEvidence;
+  const diagnosis = useMemo(
+    () => buildCompanyJournalDiagnosis(effectiveItem, evidence),
+    [effectiveItem, evidence]
+  );
   const onEvidenceChange = useCallback((nextEvidence: CompanyJournalEvidence) => {
     setEvidenceBySymbol((current) => ({ ...current, [normalizedSymbol]: nextEvidence }));
   }, [normalizedSymbol]);
@@ -213,9 +221,15 @@ export function CompanyJournalPanel({
       });
     return () => controller.abort();
   }, [normalizedSymbol, previewEnabled, resolvedItem?.industry, resolvedItem?.sector]);
+  const deterministicOverview = useMemo(
+    () => buildJournalOverview(effectiveItem, evidence),
+    [effectiveItem, evidence]
+  );
   const overview = useMemo(
-    () => previewEnabled ? buildJournalOverview(resolvedItem, evidence) : buildStoredJournalOverview(journalReport, journalStatus),
-    [evidence, journalReport, journalStatus, previewEnabled, resolvedItem]
+    () => previewEnabled
+      ? deterministicOverview
+      : buildStoredJournalOverview(journalReport, journalStatus, deterministicOverview.headline),
+    [deterministicOverview, journalReport, journalStatus, previewEnabled]
   );
   const narrative = useMemo(
     () => previewEnabled
@@ -237,14 +251,50 @@ export function CompanyJournalPanel({
     })),
     [activeView, effectiveItem?.companyName, journalReport, journalStatus, narrative, normalizedSymbol, previewEnabled]
   );
+  const readingInsights = useMemo(() => {
+    const activeSignal = diagnosis.signals.find((signal) => signal.view === activeView);
+    const movementTags = activeView === "earnings"
+      ? splitInsightTags(insights.find((insight) => insight.id === "movement")?.lead)
+      : [];
+    const primaryTags = Array.from(new Set([...(activeSignal?.metrics ?? []), ...movementTags]));
+    return insights
+      .filter((insight) => insight.id === "tab-focus" || insight.id === "summary" || insight.id === "first-check")
+      .map((insight) => ({
+        ...insight,
+        title: insight.id === "tab-focus"
+          ? `${journalViewLabel(activeView)} 핵심`
+          : insight.id === "summary"
+            ? "GOPS AI 판단"
+            : "다음으로 볼 지표",
+        tags: insight.id === "tab-focus" ? primaryTags : splitInsightTags(insight.lead)
+      }));
+  }, [activeView, diagnosis.signals, insights]);
   const selectedInsight = insights.find((insight) => insight.id === selectedInsightId);
   const activeEvidenceTargets = selectedInsight?.evidenceTargets ?? [];
   const selectView = useCallback((view: CompanyJournalView) => {
     setActiveView(view);
+    setFocusedValuationMetric(null);
+    setFocusedStabilityMetric(null);
+    setFocusedFinancialMetric(null);
+    setFocusedFinancialYear(null);
+    setSelectedInsightId("");
+  }, []);
+  const selectInsightTerm = useCallback((entry: GlossaryEntry, context: GlossarySelectionContext) => {
+    const target = journalGlossaryTarget(entry.term);
+    if (!target) return false;
+    const year = nearestFinancialYear(context);
+    setActiveView(target.view);
+    setFocusedValuationMetric(target.valuationMetric ?? null);
+    setFocusedStabilityMetric(target.stabilityMetric ?? null);
+    setFocusedFinancialMetric(target.financialMetric ?? target.stabilityMetric ?? target.valuationMetric ?? null);
+    setFocusedFinancialYear(year);
     setSelectedInsightId("tab-focus");
+    return true;
   }, []);
   const highlightInsight = useCallback((insight: JournalInsight) => {
-    setSelectedInsightId(insight.id);
+    const opening = selectedInsightId !== insight.id;
+    setSelectedInsightId(opening ? insight.id : "");
+    if (!opening) return;
     const primaryTarget = insight.evidenceTargets[0];
     if (!primaryTarget) return;
     window.requestAnimationFrame(() => {
@@ -273,7 +323,44 @@ export function CompanyJournalPanel({
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
       });
     });
-  }, []);
+  }, [selectedInsightId]);
+  useEffect(() => {
+    if (activeView !== "valuation" || !focusedValuationMetric) return;
+    const frame = window.requestAnimationFrame(() => {
+      const container = evidencePanelRef.current;
+      const target = container?.querySelector<HTMLElement>(`[data-journal-metric-row="${focusedValuationMetric}"]`);
+      if (!container || !target) return;
+      const targetBounds = target.getBoundingClientRect();
+      const containerBounds = container.getBoundingClientRect();
+      const top = container.scrollTop + targetBounds.top - containerBounds.top - Math.max(0, (container.clientHeight - targetBounds.height) / 2);
+      container.scrollTo({
+        top: Math.max(0, top),
+        left: container.scrollLeft,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeView, focusedValuationMetric]);
+  useEffect(() => {
+    if (!focusedFinancialMetric) return;
+    const frame = window.requestAnimationFrame(() => {
+      const container = evidencePanelRef.current;
+      const yearSelector = focusedFinancialYear == null ? "" : `[data-journal-financial-year="${focusedFinancialYear}"]`;
+      const selector = `[data-journal-financial-metric="${focusedFinancialMetric}"]${yearSelector}`;
+      const target = container?.querySelector<HTMLElement>(`td${selector}`)
+        ?? container?.querySelector<HTMLElement>(selector);
+      if (!container || !target) return;
+      const targetBounds = target.getBoundingClientRect();
+      const containerBounds = container.getBoundingClientRect();
+      const top = container.scrollTop + targetBounds.top - containerBounds.top - Math.max(0, (container.clientHeight - targetBounds.height) / 2);
+      container.scrollTo({
+        top: Math.max(0, top),
+        left: container.scrollLeft,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeView, focusedFinancialMetric, focusedFinancialYear]);
 
   return (
     <section className="company-journal-panel" aria-label={`${normalizedSymbol} AI 기업저널`}>
@@ -293,17 +380,21 @@ export function CompanyJournalPanel({
           {journalViews.map((view) => {
             const Icon = view.icon;
             const selected = view.id === activeView;
+            const signal = diagnosis.signals.find((candidate) => candidate.view === view.id);
             return (
               <button
                 key={view.id}
                 type="button"
                 role="tab"
                 aria-selected={selected}
-                className={selected ? "active" : ""}
+                aria-label={`${view.label} · ${signal?.statusLabel ?? "데이터 부족"}`}
+                title={signal ? `${signal.statusLabel}: ${signal.result}` : "데이터 부족"}
+                className={`${selected ? "active " : ""}is-${signal?.tone ?? "insufficient"}`}
                 onClick={() => selectView(view.id)}
               >
                 <Icon aria-hidden="true" />
                 <span>{view.label}</span>
+                <i className="company-journal-tab-signal" aria-hidden="true" />
               </button>
             );
           })}
@@ -332,8 +423,10 @@ export function CompanyJournalPanel({
                 valuationContent="earnings"
                 valuationPriceFixture={previewEnabled ? companyJournalPreviewValuationPrices : storedValuationPrices}
                 onEvidenceChange={onEvidenceChange}
-                disableRemoteFetch={previewEnabled || hasStoredCompanyEvidence}
+                disableRemoteFetch={previewEnabled}
                 journalPresentation
+                focusedFinancialMetric={focusedFinancialMetric}
+                focusedFinancialYear={focusedFinancialYear}
                 financialPeriodMode={financialPeriodMode}
                 onFinancialPeriodModeChange={setFinancialPeriodMode}
               />
@@ -355,8 +448,12 @@ export function CompanyJournalPanel({
               stabilityContent={activeView === "stability" ? "stability-dashboard" : "stability"}
               valuationPriceFixture={previewEnabled ? companyJournalPreviewValuationPrices : storedValuationPrices}
               onEvidenceChange={onEvidenceChange}
-              disableRemoteFetch={previewEnabled || hasStoredCompanyEvidence}
+              disableRemoteFetch={previewEnabled}
               journalPresentation
+              focusedValuationMetric={activeView === "valuation" ? focusedValuationMetric : null}
+              focusedStabilityMetric={activeView === "stability" ? focusedStabilityMetric : null}
+              focusedFinancialMetric={focusedFinancialMetric}
+              focusedFinancialYear={focusedFinancialYear}
               financialPeriodMode={financialPeriodMode}
               onFinancialPeriodModeChange={setFinancialPeriodMode}
             />
@@ -364,13 +461,14 @@ export function CompanyJournalPanel({
         </div>
 
         <aside className="company-journal-reading" aria-label={`${activeView} 해석`}>
-          {insights.map((insight) => (
+          {readingInsights.map((insight) => (
             <JournalInsightSection
               key={insight.id}
               insight={insight}
       selected={selectedInsightId === insight.id}
               onHighlight={() => highlightInsight(insight)}
               onAction={selectView}
+              onTermSelect={selectInsightTerm}
             />
           ))}
         </aside>
@@ -383,30 +481,49 @@ function JournalInsightSection({
   insight,
   selected,
   onHighlight,
-  onAction
+  onAction,
+  onTermSelect
 }: {
   insight: JournalInsight;
   selected: boolean;
   onHighlight: () => void;
   onAction: (view: CompanyJournalView) => void;
+  onTermSelect: (entry: GlossaryEntry, context: GlossarySelectionContext) => boolean;
 }) {
   return (
     <section
       className={`company-journal-insight ${selected ? "is-selected" : ""}`}
       tabIndex={0}
       aria-label={`${insight.title} 설명과 관련 차트 보기`}
-      onFocus={onHighlight}
       onClick={onHighlight}
+      role="button"
+      aria-expanded={selected}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onHighlight();
+      }}
     >
       <h3>{insight.title}</h3>
-      {insight.lead && <strong><GlossaryText text={insight.lead} /></strong>}
-      {insight.emphasis && (
-        <strong className="company-journal-insight-emphasis"><GlossaryText text={insight.emphasis} /></strong>
+      {insight.tags && insight.tags.length > 0 && (
+        <div className="company-journal-insight-tags" aria-label={`${insight.title} 핵심 지표`}>
+          {insight.tags.map((tag) => (
+            <span
+              key={tag}
+              title="관련 차트에서 보기"
+            >
+              <GlossaryText text={tag} onTermSelect={onTermSelect} />
+            </span>
+          ))}
+        </div>
       )}
-      {insight.text && <p><GlossaryText text={insight.text} /></p>}
+      {insight.emphasis && (
+        <strong className="company-journal-insight-emphasis"><GlossaryText text={insight.emphasis} onTermSelect={onTermSelect} /></strong>
+      )}
+      {selected && insight.text && <p><GlossaryText text={compactInsightText(insight.text)} onTermSelect={onTermSelect} /></p>}
       {selected && insight.evidenceTargets.length > 0 && (
         <span className="company-journal-insight-evidence-hint">
-          차트 근거 {insight.evidenceTargets.length}곳 표시
+          차트에 표시 중
         </span>
       )}
       {insight.actions && insight.actions.length > 0 && (
@@ -427,6 +544,69 @@ function JournalInsightSection({
       )}
     </section>
   );
+}
+
+function splitInsightTags(value: string | undefined): string[] {
+  return value
+    ? value.split("·").map((tag) => tag.trim()).filter(Boolean).slice(0, 6)
+    : [];
+}
+
+function compactInsightText(value: string): string {
+  const sentences = value.replace(/([.!?])\s+/g, "$1\n").split("\n").map((sentence) => sentence.trim()).filter(Boolean);
+  return sentences.slice(0, 2).join(" ") || value;
+}
+
+function journalGlossaryTarget(term: string): {
+  view: CompanyJournalView;
+  valuationMetric?: string;
+  stabilityMetric?: string;
+  financialMetric?: string;
+} | null {
+  if (["PER", "PBR", "PSR", "FCF Yield"].includes(term)) {
+    const metric = term.toLowerCase().replaceAll(" ", "-");
+    return { view: "valuation", valuationMetric: metric, financialMetric: metric };
+  }
+  const perShareMetric = new Map([
+    ["EPS", "eps"],
+    ["BPS", "bps"],
+    ["SPS", "sps"],
+    ["CPS", "cps"]
+  ]).get(term);
+  if (perShareMetric) return { view: "valuation", financialMetric: perShareMetric };
+  const profitabilityMetric = new Map([
+    ["매출", "revenue"],
+    ["영업이익률", "operating-margin"],
+    ["순이익률", "net-margin"],
+    ["ROE", "roe"],
+    ["ROA", "roa"],
+    ["FCF Margin", "fcf-margin"]
+  ]).get(term);
+  if (profitabilityMetric) return { view: "profitability", financialMetric: profitabilityMetric };
+  const stabilityMetric = new Map([
+    ["부채비율", "debt-ratio"],
+    ["유동비율", "current-ratio"],
+    ["이자보상배율", "interest-coverage"],
+    ["순부채", "net-debt"]
+  ]).get(term);
+  if (stabilityMetric) return { view: "stability", stabilityMetric };
+  return null;
+}
+
+export function nearestFinancialYear(context: GlossarySelectionContext): number | null {
+  const matches = Array.from(context.text.matchAll(/(?:FY\s*)?(20\d{2}|\d{2})\s*(?:년(?:도)?|년도)?/gi))
+    .filter((match) => /FY/i.test(match[0]) || /년/.test(match[0]))
+    .map((match) => {
+      const rawYear = Number(match[1]);
+      const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+      return {
+        year,
+        distance: Math.abs((match.index ?? 0) - context.startIndex)
+      };
+    })
+    .filter((match) => match.year >= 2000 && match.year <= 2100)
+    .sort((left, right) => left.distance - right.distance);
+  return matches[0]?.year ?? null;
 }
 
 function buildJournalInsights({
@@ -518,12 +698,13 @@ function buildJournalInsights({
     const waiting = status === "error"
       ? "저장된 기업저널을 불러오지 못했습니다. 연결을 확인하는 동안 기존 차트와 뉴스는 계속 볼 수 있습니다."
       : "검증된 기업저널 문장을 준비하고 있습니다. 기존 차트는 먼저 확인할 수 있습니다.";
+    const tab = previewTabInsight(activeView, narrative);
     return [
-      ...(activeView === "earnings" ? [{ id: "movement", title: "최근 움직임", lead: "데이터 연결 대기", text: waiting }] : []),
-      { id: "tab-focus", title: `${journalViewLabel(activeView)}에서 먼저 볼 것`, lead: "계산되지 않음", text: "확인되지 않은 숫자를 임의로 채우지 않습니다." },
-      { id: "watch", title: "앞으로 볼 것", text: "검증된 결과가 저장되면 관찰 항목이 이 위치에 표시됩니다." },
-      { id: "summary", title: `${journalViewLabel(activeView)} 종합 판단`, text: narrative.observation },
-      { id: "first-check", title: "기업분석에서 다음으로 볼 곳", text: "궁금한 기준을 선택하면 해당 차트로 이동합니다.", actions: journalAnalysisActions(activeView) }
+      ...(activeView === "earnings" ? [{ id: "movement", title: "최근 움직임", lead: "저장 분석 준비 중", emphasis: narrative.headline, text: waiting }] : []),
+      { id: "tab-focus", title: `${journalViewLabel(activeView)} 핵심`, lead: tab.lead, emphasis: tab.emphasis, text: tab.text },
+      { id: "watch", title: "앞으로 볼 것", emphasis: detailWatchEmphasis(activeView), text: detailWatchText(activeView) },
+      { id: "summary", title: `${journalViewLabel(activeView)} 종합 판단`, emphasis: narrative.headline, text: narrative.companyMeaning || narrative.observation },
+      { id: "first-check", title: "기업분석에서 다음으로 볼 곳", emphasis: crossViewEmphasis(activeView), text: crossViewText(activeView), actions: journalAnalysisActions(activeView) }
     ];
   }
 
@@ -540,14 +721,31 @@ function buildJournalInsights({
   const firstAnalysisLead = firstAnalysisView === "stability"
     ? stabilityLead
     : report.keywords.slice(0, 3).join(" · ") || "매출 성장과 이익률 비교";
-  const movementCopy = journalInsightCopy(report.recentMovement);
-  const selectedCopy = journalInsightCopy(selectedAnalysis);
-  const watchCopy = journalInsightCopy(report.watchItems);
-  const headlineCopy = journalInsightCopy(activeView === "earnings" ? report.headline : selectedAnalysis);
-  const firstCheckCopy = journalInsightCopy(
+  const movementCopy = consumerJournalInsight(report.recentMovement, {
+    emphasis: narrative.headline,
+    text: narrative.companyMeaning
+  });
+  const tabFallback = previewTabInsight(activeView, narrative);
+  const selectedCopy = consumerJournalInsight(selectedAnalysis, {
+    emphasis: tabFallback.emphasis,
+    text: tabFallback.text
+  });
+  const watchCopy = consumerJournalInsight(report.watchItems, {
+    emphasis: detailWatchEmphasis(activeView),
+    text: detailWatchText(activeView)
+  });
+  const headlineCopy = consumerJournalInsight(activeView === "earnings" ? report.headline : selectedAnalysis, {
+    emphasis: narrative.headline,
+    text: narrative.companyMeaning
+  });
+  const firstCheckCopy = consumerJournalInsight(
     activeView === "earnings"
       ? report.tabs[firstAnalysisView] || report.financialStability || report.headline
-      : selectedAnalysis
+      : selectedAnalysis,
+    {
+      emphasis: crossViewEmphasis(activeView),
+      text: crossViewText(activeView)
+    }
   );
   return [
     ...(activeView === "earnings" ? [{ id: "movement", title: "최근 움직임", lead: movementLead, ...movementCopy }] : []),
@@ -663,6 +861,17 @@ function journalInsightCopy(value: string): Pick<JournalInsight, "emphasis" | "t
   };
 }
 
+function consumerJournalInsight(
+  value: string,
+  fallback: Pick<JournalInsight, "emphasis" | "text">
+): Pick<JournalInsight, "emphasis" | "text"> {
+  return isOperationalJournalCopy(value) ? fallback : journalInsightCopy(value);
+}
+
+function isOperationalJournalCopy(value: string): boolean {
+  return /\bnull\b|[a-z]+_[a-z_]+|복구|입력되는지|제공되는지|확인해\s*주세요|데이터\s*(?:연결|복구|입력)|계산되지\s*않|확인할\s*구간|먼저\s*확인할|판단할\s*수\s*없/iu.test(value);
+}
+
 function journalViewLabel(view: CompanyJournalView) {
   return journalViews.find((candidate) => candidate.id === view)?.label ?? "기업 분석";
 }
@@ -677,8 +886,11 @@ function previewTabInsight(activeView: CompanyJournalView, narrative: JournalNar
   if (activeView === "stability") return {
     title: "안정성에서 먼저 볼 것",
     lead: "부채비율 42% · 유동비율 · 이자보상배율",
-    emphasis: "자본 증가가 부채 증가보다 빨라 부채 구조는 현재 완만하게 개선되는 모습입니다.",
-    text: `${narrative.observation} 유동비율과 이자보상배율까지 같은 방향으로 좋아지면 단기 지급 능력과 이자 부담도 함께 개선된 것으로 해석할 수 있습니다.`
+    emphasis: "부채 의존도는 낮아졌고, 단기 지급 여력과 이자비용을 감당할 완충력은 커진 상태입니다.",
+    text: narrative.observation.replace(
+      /입니다\.$/,
+      "이며, 이 조합은 실적이 일시적으로 둔화되거나 금리가 오를 때도 단기 채무와 이자비용을 버틸 여지가 커졌다는 뜻입니다."
+    )
   };
   if (activeView === "valuation") return {
     title: "가치에서 먼저 볼 것",
@@ -696,7 +908,8 @@ function previewTabInsight(activeView: CompanyJournalView, narrative: JournalNar
 
 function buildStoredJournalOverview(
   report: CompanyJournalReport | null,
-  status: "loading" | "ready" | "pending" | "error"
+  status: "loading" | "ready" | "pending" | "error",
+  fallbackHeadline: string
 ): { headline: string; metrics: JournalMetric[] } {
   if (!report) {
     const headline = status === "error"
@@ -716,7 +929,7 @@ function buildStoredJournalOverview(
   const debtRatio = metrics.financial?.liabilitiesToEquity;
   const sessions = metrics.recentSessions ?? 3;
   return {
-    headline: report.headline,
+    headline: isOperationalJournalCopy(report.headline) ? fallbackHeadline : report.headline,
     metrics: [
       metric(
         "최근 움직임",
@@ -855,10 +1068,17 @@ function buildJournalNarrative(
     const pbr = ratio(marketCap, item?.totalEquity);
     const psr = ratio(marketCap, item?.revenue);
     const fcfYield = ratio(item?.freeCashFlow, marketCap);
+    const shares = financial.latest?.sharesOutstanding;
+    const selectedEps = Number.isFinite(financial.latest?.eps ?? NaN)
+      ? financial.latest?.eps ?? null
+      : ratio(financial.latest?.netIncome, shares);
+    const selectedBps = ratio(financial.latest?.totalEquity, shares);
+    const selectedSps = ratio(financial.latest?.revenue, shares);
+    const selectedCps = ratio(financial.latest?.operatingCashFlow, shares);
     const valuation = companyValuationLens(item);
     return {
       headline: "현재 가격이 요구하는 성장 기대를 점검합니다.",
-      observation: `최신 기준 PER은 ${formatJournalMultiple(per)}, PBR은 ${formatJournalMultiple(pbr)}, PSR은 ${formatJournalMultiple(psr)}이며 FCF Yield는 ${formatRatio(fcfYield)}입니다. 주당지표의 증가와 현재 배수 수준을 분리해 확인해야 합니다.`,
+      observation: `${financial.label} 기준 EPS는 ${formatJournalPerShare(selectedEps)}, BPS는 ${formatJournalPerShare(selectedBps)}, SPS는 ${formatJournalPerShare(selectedSps)}, CPS는 ${formatJournalPerShare(selectedCps)}입니다. 현재 PER은 ${formatJournalMultiple(per)}, PBR은 ${formatJournalMultiple(pbr)}, PSR은 ${formatJournalMultiple(psr)}이며 FCF Yield는 ${formatRatio(fcfYield)}입니다.`,
       companyMeaning: valuation.meaning,
       nextCheck: valuation.nextCheck,
       counterpoint: "현재 가치지표는 최신 가격과 최신 재무를 결합한 값입니다. 서로 다른 기준시각이나 일회성 실적이 포함되면 적정가치 해석이 달라질 수 있습니다."
@@ -1007,16 +1227,27 @@ function toneForDebtRatio(value: number | null): JournalMetric["tone"] {
 }
 
 function overviewHeadline(companyName: string, revenueGrowth: number | null, marginDelta: number | null, epsSurprise: number | null) {
+  const subject = koreanSubject(companyName);
   if (revenueGrowth != null && revenueGrowth > 0 && marginDelta != null && marginDelta > 0) {
-    return `${companyName}의 외형 성장과 이익률 개선이 함께 이어지는지 확인할 구간입니다.`;
+    return `${subject} 매출 성장과 이익률 개선이 함께 나타나 현재 성장의 질이 양호합니다.`;
   }
   if (revenueGrowth != null && revenueGrowth > 0 && marginDelta != null && marginDelta < 0) {
-    return `${companyName}에서는 성장보다 수익성 희석의 원인을 먼저 확인해야 합니다.`;
+    return `${subject} 매출은 늘었지만 이익률이 낮아져 현재 성장의 질은 약해진 상태입니다.`;
   }
   if (epsSurprise != null && Math.abs(epsSurprise) >= 5) {
-    return `${companyName}의 최근 실적 차이가 반복 가능한 영업 변화인지가 중요합니다.`;
+    return epsSurprise > 0
+      ? `${subject} 최근 EPS가 시장 예상치를 웃돌아 실적 모멘텀이 개선된 상태입니다.`
+      : `${subject} 최근 EPS가 시장 예상치를 밑돌아 실적 기대가 낮아진 상태입니다.`;
   }
-  return `${companyName}의 매출·수익성·안정성을 같은 기준시각에서 함께 읽습니다.`;
+  return `${subject} 최근 재무 지표의 방향이 엇갈려 성장성과 안정성을 선별적으로 판단해야 하는 상태입니다.`;
+}
+
+function koreanSubject(value: string): string {
+  const lastCharacter = Array.from(value.trim()).at(-1);
+  if (!lastCharacter) return value;
+  const code = lastCharacter.charCodeAt(0);
+  const hasBatchim = code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 !== 0;
+  return `${value}${hasBatchim ? "은" : "는"}`;
 }
 
 function profitabilityHeadline(revenueGrowth: number | null, marginDelta: number | null) {
@@ -1062,6 +1293,10 @@ function formatJournalMoney(value: number | null) {
     notation: "compact",
     maximumFractionDigits: 1
   }).format(value);
+}
+
+function formatJournalPerShare(value: number | null) {
+  return value == null ? "데이터 확인 중" : `US$${value.toFixed(2)}`;
 }
 
 function formatDeltaDetail(value: number | null) {
