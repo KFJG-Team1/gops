@@ -127,7 +127,10 @@ assert.match(newsPanelSource, /simulatorMode === "simulation" \? "\/api\/market\
 assert.match(companyJournalSource, /latestSimulatorStatus/);
 assert.match(companyJournalSource, /simulatorStatusEvent/);
 assert.match(companyJournalSource, /simulatorMode === "simulation"/);
-assert.match(companyJournalSource, /setJournalStatus\("simulation_unavailable"\)/);
+assert.doesNotMatch(companyJournalSource, /setJournalStatus\("simulation_unavailable"\)/);
+assert.doesNotMatch(companyJournalSource, /simulatorMode === "simulation"\) \{[\s\S]*?setStoredEvidence\(null\);[\s\S]*?return/);
+assert.match(companyJournalSource, /disableRemoteFetch=\{previewEnabled \|\| simulatorMode === "simulation"\}/);
+assert.match(companyJournalSource, /companyJournalRequestKey/);
 assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, chart\.interval\)/);
 assert.match(chartPanelSource, /scheduleChartAnalysisAssetRequest/);
 
