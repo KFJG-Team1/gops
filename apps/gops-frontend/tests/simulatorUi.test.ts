@@ -17,6 +17,7 @@ import {
 import { visiblePaperAccountError } from "../src/orders/paperAccountPresentation";
 import { companyJournalRequestKey } from "../src/components/CompanyJournalPanel";
 import { shouldReloadMarketIndicesForSimulatorStatus } from "../src/market/useMarketIndices";
+import { relatedIndicesSimulatorContextKey } from "../src/market/relatedIndicesApi";
 
 
 assert.deepEqual(simulatorSpeeds, [1, 5, 20, 60]);
@@ -38,6 +39,10 @@ assert.equal(
   ),
   true
 );
+assert.equal(relatedIndicesSimulatorContextKey(null), "unknown");
+assert.equal(relatedIndicesSimulatorContextKey({ mode: "live", runId: null }), "live");
+assert.equal(relatedIndicesSimulatorContextKey({ mode: "simulation", runId: null }), "simulation:pending");
+assert.equal(relatedIndicesSimulatorContextKey({ mode: "simulation", runId: "run-1" }), "simulation:run-1");
 assert.equal(
   shouldReloadMarketIndicesForSimulatorStatus(
     { mode: "simulation", runId: "run-1" },
@@ -188,6 +193,10 @@ const marketIndicesHookSource = readFileSync(
   fileURLToPath(new URL("../src/market/useMarketIndices.ts", import.meta.url)),
   "utf-8"
 );
+const indexCommentarySource = readFileSync(
+  fileURLToPath(new URL("../src/components/IndexCommentaryPanel.tsx", import.meta.url)),
+  "utf-8"
+);
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
 assert.doesNotMatch(appSource, /shouldOpenHeatmapForSimulatorTransition/);
 assert.match(appSource, /simulationHeatmapItems\(current, status\)/);
@@ -226,6 +235,10 @@ assert.match(marketIndicesHookSource, /requestSequenceRef/);
 assert.match(marketIndicesHookSource, /TRANSITION_RETRY_MS/);
 assert.match(marketIndicesHookSource, /const visibleError = payload === null \? error : undefined/);
 assert.match(marketIndicesHookSource, /payload !== null && error \? error/);
+assert.match(indexCommentarySource, /window\.addEventListener\(simulatorStatusEvent, handleSimulatorStatus\)/);
+assert.match(indexCommentarySource, /initialPayload\.simulation/);
+assert.match(indexCommentarySource, /status === "error"/);
+assert.match(indexCommentarySource, /관련 지수 데이터를 불러오지 못했습니다/);
 assert.doesNotMatch(companyJournalPerformanceSource, /첫 거래일을 0%/);
 assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, requestedInterval\)/);
 assert.match(chartPanelSource, /fetchChartCommentaryAsset\(requestedSymbol, requestedInterval\)/);
