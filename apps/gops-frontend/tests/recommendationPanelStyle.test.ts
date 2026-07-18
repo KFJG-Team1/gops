@@ -77,8 +77,10 @@ assert.match(workspaceStyles, /\.stock-discovery-price,[\s\S]*font: var\(--type-
 assert.match(workspaceStyles, /\.stock-discovery-badges > em \{[\s\S]*font: var\(--type-label-md\);/, "recommendation score text moves one visual size step above caption");
 assert.match(workspaceStyles, /\.stock-discovery-rank \{[\s\S]*text-align: right;/, "rank values align to the shared right edge");
 assert.match(workspaceStyles, /\.stock-discovery-sector \{[\s\S]*justify-self: stretch;[\s\S]*text-align: right;/, "sector labels align with the numeric market columns");
-assert.match(workspaceStyles, /\.stock-discovery-badges \{[\s\S]*justify-self: end;/, "score badges stay separated at the row edge");
-assert.match(workspaceStyles, /\.stock-discovery-badges \.is-recommended \{[\s\S]*background: #ffffff;[\s\S]*color: #000000;/, "recommendation scores use the white pill contract");
+assert.match(workspaceStyles, /\.stock-discovery-badges \{[\s\S]*align-items: flex-end;[\s\S]*justify-self: stretch;/, "recommendation scores align to the right edge of their full grid track");
+assert.match(workspaceStyles, /\.stock-discovery-badges > em \{[\s\S]*padding: 0;[\s\S]*text-align: right;[\s\S]*white-space: nowrap;/, "recommendation scores remain readable on one line without pill padding");
+assert.match(workspaceStyles, /\.stock-discovery-badges \.is-recommended \{[\s\S]*border: 0;[\s\S]*background: transparent;[\s\S]*color: var\(--color-signal\);/, "recommendation scores use plain blue text without a white fill");
+assert.match(workspaceStyles, /\.stock-discovery-row\.is-selected \.stock-discovery-badges \.is-recommended \{[\s\S]*background: transparent;[\s\S]*color: var\(--color-signal\);/, "selected recommendation rows keep the same blue score text");
 assert.match(workspaceStyles, /\.stock-discovery-score-breakdown/, "score composition appears in a compact hover breakdown");
 assert.match(workspaceStyles, /\.stock-discovery-company,[\s\S]*align-items: flex-start;/, "company and score content align to the left edge of their columns");
 assert.match(workspaceStyles, /\.stock-discovery-company \{[\s\S]*width: 100%;[\s\S]*overflow: hidden;/, "long company names stay inside their own grid column");

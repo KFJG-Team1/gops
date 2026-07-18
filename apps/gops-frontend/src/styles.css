@@ -554,7 +554,7 @@
 .stock-discovery-row.is-selected .stock-discovery-company > span,
 .stock-discovery-row.is-selected .stock-discovery-sector,
 .stock-discovery-row.is-selected .stock-discovery-rank { color: rgb(10 10 10 / .62); }
-.stock-discovery-row.is-selected .stock-discovery-badges .is-recommended { border-color: #1b1b1b; background: #ffffff; color: #000000; }
+.stock-discovery-row.is-selected .stock-discovery-badges .is-recommended { border-color: transparent; background: transparent; color: var(--color-signal); }
 
 .stock-discovery-select-row {
   display: grid;
@@ -637,24 +637,28 @@
 }
 .stock-discovery-badges {
   position: relative;
-  justify-self: end;
+  width: 100%;
+  align-items: flex-end;
+  justify-self: stretch;
   overflow: visible;
 }
 
 .stock-discovery-badges > em {
-  width: fit-content;
-  border-radius: 999px;
-  padding: 1px 5px;
+  width: 100%;
+  border-radius: 0;
+  padding: 0;
   font: var(--type-label-md);
   font-style: normal;
   letter-spacing: var(--type-label-md-letter-spacing);
+  text-align: right;
   text-transform: var(--type-label-md-text-transform);
+  white-space: nowrap;
 }
 
 .stock-discovery-badges .is-recommended {
-  border: 1px solid #ffffff;
-  background: #ffffff;
-  color: #000000;
+  border: 0;
+  background: transparent;
+  color: var(--color-signal);
 }
 .stock-discovery-badges .is-popular { background: color-mix(in srgb, #f59e0b 18%, transparent); color: #d97706; }
 .stock-discovery-score-breakdown {
