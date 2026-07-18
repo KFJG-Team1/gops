@@ -43,6 +43,7 @@ export type TradeCase = {
   holdingDuration?: string | number | null;
   series: ChartPoint[];
   missedChecks: MissedCheck[];
+  checklist?: DecisionChecklist;
   mistakeSummary?: string | null;
   sameAsToday?: string | null;
   differentFromToday?: string | null;
@@ -73,6 +74,8 @@ export type ChecklistItem = {
   sourceAsOf?: string | null;
 };
 
+export type DecisionChecklist = Record<"chart" | "news" | "fundamentals" | "market", ChecklistItem[]>;
+
 export type WatchCondition = {
   id: string;
   type: string;
@@ -99,7 +102,7 @@ export type DailyTradeReview = {
   };
   currentCase: TradeCase;
   similarCases: TradeCase[];
-  checklist: Record<"chart" | "news" | "fundamentals" | "market", ChecklistItem[]>;
+  checklist: DecisionChecklist;
   portfolioImpact: Record<string, unknown> & { riskFlags?: string[] };
   watchConditions: WatchCondition[];
   proposedAlerts: Array<{ id: string; enabled?: boolean }>;

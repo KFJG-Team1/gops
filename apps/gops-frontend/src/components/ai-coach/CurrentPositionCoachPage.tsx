@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, CircleAlert, Newspaper, PieChart, TrendingUp } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, CircleAlert, Minus, Newspaper, PieChart, TrendingUp, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { sp500UniverseSeed } from "../../market/sp500Universe.seed";
 import { StockLogo } from "../StockLogo";
@@ -39,6 +39,7 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
   const activeReview = (trade && page.reviewsByFillId?.[trade.fillId]) ?? page;
   const cases = [activeReview.currentCase, ...activeReview.similarCases.slice(0, 6)];
   const selectedCase = cases[Math.min(caseIndex, cases.length - 1)] ?? activeReview.currentCase;
+  const selectedChecklist = caseIndex === 0 ? activeReview.checklist : selectedCase.checklist;
   const selectedCaseSymbol = selectedCase.symbol?.trim().toUpperCase() ?? "";
   const selectedCaseCompanyName = page.trades.find((item) => item.symbol.trim().toUpperCase() === selectedCaseSymbol)?.companyName?.trim()
     || companyNameBySymbol.get(selectedCaseSymbol)
@@ -125,7 +126,7 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
         </div>}
       </section>
 
-      <section className={styles.checks}><h3>확인 항목</h3><div className={styles.checkGrid}>{(Object.keys(checklistMeta) as Array<keyof typeof checklistMeta>).map((key) => <ChecklistCard key={key} category={key} items={activeReview.checklist[key] ?? []} />)}</div></section>
+      <section className={styles.checks}><h3>확인 항목</h3><div className={styles.checkList}>{(Object.keys(checklistMeta) as Array<keyof typeof checklistMeta>).map((key) => <ChecklistGroup key={key} category={key} items={selectedChecklist?.[key] ?? []} emptyLabel={caseIndex > 0 ? "확인 기록 없음" : "데이터 연결 대기"} />)}</div></section>
 
       <PortfolioImpact impact={activeReview.portfolioImpact} />
 
@@ -148,43 +149,28 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
   );
 }
 
-function ChecklistCard({ category, items }: { category: keyof typeof checklistMeta; items: ChecklistItem[] }) {
-  const tooltipId = useId();
-  const [tooltipVisible, setTooltipVisible] = useState(false);
+function ChecklistGroup({ category, items, emptyLabel }: { category: keyof typeof checklistMeta; items: ChecklistItem[]; emptyLabel: string }) {
+  const titleId = useId();
   const meta = checklistMeta[category];
   const Icon = meta.icon;
-  const missed = items.filter((item) => item.status === "unchecked");
-  const prioritizedItems = [...missed, ...items.filter((item) => item.status !== "unchecked")];
-  const visibleItems = prioritizedItems.slice(0, 2);
-  const summaryStatus = missed.length
-    ? "unchecked"
-    : items.some((item) => item.status === "insufficient_data")
-      ? "insufficient_data"
-      : items.length > 0 && items.every((item) => item.status === "not_applicable")
-        ? "not_applicable"
-        : items.length > 0 ? "checked" : "insufficient_data";
-  return <div
-    className={styles.checkCard}
-    data-category={category}
-    tabIndex={0}
-    aria-describedby={tooltipId}
-    onFocus={() => setTooltipVisible(true)}
-    onBlur={() => setTooltipVisible(false)}
-    onMouseEnter={() => setTooltipVisible(true)}
-    onMouseLeave={() => setTooltipVisible(false)}
-  >
-    <div className={styles.checkCardHeader}>
+  const checkedCount = items.filter((item) => item.status === "checked" || item.status === "not_applicable").length;
+  return <div className={styles.checkGroup} data-category={category} role="group" aria-labelledby={titleId}>
+    <div className={styles.checkGroupHeader}>
       <Icon aria-hidden="true" />
-      <strong>{meta.label}</strong>
-      <span className={styles.checkStatus} data-status={summaryStatus}>{statusLabel(summaryStatus)}</span>
+      <strong id={titleId}>{meta.label}</strong>
+      <span>{checkedCount}/{items.length}</span>
     </div>
-    <div className={styles.checkItems}>
-      {visibleItems.length ? <strong className={styles.checkItem}>{visibleItems.map((item) => item.label).join(" · ")}</strong> : <p>데이터 연결 대기</p>}
-    </div>
-    <div id={tooltipId} role="tooltip" className={styles.checkTooltip} data-visible={tooltipVisible ? "true" : "false"}>
-      <b>{meta.label} 근거</b>
-      {items.length ? items.map((item, index) => <p key={`${item.label}-${index}`}><strong>{item.label} · {statusLabel(item.status)}</strong><span>{item.evidence ?? "근거 데이터 부족"}</span><small>{item.source ?? "출처 없음"} · {item.sourceAsOf ?? "기준시각 없음"}</small></p>) : <p><span>데이터 연결 대기</span></p>}
-    </div>
+    <ul className={styles.checkItems} role="list">
+      {items.length ? items.map((item, index) => <li key={`${item.label}-${index}`} className={styles.checkRow} data-status={item.status}>
+        <span className={styles.checkIndicator} aria-hidden="true">{item.status === "checked" ? <Check /> : item.status === "unchecked" ? <X /> : <Minus />}</span>
+        <span className={styles.checkCopy}>
+          <strong>{item.label}</strong>
+          <span>{item.evidence ?? "근거 데이터 부족"}</span>
+          <small>{item.source ?? "출처 없음"} · {item.sourceAsOf ?? "기준시각 없음"}</small>
+        </span>
+        <span className={styles.checkStatus}>{statusLabel(item.status)}</span>
+      </li>) : <li className={styles.checkRow} data-status="insufficient_data"><span className={styles.checkIndicator} aria-hidden="true"><Minus /></span><span className={styles.checkCopy}><strong>{emptyLabel}</strong></span><span className={styles.checkStatus}>데이터 부족</span></li>}
+    </ul>
   </div>;
 }
 

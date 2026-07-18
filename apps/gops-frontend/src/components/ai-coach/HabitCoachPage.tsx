@@ -171,15 +171,14 @@ export function HabitCoachPage({
           {report ? <EvidenceSummary report={report} /> : null}
 
           {tendencyKeywords.length ? (
-            <div className={styles.tendencyGrid}>
-              {tendencyKeywords.map((item, index) => (
-                <article className={`${styles.tendencyCard} ${styles[item.tone]}`} key={item.label} tabIndex={0} aria-describedby={`${instanceId}-strength-${index}`}>
+            <div className={styles.tendencyGrid} role="list" aria-label="유지할 투자 습관">
+              {tendencyKeywords.map((item) => (
+                <article className={`${styles.tendencyCard} ${styles[item.tone]}`} key={item.label} role="listitem">
                   <header>
                     <strong>{item.label}</strong>
                     <b>{item.value}</b>
                   </header>
                   {item.percent != null ? <div className={styles.tendencyMeter} aria-hidden="true"><span style={{ width: `${Math.max(0, Math.min(100, item.percent))}%` }} /></div> : null}
-                  <p id={`${instanceId}-strength-${index}`} role="tooltip">{item.detail}</p>
                 </article>
               ))}
             </div>
@@ -435,9 +434,6 @@ function LongTermProblemCard({ problem }: { problem: LongTermProblem }) {
     <article className={styles.problemCard}>
       <h5>{problem.title}</h5>
       <p className={styles.problemHeadline}>{problem.headline}</p>
-      <div className={styles.problemReason}>
-        <strong>{problem.reason}</strong>
-      </div>
       <button type="button" className={styles.problemAction}>추천 알람 설정하기</button>
     </article>
   );

@@ -1,38 +1,79 @@
-import type { ChartPoint, CoachReport, DailyTradeReview, HabitLongTermProfile, HabitReport, InsightStage, MissedCheck, TradeCase } from "./types";
+import type { ChartPoint, CoachReport, DailyTradeReview, DecisionChecklist, HabitLongTermProfile, HabitReport, InsightStage, MissedCheck, TradeCase } from "./types";
+import { replayChartSeries, type ReplayChartSymbol } from "./replayChartSeries";
 
 const asOf = "2026-07-17T21:00:00Z";
 type ReviewBundle = Omit<DailyTradeReview, "selectedFillId" | "trades" | "reviewsByFillId">;
 
-function fixedSeries(seed: number, through = 20, base = 190): ChartPoint[] {
-  return Array.from({ length: through + 61 }, (_, index) => {
-    const relativeDay = index - 60;
-    const trend = relativeDay * .16;
-    const wave = Math.sin((index + seed) / 5) * 2.4 + Math.cos((index + seed) / 11) * 1.1;
-    const close = base + seed * 1.3 + trend + wave;
-    const open = close - Math.sin((index + seed) / 3) * 1.2;
-    const macd = Math.sin((index + seed) / 8) * 1.6 + relativeDay * .008;
-    return { relativeDay, time: new Date(Date.parse("2026-07-17T00:00:00Z") + relativeDay * 86400000).toISOString(), open, high: Math.max(open, close) + 1.4, low: Math.min(open, close) - 1.2, close, volume: 24_000_000 + ((index * 7919 + seed * 113) % 18_000_000), relativeVolume: .7 + ((index + seed) % 9) / 10, rsi: Math.max(25, Math.min(78, 52 + Math.sin((index + seed) / 7) * 18 + relativeDay * .12)), macd, signal: macd * .72 + Math.cos(index / 9) * .2, histogram: macd * .28 };
-  });
-}
-
-function missed(symbol: string): MissedCheck[] {
+function chartChecks(symbol: string, series: ChartPoint[]): MissedCheck[] {
+  const entry = series.find((point) => point.relativeDay === 0) ?? series.at(-1);
+  const priorHigh = Math.max(...series.filter((point) => point.relativeDay >= -20 && point.relativeDay < 0).map((point) => point.high).filter((value): value is number => typeof value === "number"));
+  const resistanceGap = entry?.close && Number.isFinite(priorHigh) ? (priorHigh / entry.close - 1) * 100 : null;
+  const sourceAsOf = entry?.time ?? asOf;
   return [
-    { id: `${symbol}-rsi`, type: "rsi", label: "RSI 과열", relativeDay: -1, value: 72, threshold: 70, reason: "과열 구간에서 추격 진입 위험을 확인해야 했습니다.", source: "ClickHouse daily indicators", sourceAsOf: asOf },
-    { id: `${symbol}-macd`, type: "macd", label: "MACD 약화", relativeDay: 0, value: "히스토그램 둔화", threshold: "상승 모멘텀 유지", reason: "MACD와 시그널선 간격이 축소되고 있었습니다.", source: "indicator-v1", sourceAsOf: asOf },
-    { id: `${symbol}-volume`, type: "volume", label: "상대 거래량 부족", relativeDay: 0, value: 0.7, threshold: 1.2, reason: "돌파를 확인할 거래량이 부족했습니다.", source: "market candle volume", sourceAsOf: asOf },
-    { id: `${symbol}-resistance`, type: "price", label: "저항선 근접", relativeDay: 0, value: "1.2%", threshold: "3% 이상 여유", reason: "직전 고점 바로 아래에서 진입했습니다.", source: "chart geometry", sourceAsOf: asOf }
+    { id: `${symbol}-rsi`, type: "rsi", label: "진입 RSI", relativeDay: 0, value: entry?.rsi ?? null, threshold: 70, reason: "저장된 일봉 종가로 계산한 RSI(14)입니다.", source: "fixed replay daily candles", sourceAsOf },
+    { id: `${symbol}-macd`, type: "macd", label: "진입 MACD", relativeDay: 0, value: entry?.macd ?? null, threshold: entry?.signal ?? null, reason: "저장된 일봉 종가의 MACD와 시그널 값입니다.", source: "fixed replay daily candles", sourceAsOf },
+    { id: `${symbol}-volume`, type: "volume", label: "진입 상대 거래량", relativeDay: 0, value: entry?.relativeVolume ?? null, threshold: 1.2, reason: "해당 거래일 거래량을 직전 20개 일봉 평균과 비교했습니다.", source: "fixed replay daily candles", sourceAsOf },
+    { id: `${symbol}-resistance`, type: "price", label: "직전 20일 고점 여유", relativeDay: 0, value: resistanceGap == null ? null : `${resistanceGap.toFixed(2)}%`, threshold: "3% 이상", reason: "진입 종가와 직전 20개 일봉 고점의 실제 간격입니다.", source: "fixed replay daily candles", sourceAsOf }
   ];
 }
 
-function similar(index: number, symbol: string, base: number): TradeCase {
-  const entry = base + index * 1.4;
-  const gain = index % 2 ? -3.5 : 2.6;
-  return { caseId: `${symbol}-fixture-case-${index}`, tradeDate: `2026-0${Math.max(1, 7 - index)}-1${index}T14:00:00Z`, symbol, side: index === 5 ? "sell" : "buy", similarityScore: 91 - index * 4, similarityComponents: { directionScore: 1, marketRegimeScore: .84 - index * .03, indicatorScore: .9 - index * .02 }, entryPrice: entry, exitPrice: entry * (1 + gain / 100), returnPercent: gain, mfePercent: 5.2 + index * .3, maePercent: -2.1 - index * .4, holdingDuration: `${8 + index * 2}일`, series: fixedSeries(index + 2, 20, base), missedChecks: missed(symbol).slice(0, 1 + index % 4), mistakeSummary: "가격·모멘텀·이벤트를 하나의 진입 조건으로 묶지 않았습니다.", sameAsToday: "상승 추세 후반, RSI 과열, 실적 임박 구간입니다.", differentFromToday: index % 2 ? "당시는 시장 거래량이 더 약했습니다." : "당시는 현금 비중이 더 높았습니다." };
+const similarDates = ["2026-05-18T20:00:00Z", "2026-04-20T20:00:00Z", "2026-03-23T20:00:00Z", "2026-02-23T20:00:00Z", "2026-01-26T20:00:00Z", "2025-12-22T20:00:00Z"];
+
+function historicalChecklist(checks: MissedCheck[]): DecisionChecklist {
+  const price = checks.find((item) => item.type === "price");
+  const rsi = checks.find((item) => item.type === "rsi");
+  const macd = checks.find((item) => item.type === "macd");
+  const volume = checks.find((item) => item.type === "volume");
+  const sourceAsOf = price?.sourceAsOf ?? rsi?.sourceAsOf ?? macd?.sourceAsOf ?? volume?.sourceAsOf ?? asOf;
+  const source = "fixed replay daily candles";
+  const missingRecord = (label: string) => ({ status: "insufficient_data" as const, label, evidence: "해당 거래의 확인 기록이 없습니다.", source: "decision-check archive", sourceAsOf });
+  return {
+    chart: [
+      { status: "unchecked", label: "가격 조건", evidence: `직전 20일 고점 여유 ${valueLabel(price?.value)} · 기준 ${valueLabel(price?.threshold)}`, source, sourceAsOf },
+      { status: "unchecked", label: "모멘텀 조건", evidence: `RSI ${valueLabel(rsi?.value)} · MACD ${valueLabel(macd?.value)} / 시그널 ${valueLabel(macd?.threshold)}`, source, sourceAsOf },
+      { status: "unchecked", label: "거래량 조건", evidence: `상대 거래량 ${valueLabel(volume?.value)} · 기준 ${valueLabel(volume?.threshold)}`, source, sourceAsOf }
+    ],
+    news: [missingRecord("뉴스 확인 기록 없음")],
+    fundamentals: [missingRecord("재무 확인 기록 없음")],
+    market: [missingRecord("시장 확인 기록 없음")]
+  };
 }
 
-function review(symbol: string, base: number, side: "buy" | "sell", returnPercent: number): ReviewBundle {
-  const checks = missed(symbol);
-  const entry = base + 1.3;
+function valueLabel(value: string | number | null | undefined) {
+  if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  return value == null || value === "" ? "계산되지 않음" : String(value);
+}
+
+function seriesStats(series: ChartPoint[], entryPrice: number) {
+  const outcome = series.filter((point) => point.relativeDay >= 0);
+  const lastClose = outcome.map((point) => point.close).filter((value): value is number => typeof value === "number").at(-1);
+  const highs = outcome.map((point) => point.high).filter((value): value is number => typeof value === "number");
+  const lows = outcome.map((point) => point.low).filter((value): value is number => typeof value === "number");
+  return {
+    exitPrice: lastClose ?? null,
+    returnPercent: lastClose == null ? null : (lastClose / entryPrice - 1) * 100,
+    mfePercent: highs.length ? (Math.max(...highs) / entryPrice - 1) * 100 : null,
+    maePercent: lows.length ? (Math.min(...lows) / entryPrice - 1) * 100 : null,
+    holdingDuration: `${Math.max(0, outcome.length - 1)}거래일`
+  };
+}
+
+function similar(index: number, symbol: ReplayChartSymbol, base: number): TradeCase {
+  const entry = base * (1 + index * .006);
+  const tradeDate = similarDates[index - 1];
+  const series = replayChartSeries(symbol, tradeDate, entry, 20);
+  const checks = chartChecks(symbol, series);
+  const stats = seriesStats(series, entry);
+  return { caseId: `${symbol}-replay-case-${index}`, tradeDate, symbol, side: index === 5 ? "sell" : "buy", similarityScore: 91 - index * 4, similarityComponents: { directionScore: 1, marketRegimeScore: .84 - index * .03, indicatorScore: .9 - index * .02 }, entryPrice: entry, ...stats, series, missedChecks: checks, checklist: historicalChecklist(checks), mistakeSummary: "저장된 일봉에서 가격·모멘텀·거래량 조건을 함께 확인하지 않았습니다.", sameAsToday: "같은 종목의 실제 fixed replay 일봉 흐름을 기준으로 비교했습니다.", differentFromToday: index % 2 ? "당시는 진입 상대 거래량이 달랐습니다." : "당시는 진입 RSI와 직전 고점 간격이 달랐습니다." };
+}
+
+function review(symbol: ReplayChartSymbol, base: number, side: "buy" | "sell", returnPercent: number): ReviewBundle {
+  const tradeDate = symbol === "WMT" ? "2026-06-16T19:30:00Z" : symbol === "AMZN" ? "2026-06-15T19:30:00Z" : "2026-06-12T19:30:00Z";
+  const currentSeries = replayChartSeries(symbol, tradeDate, base, 0);
+  const outcomeSeries = replayChartSeries(symbol, tradeDate, base, 20);
+  const checks = chartChecks(symbol, currentSeries);
+  const outcome = seriesStats(outcomeSeries, base);
+  const entry = base;
   const isTechnologyAdd = symbol === "AAPL";
   const isTrim = side === "sell";
   const portfolioImpact = symbol === "AAPL"
@@ -42,7 +83,7 @@ function review(symbol: string, base: number, side: "buy" | "sell", returnPercen
       : { symbolWeightBefore: 0, symbolWeightAfter: 4.98, sectorWeightBefore: 11.48, sectorWeightAfter: 16.46, cashWeightBefore: 12.86, cashWeightAfter: 8.0, topHoldingsConcentrationBefore: 41.95, topHoldingsConcentrationAfter: 41.95, riskFlags: ["필수소비재 비중 16.5%", "WMT 단일 비중 5.0%", "7개 섹터 분산 유지"] };
   return {
     decisionAssessment: { grade: isTechnologyAdd ? "attention" : "good", summary: isTechnologyAdd ? "AAPL 편입으로 종목 수는 늘었지만 정보기술 비중이 23.4%로 가장 커져 추가 매수 전 상한 확인이 필요합니다." : isTrim ? "AMZN 일부 매도로 수익을 확정하고 임의소비재 비중과 현금 여력을 함께 조정했습니다." : "WMT 편입으로 필수소비재 내 종목 분산을 넓히면서 7개 섹터 구성을 유지했습니다.", processAssessment: isTechnologyAdd ? "단일 종목 비중은 4.1%로 낮지만 MSFT와 합산한 섹터 노출을 함께 봐야 합니다." : "체결 뒤에도 단일 종목과 섹터 비중이 설정한 범위 안에 있습니다.", outcomeAssessment: `${returnPercent > 0 ? "+" : ""}${returnPercent.toFixed(2)}%`, evidence: isTechnologyAdd ? ["AAPL 4.1%", "정보기술 23.4%", "현금 8.0%"] : isTrim ? ["AMZN 4.3% → 3.2%", "현금 6.9% → 8.0%", "실현손익 +$50"] : ["WMT 5.0%", "필수소비재 16.5%", "7개 섹터"], sourceAsOf: { indicators: asOf, portfolio: asOf } },
-    currentCase: { caseId: `${symbol}-fixture-current`, tradeDate: symbol === "WMT" ? "2026-06-16T19:30:00Z" : symbol === "AMZN" ? "2026-06-15T19:30:00Z" : "2026-06-12T19:30:00Z", symbol, side, entryPrice: entry, returnPercent, mfePercent: 2.7, maePercent: -1.1, holdingDuration: symbol === "WMT" ? "31일" : symbol === "AMZN" ? "부분 청산" : "35일", series: fixedSeries(isTechnologyAdd ? 1 : 7, 0, base), missedChecks: isTechnologyAdd ? checks.slice(0, 2) : checks.slice(2, 3) },
+    currentCase: { caseId: `${symbol}-replay-current`, tradeDate, symbol, side, entryPrice: entry, returnPercent, mfePercent: outcome.mfePercent, maePercent: outcome.maePercent, holdingDuration: outcome.holdingDuration, series: currentSeries, missedChecks: isTechnologyAdd ? checks.slice(0, 2) : checks.slice(2, 3) },
     similarCases: Array.from({ length: 6 }, (_, index) => similar(index + 1, symbol, base)),
     checklist: {
       chart: isTechnologyAdd ? [{ status: "unchecked", label: "섹터 합산 비중", evidence: "정보기술 23.4%", source: "portfolio snapshot", sourceAsOf: asOf }, { status: "checked", label: "단일 종목 상한", evidence: "AAPL 4.1%", source: "portfolio snapshot", sourceAsOf: asOf }] : [{ status: "checked", label: isTrim ? "분할 매도 가격" : "지정가 매수 가격", evidence: isTrim ? "$238 체결" : "$102 체결", source: "paper ledger", sourceAsOf: asOf }],

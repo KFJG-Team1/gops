@@ -414,12 +414,19 @@ function normalizeTradeCase(value: unknown): TradeCase | null {
   const source = readObject(value);
   const caseId = readString(source?.caseId);
   if (!source || !caseId) return null;
+  const checklist = readObject(source.checklist);
   return {
     ...(source as TradeCase),
     caseId,
     similarityComponents: readObject(source.similarityComponents) as Record<string, number> | null ?? undefined,
     series: normalizeObjectArray(source.series) as TradeCase["series"],
-    missedChecks: normalizeObjectArray(source.missedChecks) as TradeCase["missedChecks"]
+    missedChecks: normalizeObjectArray(source.missedChecks) as TradeCase["missedChecks"],
+    checklist: checklist ? {
+      chart: normalizeObjectArray(checklist.chart) as NonNullable<TradeCase["checklist"]>["chart"],
+      news: normalizeObjectArray(checklist.news) as NonNullable<TradeCase["checklist"]>["news"],
+      fundamentals: normalizeObjectArray(checklist.fundamentals) as NonNullable<TradeCase["checklist"]>["fundamentals"],
+      market: normalizeObjectArray(checklist.market) as NonNullable<TradeCase["checklist"]>["market"]
+    } : undefined
   };
 }
 

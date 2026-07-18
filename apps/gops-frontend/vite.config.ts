@@ -1,8 +1,33 @@
 import { defineConfig, loadEnv } from "vite";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+const replayCandleModuleId = "virtual:gops-ai-coach-replay-candles";
+const resolvedReplayCandleModuleId = `\0${replayCandleModuleId}`;
+
+function aiCoachReplayCandles(): Plugin {
+  const symbols = ["AAPL", "AMZN", "WMT"] as const;
+  return {
+    name: "gops-ai-coach-replay-candles",
+    resolveId(id) {
+      return id === replayCandleModuleId ? resolvedReplayCandleModuleId : null;
+    },
+    load(id) {
+      if (id !== resolvedReplayCandleModuleId) return null;
+      const rowsBySymbol = Object.fromEntries(symbols.map((symbol) => {
+        const path = fileURLToPath(new URL(`../../systems/market-data/tests/fixtures/chart_assets_v2/${symbol.toLowerCase()}-1d.json`, import.meta.url));
+        const rows = JSON.parse(readFileSync(path, "utf8")) as Array<Record<string, unknown>>;
+        return [symbol, rows
+          .filter((row) => typeof row.timestamp === "string" && row.timestamp >= "2025-10-01" && row.timestamp <= "2026-07-10T23:59:59.999Z")
+          .map((row) => [row.timestamp, row.open, row.high, row.low, row.close, row.volume])];
+      }));
+      return `export const replayCandlesBySymbol = ${JSON.stringify(rowsBySymbol)};`;
+    }
+  };
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, repoRoot, "");
@@ -17,7 +42,7 @@ export default defineConfig(({ mode }) => {
       __GOPS_LOGO_DEV_PUBLISHABLE_KEY__: JSON.stringify(logoDevPublishableKey),
       __GOPS_LOGO_DEV_ATTRIBUTION__: JSON.stringify(logoDevAttribution)
     },
-    plugins: [react()],
+    plugins: [aiCoachReplayCandles(), react()],
     resolve: {
       alias: {
         "@gops/chart-engine": fileURLToPath(new URL("../chart-engine/src", import.meta.url))
