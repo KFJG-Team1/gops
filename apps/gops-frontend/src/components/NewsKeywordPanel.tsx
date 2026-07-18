@@ -61,6 +61,10 @@ export function newsKeywordEndpoint(_mode: SimulatorStatus["mode"]) {
   return "/api/market/news/daily";
 }
 
+export const NEWS_KEYWORD_REFRESH_MS = 5 * 60_000;
+
+type NewsKeywordLoadMode = "initial" | "manual" | "background";
+
 type NewsKeywordPanelProps = {
   symbol: string;
   initialPayload?: unknown;
@@ -89,13 +93,18 @@ export function NewsKeywordPanel({
     () => latestSimulatorStatus()?.mode ?? "live"
   );
 
-  const loadNews = useCallback(async (signal?: AbortSignal, showRefreshing = false) => {
-    if (showRefreshing) {
+  const loadNews = useCallback(async (
+    signal?: AbortSignal,
+    mode: NewsKeywordLoadMode = "initial"
+  ) => {
+    if (mode === "manual") {
       setRefreshing(true);
-    } else {
+    } else if (mode === "initial") {
       setLoading(true);
     }
-    setError(undefined);
+    if (mode !== "background") {
+      setError(undefined);
+    }
     try {
       const params = new URLSearchParams({ symbol, limit: "30", locale: "ko-KR" });
       const endpoint = newsKeywordEndpoint(simulatorMode);
@@ -109,10 +118,13 @@ export function NewsKeywordPanel({
       if (caught instanceof DOMException && caught.name === "AbortError") {
         return;
       }
+      if (mode === "background") {
+        return;
+      }
       setError(caught instanceof Error ? caught.message : "뉴스 키워드를 불러오지 못했습니다.");
       setPayload(null);
     } finally {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && mode !== "background") {
         setLoading(false);
         setRefreshing(false);
       }
@@ -139,6 +151,20 @@ export function NewsKeywordPanel({
     void loadNews(controller.signal);
     return () => controller.abort();
   }, [initialPayload, loadNews, symbol]);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") {
+        void loadNews(undefined, "background");
+      }
+    };
+    const intervalId = window.setInterval(refresh, NEWS_KEYWORD_REFRESH_MS);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [loadNews]);
 
   const summaries = payload?.dailySummaries ?? [];
   const keywordSummaries = summaries.filter((item) => item.keywordTags.length > 0);
@@ -177,7 +203,7 @@ export function NewsKeywordPanel({
           title="뉴스 키워드 새로고침"
           aria-label="뉴스 키워드 새로고침"
           disabled={refreshing}
-          onClick={() => void loadNews(undefined, true)}
+          onClick={() => void loadNews(undefined, "manual")}
         >
           {refreshing ? <LoaderCircle size={16} className="spin" /> : <RefreshCcw size={16} />}
         </button>
