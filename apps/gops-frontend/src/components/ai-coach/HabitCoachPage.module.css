@@ -63,6 +63,9 @@
   border-radius: 6px;
   color: var(--muted);
   background: transparent;
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -78,9 +81,9 @@
   padding: 10px 20px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .availabilityBanner strong { color: var(--text); text-align: right; }
@@ -112,9 +115,9 @@
 }
 .sectionHeading h4 {
   color: var(--text);
-  font: var(--type-title-sm);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  text-transform: var(--type-title-sm-text-transform);
+  font: var(--type-title-lg);
+  letter-spacing: var(--type-title-lg-letter-spacing);
+  text-transform: var(--type-title-lg-text-transform);
   overflow-wrap: anywhere;
 }
 
@@ -122,9 +125,9 @@
 .unavailableCopy {
   max-width: 920px;
   color: var(--text);
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
   text-wrap: pretty;
   overflow-wrap: anywhere;
 }
@@ -142,16 +145,16 @@
 .evidenceSummary div + div { padding-left: 12px; border-left: 1px solid var(--line); }
 .evidenceSummary dt {
   color: var(--muted);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
   overflow-wrap: anywhere;
 }
 .evidenceSummary dd {
   color: var(--text);
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
 }
 
 .tendencyGrid { display: grid; min-width: 0; margin-top: 14px; border-top: 1px solid var(--line); }
@@ -172,9 +175,9 @@
 .tendencyCard strong,
 .tendencyCard b {
   color: var(--text);
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
 }
 .tendencyCard strong { min-width: 0; overflow-wrap: anywhere; }
 .tendencyCard b { color: var(--tendency-accent); white-space: nowrap; }
@@ -232,24 +235,24 @@
 .problemHeadline,
 .representativeCard > strong {
   color: var(--text);
-  font: var(--type-title-sm);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  text-transform: var(--type-title-sm-text-transform);
+  font: var(--type-title-lg);
+  letter-spacing: var(--type-title-lg-letter-spacing);
+  text-transform: var(--type-title-lg-text-transform);
   overflow-wrap: anywhere;
 }
 .problemHeadline {
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
 }
 .representativeCard > p {
   color: var(--muted);
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
   overflow-wrap: anywhere;
 }
-.problemAction {
+.problemCard .problemAction {
   justify-self: start;
   min-height: 36px;
   padding: 6px 12px;
@@ -257,16 +260,19 @@
   border-radius: 6px;
   color: var(--blue);
   background: transparent;
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
   cursor: pointer;
 }
-.problemAction:hover { color: var(--text); background: var(--blue); }
+.problemCard .problemAction:hover { color: var(--text); background: var(--blue); }
 
 .representativeCard header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .representativeCard header > span {
   color: var(--muted);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 .representativeCard .confirmed { color: var(--green); }
 .representativeCard .unconfirmed { color: var(--amber); }
@@ -279,15 +285,15 @@
 .representativeCard dl div + div { padding-left: 12px; border-left: 1px solid var(--line); }
 .representativeCard dt {
   color: var(--muted);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
-}
-.representativeCard dd {
-  color: var(--text);
   font: var(--type-label-md);
   letter-spacing: var(--type-label-md-letter-spacing);
   text-transform: var(--type-label-md-text-transform);
+}
+.representativeCard dd {
+  color: var(--text);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
 }
 
 .exposureList,
@@ -307,24 +313,24 @@
 .sensitivityRow strong,
 .marketCandidate header strong {
   color: var(--text);
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
 }
 .exposureRow span,
 .sensitivityRow span,
 .marketCandidate p {
   color: var(--muted);
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
   overflow-wrap: anywhere;
 }
 .exposureRow b,
 .sensitivityRow b {
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
   white-space: nowrap;
 }
 .exposureRow b.high { color: var(--red); }
@@ -348,30 +354,30 @@
 .marketCandidate header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .marketCandidate header span {
   color: var(--blue);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
   text-align: right;
-  text-transform: var(--type-caption-text-transform);
+  text-transform: var(--type-label-md-text-transform);
 }
 .marketCandidate > b {
   color: var(--text);
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
 }
 .marketCandidate dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .marketCandidate dt {
   color: var(--muted);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 .marketCandidate dd {
   margin-top: 3px;
   color: var(--text);
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
 }
 
 .emptyState {
@@ -379,10 +385,10 @@
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
   text-align: center;
-  text-transform: var(--type-body-md-text-transform);
+  text-transform: var(--type-title-sm-text-transform);
 }
 
 @container habit-coach (max-width: 680px) {

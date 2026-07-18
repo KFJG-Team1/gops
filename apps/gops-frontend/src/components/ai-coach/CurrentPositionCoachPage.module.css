@@ -52,18 +52,20 @@
 .tradeGrid { display: grid; grid-template-columns: minmax(260px, 1.8fr) repeat(3, minmax(100px, 1fr)); gap: 12px; align-items: center; padding-inline: 38px; }
 .identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .identitySummary { display: flex; min-width: 0; align-items: baseline; gap: 10px; flex-wrap: nowrap; }
-.identitySummary strong { min-width: 0; overflow: hidden; font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-overflow: ellipsis; text-transform: var(--type-label-md-text-transform); white-space: nowrap; }
-.currentPrice { flex: 0 0 auto; color: var(--text); font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); white-space: nowrap; }
-.currentReturn { flex: 0 0 auto; color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); white-space: nowrap; }
+.identitySummary strong { min-width: 0; overflow: hidden; font: var(--type-instrument-name); letter-spacing: var(--type-instrument-name-letter-spacing); text-overflow: ellipsis; text-transform: var(--type-instrument-name-text-transform); white-space: nowrap; }
+.currentPrice { flex: 0 0 auto; color: var(--text); font: var(--type-title-md); letter-spacing: var(--type-title-md-letter-spacing); text-transform: var(--type-title-md-text-transform); white-space: nowrap; }
+.currentReturn { flex: 0 0 auto; color: var(--muted); font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); text-transform: var(--type-title-sm-text-transform); white-space: nowrap; }
 .metric { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .metric span { color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
 .metric strong { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
+.tradeGrid .metric span { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
+.tradeGrid .metric strong { font: var(--type-title-md); letter-spacing: var(--type-title-md-letter-spacing); text-transform: var(--type-title-md-text-transform); }
 .positive { color: var(--green) !important; }
 .negative { color: var(--red) !important; }
 .neutral { color: var(--muted) !important; }
 
 .assessment { display: block; background: var(--surface); }
-.assessment > strong { display: block; max-width: 920px; font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); text-transform: var(--type-title-sm-text-transform); text-wrap: pretty; }
+.assessment > strong { display: block; max-width: 920px; font: var(--type-title-md); letter-spacing: var(--type-title-md-letter-spacing); text-transform: var(--type-title-md-text-transform); text-wrap: pretty; }
 
 .chartSection { background: var(--bg); }
 .sectionTitle { margin-bottom: 12px; }

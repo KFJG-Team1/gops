@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, ChevronDown, Pause, Play, Plus, Trash2, X } from "lucide-react";
+import { Bell, CheckCircle2, ChevronDown, LoaderCircle, Pause, Play, Plus, Trash2, X, XCircle } from "lucide-react";
 import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   readyNotificationSettingKeys,
@@ -8,6 +8,7 @@ import {
 } from "../alerts/notificationPreferences";
 import type { ChartSymbolDto } from "../chart/types";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
+import type { OrderSnapshot } from "../orders/orderClient";
 import { fetchWatchlist, replaceWatchlistSymbols } from "../chart/watchlistApi";
 import { sectorLabelKo } from "../market/sectors";
 import {
@@ -47,6 +48,9 @@ type PriceConditionPanelProps = {
   marketItems?: Sp500UniverseItem[];
   onOpenCompany: (symbol: string) => void;
   view?: "account" | "settings";
+  pendingOrders?: OrderSnapshot[];
+  cancellingOrderId?: string;
+  onCancelPendingOrder?: (orderId: string) => void;
 };
 
 type HubTab = "price" | "alerts" | "watchlist";
@@ -131,6 +135,9 @@ export function PriceConditionPanel(props: PriceConditionPanelProps) {
       symbols={props.symbols}
       onOpenCompany={props.onOpenCompany}
       view="account"
+      pendingOrders={props.pendingOrders}
+      cancellingOrderId={props.cancellingOrderId}
+      onCancelPendingOrder={props.onCancelPendingOrder}
     />
   );
 }
@@ -139,7 +146,10 @@ function AccountPriceConditionPanel({
   defaultSymbol = "AAPL",
   symbols,
   onOpenCompany,
-  view = "account"
+  view = "account",
+  pendingOrders = [],
+  cancellingOrderId,
+  onCancelPendingOrder
 }: PriceConditionPanelProps) {
   const {
     preferences: notificationPreferences,
@@ -541,7 +551,7 @@ function AccountPriceConditionPanel({
 
         {loading ? (
           <div className="paper-reservation-message" role="status">예약 매매 조건을 불러오는 중입니다.</div>
-        ) : conditions.length > 0 ? (
+        ) : conditions.length > 0 || pendingOrders.length > 0 ? (
           <div className="paper-reservation-table">
             <div className="paper-reservation-table-head" aria-hidden="true">
               <span>종목</span>
@@ -551,7 +561,53 @@ function AccountPriceConditionPanel({
               <span>수량</span>
               <span>관리</span>
             </div>
-            <div className="paper-reservation-table-body" role="list" aria-label="예약 매매 조건 목록">
+            <div className="paper-reservation-table-body" role="list" aria-label="예약 매매 목록">
+              {pendingOrders.map((order) => {
+                const side = order.side === "sell" ? "sell" : "buy";
+                const price = Number(order.limit_price ?? order.price ?? 0);
+                const quantity = Number(order.qty ?? 0);
+                return (
+                  <article
+                    key={`submitted-${order.order_id}`}
+                    className="paper-reservation-row is-submitted"
+                    data-status="pending"
+                    role="listitem"
+                    aria-label={`${order.symbol ?? "종목"} 접수 주문`}
+                  >
+                    <div className="paper-reservation-instrument">
+                      <strong>{order.symbol}</strong>
+                    </div>
+                    <div className={`paper-reservation-side is-${side}`}>
+                      <strong>{side === "sell" ? "매도" : "매수"}</strong>
+                    </div>
+                    <div className="paper-reservation-validity">
+                      <strong>접수됨</strong>
+                      <span>직접 취소 전</span>
+                    </div>
+                    <div className="paper-reservation-order">
+                      <strong>US${formatPrice(price)}</strong>
+                      <span>지정가</span>
+                    </div>
+                    <div className="paper-reservation-quantity">
+                      <strong>{quantity}주</strong>
+                    </div>
+                    <div className="paper-reservation-actions">
+                      <button
+                        type="button"
+                        className="paper-reservation-icon-button is-delete"
+                        aria-label={`${order.symbol ?? "종목"} 접수 주문 취소`}
+                        title="접수 주문 취소"
+                        disabled={cancellingOrderId === order.order_id}
+                        onClick={() => onCancelPendingOrder?.(order.order_id)}
+                      >
+                        {cancellingOrderId === order.order_id
+                          ? <LoaderCircle size={15} className="spin" aria-hidden="true" />
+                          : <XCircle size={15} aria-hidden="true" />}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
               {conditions.map((condition) => {
                 const expanded = expandedId === condition.id;
                 const deletePending = pendingDeleteId === condition.id;

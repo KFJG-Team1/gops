@@ -18,6 +18,8 @@ type PaperAccountContextValue = {
   ordersLoading: boolean;
   ordersError?: string;
   refreshOrders: () => Promise<void>;
+  latestSubmittedOrderId?: string;
+  recordSubmittedOrder: (order: OrderSnapshot) => void;
 };
 
 type PaperAccountState = Pick<PaperAccountContextValue, "snapshot" | "loading" | "error"> & {
@@ -49,6 +51,38 @@ export function PaperAccountProvider({ children }: { children: ReactNode }) {
     ordersLoading: true,
     ordersError: undefined
   });
+  const [latestSubmittedOrderId, setLatestSubmittedOrderId] = useState<string>();
+
+  const recordSubmittedOrder = useCallback((order: OrderSnapshot) => {
+    if (!order.order_id || order.status !== "pending") return;
+    setLatestSubmittedOrderId(order.order_id);
+    setState((current) => {
+      if (current.accountKey !== accountKey || !current.snapshot) {
+        return current;
+      }
+      return {
+        ...current,
+        snapshot: {
+          ...current.snapshot,
+          open_orders: [
+            order,
+            ...current.snapshot.open_orders.filter((item) => item.order_id !== order.order_id)
+          ]
+        }
+      };
+    });
+    setOrderState((current) => ({
+      accountKey,
+      orders: [
+        order,
+        ...(current.accountKey === accountKey
+          ? current.orders.filter((item) => item.order_id !== order.order_id)
+          : [])
+      ],
+      ordersLoading: false,
+      ordersError: undefined
+    }));
+  }, [accountKey]);
 
   const refreshOrders = useCallback(async () => {
     if (!canLoad) return;
@@ -110,6 +144,7 @@ export function PaperAccountProvider({ children }: { children: ReactNode }) {
     requestRevisionRef.current += 1;
     orderRequestRevisionRef.current += 1;
     tradeHistoryRevisionKeyRef.current = "";
+    setLatestSubmittedOrderId(undefined);
     if (!canLoad) {
       setState({ accountKey, snapshot: undefined, loading: false, error: undefined });
       setOrderState({ accountKey, orders: [], ordersLoading: false, ordersError: undefined });
@@ -170,8 +205,12 @@ export function PaperAccountProvider({ children }: { children: ReactNode }) {
     orders: visibleOrderState.orders,
     ordersLoading: visibleOrderState.ordersLoading,
     ordersError: visibleOrderState.ordersError,
-    refreshOrders
+    refreshOrders,
+    latestSubmittedOrderId,
+    recordSubmittedOrder
   }), [
+    latestSubmittedOrderId,
+    recordSubmittedOrder,
     refresh,
     refreshOrders,
     visibleOrderState.orders,

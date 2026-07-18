@@ -3,7 +3,9 @@ import { normalizeSector, sectorLabelKo } from "./sectors";
 
 export type MarketHeatmapPayload = {
   source: string;
+  cacheStatus: "fresh" | "stale" | "seed";
   universe: string;
+  generatedAt: string;
   layoutAsOf: string;
   quoteAsOf: string;
   quoteRefreshSeconds: number;
@@ -71,7 +73,9 @@ function normalizeMarketHeatmapPayload(payload: unknown): MarketHeatmapPayload {
     : [];
   return {
     source: asString(source.source) || "market-heatmap-projection",
+    cacheStatus: normalizeHeatmapCacheStatus(source.cacheStatus),
     universe: asString(source.universe) || "sp500",
+    generatedAt: asString(source.generatedAt) || "",
     layoutAsOf: asString(source.layoutAsOf) || "",
     quoteAsOf: asString(source.quoteAsOf) || "",
     quoteRefreshSeconds: clampSeconds(asNumber(source.quoteRefreshSeconds), 60),
@@ -79,6 +83,10 @@ function normalizeMarketHeatmapPayload(payload: unknown): MarketHeatmapPayload {
     fundamentalsSource: source.fundamentalsSource,
     items
   };
+}
+
+function normalizeHeatmapCacheStatus(value: unknown): MarketHeatmapPayload["cacheStatus"] {
+  return value === "stale" || value === "seed" ? value : "fresh";
 }
 
 function normalizeHeatmapItem(value: unknown): Sp500UniverseItem | null {
@@ -94,44 +102,12 @@ function normalizeHeatmapItem(value: unknown): Sp500UniverseItem | null {
     sector,
     sectorLabelKo: asString(item.sectorLabelKo) || sectorLabelKo(sector),
     industry: asString(item.industry) || "Unclassified",
-    cik: asString(item.cik),
-    exchange: asString(item.exchange),
-    market: asString(item.market),
-    country: asString(item.country),
-    listingDate: asString(item.listingDate) || asString(item.listing_date),
     marketCap: asNumber(item.marketCap) ?? 1,
-    marketCapSource: asString(item.marketCapSource),
-    layoutPrice: asNumber(item.layoutPrice),
     layoutMarketCap: asNumber(item.layoutMarketCap),
-    layoutMarketCapSource: asString(item.layoutMarketCapSource),
-    layoutPriceSource: asString(item.layoutPriceSource),
-    layoutPriceUpdatedAt: asString(item.layoutPriceUpdatedAt),
-    sharesOutstanding: asNumber(item.sharesOutstanding),
-    fundamentalsSource: asString(item.fundamentalsSource),
-    fundamentalsAsOf: asString(item.fundamentalsAsOf),
-    fiscalPeriod: asString(item.fiscalPeriod),
-    periodEndDate: asString(item.periodEndDate),
-    filedAt: asString(item.filedAt),
-    revenue: asNumber(item.revenue),
-    operatingIncome: asNumber(item.operatingIncome),
-    netIncome: asNumber(item.netIncome),
-    eps: asNumber(item.eps),
-    totalAssets: asNumber(item.totalAssets),
-    totalLiabilities: asNumber(item.totalLiabilities),
-    totalEquity: asNumber(item.totalEquity),
-    operatingCashFlow: asNumber(item.operatingCashFlow),
-    freeCashFlow: asNumber(item.freeCashFlow),
-    ebitda: asNumber(item.ebitda),
-    earningsSeries: normalizeEarningsSeries(item.earningsSeries),
-    financialSeries: normalizeFinancialSeries(item.financialSeries),
     lastPrice: asNumber(item.lastPrice),
     previousClose: asNumber(item.previousClose),
-    priceSource: asString(item.priceSource),
-    priceUpdatedAt: asString(item.priceUpdatedAt),
     volume: asNumber(item.volume),
     sessionDollarVolume: asNumber(item.sessionDollarVolume),
-    rsi14: asNumber(item.rsi14),
-    currency: asString(item.currency),
     changePercent: asNumber(item.changePercent) ?? null
   };
 }
