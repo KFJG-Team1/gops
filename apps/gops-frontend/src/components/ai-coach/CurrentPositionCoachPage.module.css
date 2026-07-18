@@ -49,10 +49,11 @@
 .tradeArrow svg,
 .chartArrow svg,
 .carouselArrow svg { width: 16px; }
-.tradeGrid { display: grid; grid-template-columns: minmax(260px, 1.8fr) repeat(3, minmax(100px, 1fr)); gap: 12px; align-items: center; padding-inline: 38px; }
+.tradeGrid { display: grid; grid-template-columns: minmax(340px, 2fr) repeat(2, minmax(100px, 1fr)); gap: 12px; align-items: center; padding-inline: 38px; }
 .identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .identitySummary { display: flex; min-width: 0; align-items: baseline; gap: 10px; flex-wrap: nowrap; }
 .identitySummary strong { min-width: 0; overflow: hidden; font: var(--type-instrument-name); letter-spacing: var(--type-instrument-name-letter-spacing); text-overflow: ellipsis; text-transform: var(--type-instrument-name-text-transform); white-space: nowrap; }
+.ticker { flex: 0 0 auto; color: var(--muted); font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: uppercase; white-space: nowrap; }
 .currentPrice { flex: 0 0 auto; color: var(--text); font: var(--type-title-md); letter-spacing: var(--type-title-md-letter-spacing); text-transform: var(--type-title-md-text-transform); white-space: nowrap; }
 .currentReturn { flex: 0 0 auto; color: var(--muted); font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); text-transform: var(--type-title-sm-text-transform); white-space: nowrap; }
 .metric { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
@@ -158,7 +159,7 @@
 .emptyPage p { margin: 0; }
 
 @container coach (max-width: 720px) {
-  .tradeGrid { grid-template-columns: repeat(3, 1fr); }
+  .tradeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .identity { grid-column: 1 / -1; }
   .checkGroup { grid-template-columns: 1fr; }
   .checkGroupHeader { grid-template-columns: 22px minmax(0, 1fr) auto; padding-right: 0; border-bottom: 1px solid var(--line); }
@@ -167,7 +168,7 @@
 
 @container coach (max-width: 560px) {
   .page section { padding: 14px; }
-  .tradeGrid { grid-template-columns: minmax(0, .9fr) minmax(0, .7fr) minmax(0, 1.4fr); gap: 8px; padding-inline: 32px; }
+  .tradeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-inline: 32px; }
   .identity { grid-column: 1 / -1; }
   .identitySummary { gap: 7px; }
   .conditionSlide { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px 42px; }

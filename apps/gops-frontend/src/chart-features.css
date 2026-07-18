@@ -133,6 +133,34 @@
   outline-offset: 1px;
 }
 
+.chart-analysis-level-price-targets {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.chart-analysis-level-price-target {
+  position: absolute;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.chart-analysis-level-price-target:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-evidence-support) 72%, transparent);
+  outline-offset: 1px;
+}
+
+.chart-analysis-level-price-target.is-resistance:focus-visible {
+  outline-color: color-mix(in srgb, var(--color-evidence-resistance) 72%, transparent);
+}
+
 .chart-primary-pattern-badge {
   position: absolute;
   z-index: 4;

@@ -99,6 +99,12 @@ import {
   type ChartAnalysisAssetLoadPhase
 } from "../chart/chartAnalysisAssetRuntimeStore";
 import { buildPatternBadgeLayout, type PatternBadgeLayout } from "../chart/patternBadge";
+import {
+  analysisLevelPriceTargetsEqual,
+  analysisLevelPriceTargetsForScene,
+  type AnalysisLevelPriceTarget
+} from "../chart/analysisLevelPriceTargets";
+import { measureAxisPillTextWidth } from "../chart/axisPillLayout";
 import { createChartPriceSelection, type ChartPriceSelection, type ChartTradeSetupSnapshot } from "../chart/chartTradeAutomation";
 import { clearChartTradeSetupSnapshot, setChartTradeSetupSnapshot } from "../chart/chartTradeSetupStore";
 import {
@@ -539,6 +545,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [spotlightEvidenceRefs, setSpotlightEvidenceRefs] = useState<string[]>([]);
   const [tradePlanOverlay, setTradePlanOverlay] = useState<TradePlanOverlayLayout | null>(null);
   const [patternBadge, setPatternBadge] = useState<PatternBadgeLayout | null>(null);
+  const [analysisLevelPriceTargets, setAnalysisLevelPriceTargets] = useState<AnalysisLevelPriceTarget[]>([]);
   const [chartEvents, setChartEvents] = useState<ChartEventsResponse | null>(null);
   const [chartEventMarkers, setChartEventMarkers] = useState<ChartEventMarker[]>([]);
   const [chartTradeMarkers, setChartTradeMarkers] = useState<ChartTradeMarker[]>([]);
@@ -2569,6 +2576,23 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const markerCoordinateSpace = chartWrapRef.current
       ? { width: chartWrapRef.current.clientWidth, height: chartWrapRef.current.clientHeight }
       : scene;
+    const baseCanvasContext = chartWrapRef.current
+      ?.querySelector<HTMLCanvasElement>(".chart-canvas-base")
+      ?.getContext("2d") ?? null;
+    const nextAnalysisLevelPriceTargets = analysisLevelPriceTargetsForScene(
+      scene,
+      activeAnalysisAsset,
+      effectiveSpotlightDrawingIds,
+      baseCanvasContext
+        ? (text) => measureAxisPillTextWidth(baseCanvasContext, text)
+        : (text) => text.length * 6,
+      markerCoordinateSpace
+    );
+    setAnalysisLevelPriceTargets((current) => (
+      analysisLevelPriceTargetsEqual(current, nextAnalysisLevelPriceTargets)
+        ? current
+        : nextAnalysisLevelPriceTargets
+    ));
     const nextHoldingPriceMarker = paperHoldingPriceMarkerForScene(scene, markerCoordinateSpace);
     syncPaperHoldingPriceMarkerPosition(holdingPriceMarkerRef.current, nextHoldingPriceMarker);
     setHoldingPriceMarker((current) => (
@@ -3328,17 +3352,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     textAlign: labelEditorLayout.textAlign,
     transform: `scale(${labelEditorScaleX}, ${labelEditorScaleY})`
   } : undefined;
-  const applyTradePlanLabelPrice = useCallback((label: TradePlanOverlayLayout["labels"][number]) => {
+  const applyExactChartPrice = useCallback((price: number, formattedPrice: string) => {
     const selection = createChartPriceSelection({
       chartDocumentId: document.id,
       sourcePanelId: panelId,
       symbol: chart.symbol,
       interval: chart.interval,
-      price: label.price,
-      formattedPrice: label.formattedPrice
+      price,
+      formattedPrice
     });
     if (selection) onPriceSelection?.(selection);
   }, [chart.interval, chart.symbol, document.id, onPriceSelection, panelId]);
+  const applyTradePlanLabelPrice = useCallback((label: TradePlanOverlayLayout["labels"][number]) => {
+    applyExactChartPrice(label.price, label.formattedPrice);
+  }, [applyExactChartPrice]);
 
   return (
     <section
@@ -3454,6 +3481,30 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}
         />
+        {analysisLevelPriceTargets.length > 0 && (
+          <div className="chart-analysis-level-price-targets" role="group" aria-label="지지·저항 주문 가격 선택">
+            {analysisLevelPriceTargets.map((target) => <button
+              key={target.drawingId}
+              type="button"
+              className={`chart-analysis-level-price-target is-${target.tone}`}
+              data-analysis-level-drawing-id={target.drawingId}
+              data-analysis-level-price={target.formattedPrice}
+              style={{
+                left: target.bounds.left,
+                top: target.bounds.top,
+                width: target.bounds.width,
+                height: target.bounds.height
+              }}
+              aria-label={`${target.label} 가격 ${target.formattedPrice} 주문창에 적용`}
+              onPointerDown={(event) => event.stopPropagation()}
+              onPointerUp={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                applyExactChartPrice(target.price, target.formattedPrice);
+              }}
+            />)}
+          </div>
+        )}
         {holdingOverlay && holdingPriceMarker && (
           <span
             ref={holdingPriceMarkerRef}

@@ -29,6 +29,8 @@ test.beforeEach(async ({ page }, testInfo) => {
   await page.route("**/api/**", async (route) => fulfillApi(route));
   const layout = testInfo.title.includes("chart questions keep current commentary")
     ? chartQuestionLayout()
+    : testInfo.title.includes("support label")
+      ? supportLabelLayout()
     : testInfo.title.includes("multiple order panels")
       ? multipleOrderPanelLayout()
     : testInfo.title.includes("price axis")
@@ -502,6 +504,54 @@ test("price axis selection accepts a natural reservation buy command and creates
   expect(executionRequests).toEqual(["/api/trade-conditions"]);
 });
 
+test("price axis support label snaps the order price while the remaining axis stays continuous", async ({ page }) => {
+  await routeValidSimulatorStatus(page);
+  const executionRequests: string[] = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "POST" && ["/api/orders", "/api/paper/orders"].includes(pathname)) {
+      executionRequests.push(pathname);
+    }
+  });
+  await page.goto("/?symbol=NVDA");
+  const chart = page.locator(".chart-panel");
+  const quickOrder = page.locator(".quick-order-panel");
+  const levelsToggle = chart.getByRole("button", { name: "지지·저항 분석 레이어 켜기" });
+  await levelsToggle.click();
+
+  const supportTarget = chart.locator('.chart-analysis-level-price-target[data-analysis-level-price="164.00"]');
+  await expect(supportTarget).toHaveCount(1);
+  await expect(supportTarget).toHaveAttribute("aria-label", "지지 가격 164.00 주문창에 적용");
+  await supportTarget.click();
+  await expect(quickOrder.getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("164.00");
+  await expect(quickOrder.getByLabel("주문 수량 직접 입력")).toHaveValue("3");
+  expect(executionRequests).toEqual([]);
+  await quickOrder.getByLabel("빠른 주문 가격 직접 입력").fill("170.00");
+  await supportTarget.focus();
+  await supportTarget.press("Enter");
+  await expect(quickOrder.getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("164.00");
+
+  const canvas = chart.locator(".chart-canvas");
+  const canvasBox = await canvas.boundingBox();
+  const targetBox = await supportTarget.boundingBox();
+  expect(canvasBox).not.toBeNull();
+  expect(targetBox).not.toBeNull();
+  if (!canvasBox || !targetBox) return;
+  const targetCenterY = targetBox.y - canvasBox.y + targetBox.height / 2;
+  const continuousY = targetCenterY < canvasBox.height * .5
+    ? targetCenterY + 28
+    : targetCenterY - 28;
+  await canvas.click({ position: { x: canvasBox.width - 12, y: continuousY } });
+  const continuousPrice = await quickOrder.getByLabel("빠른 주문 가격 직접 입력").inputValue();
+  expect(Number(continuousPrice)).toBeGreaterThan(0);
+  expect(continuousPrice).not.toBe("164.00");
+  await expect(quickOrder.getByLabel("주문 수량 직접 입력")).toHaveValue("3");
+  expect(executionRequests).toEqual([]);
+
+  await chart.getByRole("button", { name: "지지·저항 분석 레이어 끄기" }).click();
+  await expect(supportTarget).toHaveCount(0);
+});
+
 test("price axis and proposal labels share order selection while scenario controls only its chart", async ({ page }) => {
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
@@ -562,18 +612,16 @@ test("price axis and proposal labels share order selection while scenario contro
 });
 
 test("price axis targets the last interacted panel when multiple order panels exist", async ({ page }) => {
+  await routeValidSimulatorStatus(page);
   await page.goto("/?symbol=NVDA");
   const orderPanels = page.locator(".quick-order-panel");
   await expect(orderPanels).toHaveCount(2);
   await orderPanels.nth(1).click({ position: { x: 12, y: 12 } });
-  const canvas = page.locator(".chart-canvas");
-  const canvasBox = await canvas.boundingBox();
-  expect(canvasBox).not.toBeNull();
-  if (!canvasBox) return;
-  await canvas.click({ position: { x: canvasBox.width - 10, y: canvasBox.height * .46 } });
+  await page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" }).click();
+  await page.locator('.chart-analysis-level-price-target[data-analysis-level-price="164.00"]').click();
   await expect(page.locator(".order-chart-price-source")).toHaveCount(0);
   await expect(orderPanels.nth(0).getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("");
-  await expect(orderPanels.nth(1).getByLabel("빠른 주문 가격 직접 입력")).not.toHaveValue("");
+  await expect(orderPanels.nth(1).getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("164.00");
   await expect(orderPanels.nth(0).getByLabel("주문 수량 직접 입력")).toHaveValue("1");
   await expect(orderPanels.nth(1).getByLabel("주문 수량 직접 입력")).toHaveValue("7");
 });
@@ -767,6 +815,31 @@ async function fulfillApi(route: Route): Promise<void> {
   else if (url.pathname === "/api/charts/volume-profile-bins") payload = commentaryVolumeProfilePayload(url);
   else if (url.pathname === "/api/market/heatmap") payload = { items: [] };
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(payload) });
+}
+
+async function routeValidSimulatorStatus(page: Page): Promise<void> {
+  await page.route("**/api/simulator/status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        available: true,
+        mode: "live",
+        state: "idle",
+        datasetId: "chart-analysis-fixture",
+        virtualTime: candles.at(-1)?.timestamp,
+        startTime: candles[0]?.timestamp,
+        endTime: candles.at(-1)?.timestamp,
+        requestedSpeed: 1,
+        effectiveSpeed: 1,
+        processedEventCount: 0,
+        totalEventCount: 0,
+        progress: 0,
+        lagMs: 0,
+        symbols: [{ symbol: "NVDA" }, { symbol: "AAPL" }]
+      })
+    });
+  });
 }
 
 function paperAccountFixture(withHolding: boolean) {
@@ -1162,6 +1235,17 @@ function tradeAutomationLayout(): Record<string, unknown> {
     nextInstance: 4,
     contents: { [chart.id]: chart, [quickOrder.id]: quickOrder, [commentary.id]: commentary },
     slots: [slot("chart", 1, 1, 1, 5, 6), slot("quickOrder", 2, 6, 1, 3, 3), slot("chartCommentary", 3, 6, 4, 3, 3)]
+  };
+}
+
+function supportLabelLayout(): Record<string, unknown> {
+  const chart = content("chart", 1, { symbol: "NVDA", timeframe: "1D" }, "asset-visual-chart");
+  const quickOrder = content("quickOrder", 2, { symbol: "NVDA", qty: 3 });
+  return {
+    version: 1,
+    nextInstance: 3,
+    contents: { [chart.id]: chart, [quickOrder.id]: quickOrder },
+    slots: [slot("chart", 1, 1, 1, 6, 6), slot("quickOrder", 2, 7, 1, 2, 3)]
   };
 }
 
