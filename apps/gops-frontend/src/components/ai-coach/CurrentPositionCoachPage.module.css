@@ -15,14 +15,14 @@
   gap: 0;
   color: var(--text);
   background: var(--bg);
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .page * { box-sizing: border-box; }
 .page section { padding: 18px 20px; border-bottom: 1px solid var(--line); }
-.page button { font: var(--type-button); letter-spacing: var(--type-button-letter-spacing); text-transform: var(--type-button-text-transform); }
+.page button { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
 .page button:focus-visible,
 .page [tabindex="0"]:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .sectionTitle h3,
@@ -52,21 +52,21 @@
 .tradeGrid { display: grid; grid-template-columns: minmax(340px, 2fr) repeat(2, minmax(100px, 1fr)); gap: 12px; align-items: center; padding-inline: 38px; }
 .identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .identitySummary { display: flex; min-width: 0; align-items: baseline; gap: 10px; flex-wrap: nowrap; }
-.identitySummary strong { min-width: 0; overflow: hidden; font: var(--type-instrument-name); letter-spacing: var(--type-instrument-name-letter-spacing); text-overflow: ellipsis; text-transform: var(--type-instrument-name-text-transform); white-space: nowrap; }
-.ticker { flex: 0 0 auto; color: var(--muted); font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: uppercase; white-space: nowrap; }
-.currentPrice { flex: 0 0 auto; color: var(--text); font: var(--type-title-md); letter-spacing: var(--type-title-md-letter-spacing); text-transform: var(--type-title-md-text-transform); white-space: nowrap; }
+.identitySummary strong { min-width: 0; overflow: hidden; font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); text-overflow: ellipsis; text-transform: var(--type-title-sm-text-transform); white-space: nowrap; }
+.ticker { flex: 0 0 auto; color: var(--muted); font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); white-space: nowrap; }
+.currentPrice { flex: 0 0 auto; color: var(--text); font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); text-transform: var(--type-title-sm-text-transform); white-space: nowrap; }
 .currentReturn { flex: 0 0 auto; color: var(--muted); font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); text-transform: var(--type-title-sm-text-transform); white-space: nowrap; }
 .metric { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .metric span { color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
 .metric strong { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
 .tradeGrid .metric span { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
-.tradeGrid .metric strong { font: var(--type-title-md); letter-spacing: var(--type-title-md-letter-spacing); text-transform: var(--type-title-md-text-transform); }
+.tradeGrid .metric strong { font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); text-transform: var(--type-title-sm-text-transform); }
 .positive { color: var(--green) !important; }
 .negative { color: var(--red) !important; }
 .neutral { color: var(--muted) !important; }
 
 .assessment { display: block; background: var(--surface); }
-.assessment > strong { display: block; max-width: 920px; font: var(--type-title-md); letter-spacing: var(--type-title-md-letter-spacing); text-transform: var(--type-title-md-text-transform); text-wrap: pretty; }
+.assessment > strong { display: block; max-width: 920px; font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); text-transform: var(--type-title-sm-text-transform); text-wrap: pretty; }
 
 .chartSection { background: var(--bg); }
 .sectionTitle { margin-bottom: 12px; }
@@ -75,7 +75,7 @@
 .gridLine { stroke: rgb(255 255 255 / .08); }
 .axis,
 .panelLabel,
-.entryText { fill: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); }
+.entryText { fill: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
 .entryLine,
 .threshold,
 .markerGuide { stroke-dasharray: 5 5; }
@@ -101,13 +101,13 @@
 .tooltip strong { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
 .tooltip span,
 .tooltip small { color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
-.tooltip p { margin: 0; font: var(--type-body-md); letter-spacing: var(--type-body-md-letter-spacing); text-transform: var(--type-body-md-text-transform); }
+.tooltip p { margin: 0; font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--line); color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
 .caseStats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 12px; overflow: hidden; }
 .caseStats .metric { flex-direction: row; align-items: baseline; justify-content: center; gap: 8px; white-space: nowrap; }
 .reviewCarousel { margin-top: 12px; }
 .reviewSlide { display: flex; min-width: 0; min-height: 72px; align-items: center; justify-content: center; margin: 0; padding: 15px 42px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.reviewSlide span { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); overflow-wrap: anywhere; text-transform: var(--type-label-md-text-transform); }
+.reviewSlide span { font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); overflow-wrap: anywhere; text-transform: var(--type-title-sm-text-transform); }
 
 .checkList { display: grid; margin-top: 12px; border-top: 1px solid var(--line); }
 .checkGroup { --check-accent: var(--blue); display: grid; grid-template-columns: minmax(112px, .28fr) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
@@ -127,7 +127,7 @@
 .checkRow[data-status="unchecked"] .checkIndicator { border-color: var(--red); color: var(--red); }
 .checkCopy { display: grid; min-width: 0; gap: 3px; }
 .checkCopy > strong { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); overflow-wrap: anywhere; text-transform: var(--type-label-md-text-transform); }
-.checkCopy > span { color: var(--text); font: var(--type-body-md); letter-spacing: var(--type-body-md-letter-spacing); overflow-wrap: anywhere; text-transform: var(--type-body-md-text-transform); }
+.checkCopy > span { color: var(--text); font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); overflow-wrap: anywhere; text-transform: var(--type-label-md-text-transform); }
 .checkCopy > small,
 .checkStatus { color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
 .checkStatus { padding-right: 4px; white-space: nowrap; }
@@ -140,7 +140,7 @@
 .portfolio th,
 .portfolio td { padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .portfolio th { color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
-.portfolio td { font: var(--type-body-md); letter-spacing: var(--type-body-md-letter-spacing); text-transform: var(--type-body-md-text-transform); }
+.portfolio td { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
 
 .conditionPreviewHeader { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .conditionPreview .carouselStage { margin-top: 12px; }
@@ -150,8 +150,8 @@
 .conditionRank { grid-column: 1 / -1; color: var(--amber); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
 .conditionSlideCopy { display: grid; min-width: 0; gap: 8px; }
 .conditionSlideCopy strong { color: var(--text); font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); overflow-wrap: anywhere; text-transform: var(--type-title-sm-text-transform); }
-.conditionSlideCopy b { color: var(--text); font: var(--type-body-md); letter-spacing: var(--type-body-md-letter-spacing); overflow-wrap: anywhere; text-transform: var(--type-body-md-text-transform); }
-.conditionAction { align-self: end; justify-self: end; color: var(--blue); font: var(--type-button); letter-spacing: var(--type-button-letter-spacing); text-transform: var(--type-button-text-transform); white-space: nowrap; }
+.conditionSlideCopy b { color: var(--text); font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); overflow-wrap: anywhere; text-transform: var(--type-label-md-text-transform); }
+.conditionAction { align-self: end; justify-self: end; color: var(--blue); font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); white-space: nowrap; }
 .empty,
 .emptyPage { color: var(--muted); }
 .emptyPage { display: grid; min-height: 320px; place-items: center; gap: 8px; padding: 30px; text-align: center; background: var(--bg); }

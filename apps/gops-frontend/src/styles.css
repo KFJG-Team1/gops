@@ -18783,8 +18783,8 @@ textarea:focus,
   font: var(--type-label-md);
 }
 
-.portfolio-holdings-split-panel .portfolio-holding-cell,
-.portfolio-holdings-split-panel .portfolio-holding-range > b {
+.portfolio-holdings-split-panel .portfolio-holding-row > .portfolio-holding-cell,
+.portfolio-holdings-split-panel .portfolio-holding-row > .portfolio-holding-range > b {
   color: var(--color-text-medium);
   text-transform: var(--type-caption-text-transform);
   letter-spacing: var(--type-caption-letter-spacing);

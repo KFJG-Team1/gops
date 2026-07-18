@@ -15,9 +15,9 @@
   gap: var(--panel-gap);
   overflow: hidden;
   color: var(--coach-text);
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .availabilityNotice,
@@ -51,9 +51,9 @@
 
 .actionDescription,
 .summarySection p {
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .availabilityNotice {
@@ -91,9 +91,9 @@
 .summarySection p {
   margin: 0;
   color: var(--coach-text);
-  font: var(--type-title-md);
-  letter-spacing: var(--type-title-md-letter-spacing);
-  text-transform: var(--type-title-md-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 
 .priorityPair {
@@ -355,9 +355,9 @@
   min-width: 0;
   margin: 0;
   color: var(--coach-text);
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
   overflow-wrap: anywhere;
 }
 
@@ -402,8 +402,9 @@
 
 .evidenceSummary strong {
   color: var(--coach-text);
-  font: var(--type-body-md);
-  font-weight: 700;
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .evidenceCopy {
@@ -435,7 +436,9 @@
 .sampleGauge b {
   position: relative;
   color: var(--coach-text);
-  font: 750 13px/1 var(--font-data-sans);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
   font-variant-numeric: tabular-nums;
 }
 
@@ -836,7 +839,9 @@
   }
 
   .compactInsight .sampleGauge b {
-    font-size: clamp(15px, 2.5cqh, 21px);
+    font: var(--type-title-sm);
+    letter-spacing: var(--type-title-sm-letter-spacing);
+    text-transform: var(--type-title-sm-text-transform);
   }
 
   .compactInsight .evidenceCopy {
@@ -846,7 +851,8 @@
 
   .compactInsight .evidenceSummary strong {
     font: var(--type-title-sm);
-    font-weight: 700;
+    letter-spacing: var(--type-title-sm-letter-spacing);
+    text-transform: var(--type-title-sm-text-transform);
   }
 
   .compactInsight .confidenceBars {

@@ -8,6 +8,9 @@
   overflow: hidden;
   color: #f4f5f7;
   background: #202123;
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .shell > header {
@@ -19,7 +22,9 @@
 }
 
 .shell > header strong {
-  font-size: 14px;
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 
 .shell > main {
@@ -91,6 +96,9 @@
 .placeholder h2 {
   margin: 8px 0;
   color: #fff;
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 
 .placeholder p,
@@ -98,8 +106,17 @@
   margin: 0;
 }
 
+.placeholder p {
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+}
+
 .placeholder small {
   margin-top: 5px;
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
 }
 
 .shell[data-page="3"] > main,

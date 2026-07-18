@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 const read = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
 const shell = read("../src/components/AiInvestmentCoachPanel.tsx");
+const shellStyles = read("../src/components/ai-coach/AiCoachShell.module.css");
 const runtimeProvider = read("../src/components/ai-coach/AiCoachRuntimeProvider.tsx");
 const runtimeState = read("../src/components/ai-coach/aiCoachRuntimeState.ts");
 const page = read("../src/components/ai-coach/CurrentPositionCoachPage.tsx");
@@ -82,7 +83,7 @@ assert.match(page, /watchPreviewTitleId/);
 assert.doesNotMatch(page, /id="coach-watch-preview-title"/);
 assert.match(pageStyles, /\.checkList/); assert.match(pageStyles, /\.checkGroup/); assert.match(pageStyles, /\.checkRow/); assert.match(pageStyles, /\.checkIndicator/);
 assert.doesNotMatch(pageStyles, /checkCard|checkTooltip|font-size|font-weight|clamp\(/);
-for (const role of ["type-title-sm", "type-label-md", "type-body-md", "type-caption", "type-button"]) assert.ok(pageStyles.includes(role));
+for (const role of ["type-title-sm", "type-label-md", "type-caption"]) assert.ok(pageStyles.includes(role));
 assert.doesNotMatch(page, />결과 손익</);
 assert.doesNotMatch(page, />과정 평가</);
 assert.doesNotMatch(page, /근거 기준시각/);
@@ -96,8 +97,8 @@ assert.match(shell, /onOpenAlertCenter={openAlertCenter}/);
 assert.match(shell, /focusedCandidateId={focusedAlertCandidateId}/);
 for (const stage of ["entry", "exit", "portfolio"]) assert.ok(habits.includes(`id: "${stage}"`));
 assert.match(habits, /reportsByPeriod\["6m"\]/);
-for (const label of ["내 투자성향의 장점", "나의 문제점과 추천 알람", "포트폴리오 영향 대표 매수 거래", "시장·섹터 분산 분석"]) assert.ok(habits.includes(label));
-assert.match(habits, /시장·섹터 분산 분석/);
+for (const label of ["내 투자성향의 장점", "다음에 보완할 습관", "내 습관을 보여주는 거래", "분산 상태 살펴보기"]) assert.ok(habits.includes(label));
+assert.doesNotMatch(habits, /나의 문제점과 추천 알람|포트폴리오 영향 대표 매수 거래|시장·섹터 분산 분석/);
 assert.match(habits, /분산 후보 시장 계산 대기/);
 assert.match(habits, /시장·섹터 상관 데이터 연결 대기/);
 assert.match(habits, /profile\?\.decisionRecords/);
@@ -108,7 +109,7 @@ assert.doesNotMatch(habits, /role="tooltip"|aria-describedby=\{`\$\{instanceId\}
 assert.doesNotMatch(habits, /<p>\{item\.detail\}<\/p>/);
 assert.doesNotMatch(habits, /\{problem\.reason\}/);
 assert.doesNotMatch(habitStyles, /font-size|font-weight|clamp\(|box-shadow|backdrop-filter|linear-gradient|radial-gradient/);
-for (const role of ["type-title-sm", "type-label-md", "type-body-md", "type-caption", "type-button"]) assert.ok(habitStyles.includes(role));
+for (const role of ["type-title-sm", "type-label-md", "type-caption"]) assert.ok(habitStyles.includes(role));
 assert.match(habitStyles, /\.tendencyCard \{[\s\S]*border-bottom: 1px solid var\(--line\);/);
 assert.doesNotMatch(habitStyles, /\.tendencyCard p|\.tendencyCard:hover p|\.problemReason|visibility: hidden|opacity: 0;/);
 assert.match(fixture, /longTermProfile/);
@@ -147,9 +148,16 @@ for (const field of ["currentValue", "threshold", "operator", "recommendedAction
 }
 assert.match(actions, /추천 행동/);
 assert.match(fixture, /reportsByPeriod: periods/); assert.match(fixture, /reviewsByFillId/); assert.match(fixture, /contractVersion: "coach-report\.v2"/);
+for (const internalCopy of ["DEV DEMO", "DEV FIXTURE", "fixed replay", "paper ledger", "portfolio snapshot", "decision-check archive", "실제 시장 일봉으로 만든 가상 진입 예시", "사용자 판단·체결 기록은 포함하지 않습니다"]) {
+  assert.ok(!fixture.includes(internalCopy), `AI coach fixture must not expose internal copy: ${internalCopy}`);
+}
+for (const naturalCopy of ["일봉 차트", "체결 내역", "기업 뉴스", "실적 일정", "계좌 분석", "같은 종목에서 추세가 이어지는 구간"]) assert.ok(fixture.includes(naturalCopy));
+for (const coachCopy of ["한 번에 크게 사기보다", "수익이 난 종목을 한꺼번에 정리하지 않고", "한 종목이나 한 업종에 몰리지 않도록", "여러 종목에 나눠 사고", "예약 주문을 뺀 실제 현금"]) assert.ok(fixture.includes(coachCopy));
+for (const reportCopy of ["총자산 $105,023.52와 총손익", "총자산 $105,023.52, 총손익", "10종목·7섹터 분산은 유지하되", "관리 범위 안입니다"]) assert.ok(!fixture.includes(reportCopy));
+assert.doesNotMatch(page, /분석 report|실제 체결과 분석 report/);
 for (const symbol of ["WMT", "AMZN", "AAPL", "MSFT", "JPM"]) assert.ok(fixture.includes(symbol));
 for (const staleSymbol of ["NVDA", "AMD"]) assert.ok(!fixture.includes(staleSymbol));
-assert.match(fixture, /10종목·7섹터/); assert.match(fixture, /정보기술 23\.4%/); assert.match(fixture, /예약금 \$2,178/); assert.match(fixture, /총자산 \$105,023\.52/);
+assert.match(fixture, /정보기술 23\.4%/); assert.match(fixture, /MSFT가 계좌에서 가장 큰 비중/);
 assert.match(types, /processAssessment/); assert.match(types, /outcomeAssessment/);
 for (const source of ["daily_trade", "entry_habit", "exit_habit", "portfolio_risk"]) {
   assert.ok(fixture.includes(source));
@@ -167,4 +175,25 @@ assert.doesNotMatch(fixture, /fixedSeries|Math\.sin|Math\.cos/);
 assert.match(fixture, /replayChartSeries/); assert.match(replaySeries, /replayCandlesBySymbol/); assert.match(replaySeries, /rsiAt/); assert.match(replaySeries, /ema\(closes, 12\)/);
 assert.match(viteConfig, /chart_assets_v2/); assert.match(viteConfig, /2025-10-01/); assert.match(viteConfig, /2026-07-10/);
 assert.match(frontendStyles, /grid-template-rows: auto 106px minmax\(0, 1fr\) auto auto/);
+
+for (const [name, stylesheet] of Object.entries({ shellStyles, pageStyles, habitStyles, actionStyles, improvementStyles: read("../src/components/ai-coach/ImprovementCoachPage.module.css") })) {
+  assert.doesNotMatch(stylesheet, /\bfont-size\s*:|\bfont-weight\s*:/, `${name} must use complete DESIGN.md typography roles`);
+  for (const line of stylesheet.split("\n").filter((value) => /\bfont\s*:/.test(value))) {
+    assert.match(line, /font:\s*(?:var\(--type-[^)]+\)|inherit)\s*;/, `${name} contains a non-semantic font declaration: ${line.trim()}`);
+  }
+  const roles = [...stylesheet.matchAll(/font:\s*var\(--type-([^)]+)\)/g)].map((match) => match[1]);
+  assert.deepEqual([...new Set(roles)].sort(), ["caption", "label-md", "title-sm"], `${name} must use only the three-role AI coach type scale`);
+}
+assert.match(shellStyles, /\.shell > header strong[\s\S]*font: var\(--type-title-sm\)/);
+assert.match(pageStyles, /\.page h3[\s\S]*font: var\(--type-title-sm\)/);
+assert.match(habitStyles, /\.sectionHeading h4[\s\S]*font: var\(--type-title-sm\)/);
+assert.match(actionStyles, /\.sourceBadge[\s\S]*font: var\(--type-title-sm\)/);
+assert.match(pageStyles, /\.assessment > strong[\s\S]*font: var\(--type-title-sm\)/);
+assert.match(habitStyles, /\.profileHeadline,[\s\S]*font: var\(--type-title-sm\)/);
+const improvementStyles = read("../src/components/ai-coach/ImprovementCoachPage.module.css");
+assert.match(improvementStyles, /\.summarySection p[\s\S]*font: var\(--type-title-sm\)/);
+for (const stylesheet of [pageStyles, habitStyles, improvementStyles]) assert.match(stylesheet, /font: var\(--type-title-sm\)/);
+for (const stylesheet of [pageStyles, habitStyles, improvementStyles, actionStyles]) {
+  for (const role of ["label-md", "caption"]) assert.ok(stylesheet.includes(`font: var(--type-${role})`));
+}
 console.log("AI coach contract tests passed");

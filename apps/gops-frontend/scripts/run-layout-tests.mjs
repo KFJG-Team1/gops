@@ -54,6 +54,10 @@ const testCases = [
   {
     entry: new URL("../tests/companyCompareQualitativePresentation.test.ts", import.meta.url),
     outfile: new URL("../.tmp/company-compare-qualitative-presentation-test.mjs", import.meta.url)
+  },
+  {
+    entry: new URL("../tests/newsKeywordPanel.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/news-keyword-panel-test.mjs", import.meta.url)
   }
 ];
 await mkdir(new URL("../.tmp/", import.meta.url), { recursive: true });
