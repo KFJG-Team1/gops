@@ -4909,7 +4909,23 @@ const recommendationLayout = buildPresetLayout(recommendationPreset, { width: 12
 assert.ok(recommendationLayout);
 assert.deepEqual(
   recommendationLayout.slots.map((slot) => recommendationLayout.contents[slot.contentId]?.kind),
-  ["recommendationsList", "indexCommentary", "themeRadar", "newsKeyword"]
+  ["recommendationsList", "chart"]
+);
+const legacyRecommendationLayout = serializeTiledPanelState(createTiledPanelStateFromSpec([
+  { kind: "recommendationsList", gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 } },
+  { kind: "indexCommentary", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 1 } },
+  { kind: "themeRadar", gridRect: { col: 6, row: 2, colSpan: 3, rowSpan: 2 } },
+  { kind: "newsKeyword", gridRect: { col: 6, row: 4, colSpan: 3, rowSpan: 3 } }
+], { width: 1280, height: 720 }, { symbol: "NVDA" }));
+const migratedRecommendationLayout = buildPresetLayout(
+  { ...recommendationPreset, layout: legacyRecommendationLayout },
+  { width: 1280, height: 720 },
+  { symbol: "NVDA" }
+);
+assert.ok(migratedRecommendationLayout);
+assert.deepEqual(
+  migratedRecommendationLayout.slots.map((slot) => migratedRecommendationLayout.contents[slot.contentId]?.kind),
+  ["recommendationsList", "chart"]
 );
 const companyAnalysisPreset = DEFAULT_PRESETS.find((preset) => preset.id === "stock");
 assert.ok(companyAnalysisPreset);
@@ -4970,7 +4986,7 @@ const regularRecommendationLayout = buildPresetLayout(regularRecommendationPrese
 assert.ok(regularRecommendationLayout);
 assert.deepEqual(
   regularRecommendationLayout.slots.map((slot) => regularRecommendationLayout.contents[slot.contentId]?.kind),
-  ["recommendationsList", "indexCommentary", "themeRadar", "news"]
+  ["recommendationsList", "chart"]
 );
 assert.equal(regularRecommendationLayout.contents[regularRecommendationLayout.slots[0].contentId]?.props?.initialSessionMode, undefined);
 

@@ -9,6 +9,7 @@ import {
 } from "../orders/paperTradingClient";
 import { usePaperAccount } from "../orders/PaperAccountProvider";
 import { PriceConditionPanel } from "./PriceConditionPanel";
+import { selectPortfolioHoldingSymbol } from "./portfolioSelection";
 
 type AccountTab = "holdings" | "open" | "history" | "conditions";
 
@@ -53,6 +54,10 @@ export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: Pap
 
   const orders = useMemo(() => history.filter((order) => order.status !== "pending"), [history]);
   const account = snapshot?.account;
+  const openHolding = (symbol: string) => {
+    selectPortfolioHoldingSymbol(symbol);
+    onOpenCompany(symbol);
+  };
 
   return (
     <section className="paper-account-panel" aria-label="가상계좌 패널">
@@ -79,7 +84,20 @@ export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: Pap
                 <div className="paper-account-order-list paper-position-list">
                   <OrderTableHead showSide={false} />
                   {snapshot.positions.map((position) => (
-                    <div className="paper-order-row paper-position-row" key={position.symbol}>
+                    <div
+                      className="paper-order-row paper-position-row"
+                      key={position.symbol}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${position.symbol} 차트 열기`}
+                      onClick={() => openHolding(position.symbol)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openHolding(position.symbol);
+                        }
+                      }}
+                    >
                       <div className="paper-order-symbol"><strong>{position.symbol}</strong></div>
                       <div><strong>{formatShares(position.qty)}</strong></div>
                       <div><span>{formatUsd(position.current_price)}</span></div>

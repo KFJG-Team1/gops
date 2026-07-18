@@ -10,6 +10,7 @@ import {
   runSimulatorAction,
   setSimulatorMode,
   setSimulatorSpeed,
+  simulatorPrimaryAction,
   simulatorSpeeds,
   simulatorStatusPollIntervalMs,
   type SimulatorSpeed,
@@ -112,59 +113,74 @@ export function SimulatorControl() {
   };
 
   const simulation = status.mode === "simulation";
-  const canPlay = status.state === "ready" || status.state === "paused";
+  const primaryAction = simulatorPrimaryAction(status);
+  const primaryLabel = primaryAction === "start"
+    ? "시뮬레이션 시작 및 재생"
+    : primaryAction === "resume"
+      ? "시뮬레이션 재생"
+      : "시뮬레이션 일시정지";
   const progress = Math.max(0, Math.min(100, status.progress * 100));
   return (
     <div className={`simulator-mode-control ${simulation ? "is-simulation" : ""}`} title={error || status.detail}>
       <button
         type="button"
         className="simulator-mode-toggle"
-        aria-label={simulation ? "LIVE 모드로 전환" : "SIMULATION 시작"}
-        disabled={!status.available || busy}
-        onClick={() => void execute(() => setSimulatorMode(simulation ? "live" : "simulation"), "모드 전환 실패")}
+        aria-label={simulation ? "LIVE 모드로 전환" : "LIVE 모드"}
+        disabled={!status.available || busy || !simulation}
+        onClick={() => {
+          if (simulation) void execute(() => setSimulatorMode("live"), "모드 전환 실패");
+        }}
       >
         {busy ? <LoaderCircle size={12} className="spin" /> : <Radio size={12} />}
         <span>{simulation ? "SIM" : status.available ? "LIVE" : "SIM OFFLINE"}</span>
         <i aria-hidden="true" />
       </button>
-      {simulation && (
+      {status.available && (
         <div className="simulator-run-controls">
-          <strong title={`${status.datasetId} · ${progress.toFixed(2)}%`}>
-            {formatSimulatorVirtualTime(status.virtualTime)} · {progress.toFixed(1)}%
-          </strong>
-          <select
-            aria-label="시뮬레이션 배속"
-            value={status.requestedSpeed}
-            disabled={busy || status.state === "completed"}
-            onChange={(event) => void execute(
-              () => setSimulatorSpeed(Number(event.target.value) as SimulatorSpeed),
-              "배속 변경 실패"
-            )}
-          >
-            {simulatorSpeeds.map((speed) => <option key={speed} value={speed}>{speed}×</option>)}
-          </select>
+          {simulation && (
+            <>
+              <strong title={`${status.datasetId} · ${progress.toFixed(2)}%`}>
+                {formatSimulatorVirtualTime(status.virtualTime)} · {progress.toFixed(1)}%
+              </strong>
+              <select
+                aria-label="시뮬레이션 배속"
+                value={status.requestedSpeed}
+                disabled={busy || status.state === "completed"}
+                onChange={(event) => void execute(
+                  () => setSimulatorSpeed(Number(event.target.value) as SimulatorSpeed),
+                  "배속 변경 실패"
+                )}
+              >
+                {simulatorSpeeds.map((speed) => <option key={speed} value={speed}>{speed}×</option>)}
+              </select>
+            </>
+          )}
           <button
             type="button"
-            aria-label={canPlay ? "시뮬레이션 재생" : "시뮬레이션 일시정지"}
-            disabled={busy || status.state === "completed"}
+            aria-label={primaryLabel}
+            disabled={busy || (simulation && status.state === "completed")}
             onClick={() => void execute(
-              () => runSimulatorAction(canPlay ? "resume" : "pause"),
+              () => runSimulatorAction(simulatorPrimaryAction(status)),
               "시뮬레이터 제어 실패"
             )}
           >
-            {canPlay ? <Play size={11} /> : <Pause size={11} />}
+            {primaryAction === "pause" ? <Pause size={11} /> : <Play size={11} />}
           </button>
-          <button
-            type="button"
-            aria-label="시뮬레이션 재시작"
-            disabled={busy}
-            onClick={() => void execute(() => runSimulatorAction("restart"), "시뮬레이터 재시작 실패")}
-          >
-            <RotateCcw size={11} />
-          </button>
-          <span className="simulator-effective-speed" title={`처리 지연 ${status.lagMs}ms`}>
-            실효 {status.effectiveSpeed.toFixed(1)}×
-          </span>
+          {simulation && (
+            <>
+              <button
+                type="button"
+                aria-label="시뮬레이션 재시작"
+                disabled={busy}
+                onClick={() => void execute(() => runSimulatorAction("restart"), "시뮬레이터 재시작 실패")}
+              >
+                <RotateCcw size={11} />
+              </button>
+              <span className="simulator-effective-speed" title={`처리 지연 ${status.lagMs}ms`}>
+                실효 {status.effectiveSpeed.toFixed(1)}×
+              </span>
+            </>
+          )}
         </div>
       )}
     </div>

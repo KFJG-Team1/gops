@@ -1,6 +1,7 @@
 export type SimulatorMode = "live" | "simulation";
 export type SimulatorState = "idle" | "ready" | "running" | "paused" | "completed";
 export type SimulatorSpeed = 1 | 5 | 20 | 60 | 300;
+export type SimulatorAction = "start" | "pause" | "resume" | "restart";
 
 export const simulatorSpeeds: readonly SimulatorSpeed[] = [1, 5, 20, 60, 300];
 
@@ -61,6 +62,13 @@ export function shouldResetMarketDataForSimulatorTransition(
 ): boolean {
   return previousMode !== nextMode
     || (nextMode === "simulation" && previousRunId != null && previousRunId !== nextRunId);
+}
+
+export function simulatorPrimaryAction(
+  status: Pick<SimulatorStatus, "mode" | "state">
+): Extract<SimulatorAction, "start" | "pause" | "resume"> {
+  if (status.mode === "live") return "start";
+  return status.state === "ready" || status.state === "paused" ? "resume" : "pause";
 }
 
 export function subscribePortfolioRefresh(listener: () => void): () => void {
@@ -129,7 +137,7 @@ export async function setSimulatorMode(mode: SimulatorMode): Promise<SimulatorSt
   });
 }
 
-export async function runSimulatorAction(action: "pause" | "resume" | "restart"): Promise<SimulatorStatus> {
+export async function runSimulatorAction(action: SimulatorAction): Promise<SimulatorStatus> {
   return requestJson<SimulatorStatus>("/api/simulator/action", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

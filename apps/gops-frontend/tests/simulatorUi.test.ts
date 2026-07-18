@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   formatSimulatorVirtualTime,
   requestPortfolioRefresh,
+  simulatorPrimaryAction,
   simulationAwareNowMs,
   simulatorSpeeds,
   shouldResetMarketDataForSimulatorTransition,
@@ -24,6 +25,10 @@ assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "live"), 
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("live", "live"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation", "run-1", "run-2"), true);
+assert.equal(simulatorPrimaryAction({ mode: "live", state: "idle" }), "start");
+assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "ready" }), "resume");
+assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "paused" }), "resume");
+assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "running" }), "pause");
 
 const replayStatus: SimulatorStatus = {
   available: true,
@@ -100,6 +105,9 @@ assert.doesNotMatch(controlSource, /다음 시연 단계|setSimulatorPhase|break
 assert.match(controlSource, /formatSimulatorVirtualTime\(status\.virtualTime\)/);
 assert.match(controlSource, /setSimulatorSpeed/);
 assert.match(controlSource, /시뮬레이션 재생/);
+assert.match(controlSource, /시뮬레이션 시작 및 재생/);
+assert.match(controlSource, /simulatorPrimaryAction\(status\)/);
+assert.doesNotMatch(controlSource, /setSimulatorMode\(simulation \? "live" : "simulation"\)/);
 assert.match(chartPanelSource, /simulationAwareNowMs\(Date\.now\(\)\)/);
 assert.match(apiSource, /\/api\/simulator\/speed/);
 assert.match(apiSource, /\/api\/simulator\/quote/);
@@ -142,6 +150,9 @@ const paperAccountSource = readFileSync(
   fileURLToPath(new URL("../src/components/PaperAccountPanel.tsx", import.meta.url)),
   "utf-8"
 );
+assert.match(paperAccountSource, /selectPortfolioHoldingSymbol\(symbol\)/);
+assert.match(paperAccountSource, /onOpenCompany\(symbol\)/);
+assert.match(paperAccountSource, /aria-label=\{`\$\{position\.symbol\} 차트 열기`\}/);
 const stylesSource = readFileSync(
   fileURLToPath(new URL("../src/styles.css", import.meta.url)),
   "utf-8"

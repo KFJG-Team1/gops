@@ -357,9 +357,9 @@
 
 .stock-discovery-logic-page > header > div { display: grid; gap: 2px; }
 .stock-discovery-logic-page > header strong {
-  font: var(--type-title-md);
-  letter-spacing: var(--type-title-md-letter-spacing);
-  text-transform: var(--type-title-md-text-transform);
+  font: var(--type-title-lg);
+  letter-spacing: var(--type-title-lg-letter-spacing);
+  text-transform: var(--type-title-lg-text-transform);
 }
 .stock-discovery-logic-scroll {
   display: flex;
@@ -560,36 +560,38 @@
   display: grid;
   min-width: 0;
   flex: 1;
-  grid-template-columns: 32px minmax(120px, 140px) 76px minmax(100px, 1fr);
+  grid-template-columns: 40px minmax(180px, 2fr) repeat(5, minmax(96px, 1fr));
   align-items: center;
   justify-items: start;
-  column-gap: 10px;
+  column-gap: 12px;
   border: 0;
   padding: 8px 10px 8px 4px;
   background: transparent;
   color: inherit;
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
   text-align: left;
   cursor: pointer;
 }
 
 .stock-discovery-select-row.has-rank {
-  grid-template-columns: 28px 32px minmax(120px, 140px) 76px minmax(100px, 1fr);
+  grid-template-columns: 32px 40px minmax(180px, 2fr) repeat(5, minmax(96px, 1fr));
 }
 
 .stock-discovery-select-row.has-score {
-  grid-template-columns: 28px 32px minmax(120px, 140px) 76px minmax(100px, 1fr) 68px;
+  grid-template-columns: 28px 36px minmax(110px, 1.5fr) repeat(5, minmax(60px, 1fr)) 58px;
+  column-gap: 8px;
 }
 
 .stock-discovery-rank {
+  width: 100%;
   color: var(--color-muted);
-  font: var(--type-label-md);
+  font: var(--type-title-sm);
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-align: left;
-  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-align: right;
+  text-transform: var(--type-title-sm-text-transform);
 }
 
 .stock-discovery-company,
@@ -601,27 +603,38 @@
   gap: 2px;
 }
 
+.stock-discovery-company {
+  width: 100%;
+  overflow: hidden;
+}
+
 .stock-discovery-company > strong {
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 
 .stock-discovery-company > span,
 .stock-discovery-sector {
+  display: block;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
   color: var(--color-muted);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
 }
 
-.stock-discovery-sector { width: 100%; }
+.stock-discovery-sector {
+  width: 100%;
+  justify-self: stretch;
+  text-align: right;
+}
 .stock-discovery-badges {
   position: relative;
   justify-self: end;
@@ -632,10 +645,10 @@
   width: fit-content;
   border-radius: 999px;
   padding: 1px 5px;
-  font: var(--type-caption);
+  font: var(--type-label-md);
   font-style: normal;
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .stock-discovery-badges .is-recommended {
@@ -695,14 +708,24 @@
 }
 .stock-discovery-badges:hover .stock-discovery-score-breakdown,
 .stock-discovery-select-row:focus-visible .stock-discovery-score-breakdown { display: grid; }
-.stock-discovery-volume,
+.stock-discovery-price,
+.stock-discovery-dollar-volume,
+.stock-discovery-market-cap,
 .stock-discovery-change {
-  text-align: left;
-  font: var(--type-caption);
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  justify-self: stretch;
+  font: var(--type-label-md);
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
+.stock-discovery-dollar-volume,
+.stock-discovery-market-cap { color: var(--color-muted); }
 .stock-discovery-metric-summary {
   display: flex;
   min-width: 0;
@@ -740,6 +763,9 @@
   flex-direction: column;
   gap: 0;
   padding-bottom: 4px;
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .score-profile-manager-head {
@@ -751,11 +777,11 @@
 }
 
 .score-profile-manager-head strong {
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
-.score-profile-manager-head > span { color: var(--color-muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
+.score-profile-manager-head > span { color: var(--color-muted); font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
 
 .score-profile-preset-shelf,
 .score-profile-custom-library {
@@ -766,9 +792,9 @@
 }
 .score-profile-preset-shelf > header strong,
 .score-profile-custom-library > header strong {
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 .score-profile-preset-shelf > div {
   display: grid;
@@ -789,9 +815,9 @@
   padding: 7px 9px;
   background: var(--color-background);
   color: var(--color-text);
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 .score-profile-ai-query textarea:focus {
   border-color: var(--color-signal);
@@ -808,9 +834,9 @@
   padding: 6px 9px;
   background: var(--color-surface-strong);
   color: var(--color-text);
-  font: var(--type-button);
-  letter-spacing: var(--type-button-letter-spacing);
-  text-transform: var(--type-button-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
   cursor: pointer;
 }
 .score-profile-ai-query button:disabled,
@@ -827,10 +853,10 @@
   padding: 4px 8px;
   background: transparent;
   color: var(--color-text);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
   text-align: left;
-  text-transform: var(--type-caption-text-transform);
+  text-transform: var(--type-label-md-text-transform);
   cursor: pointer;
 }
 .score-profile-query-examples button:hover:not(:disabled),
@@ -862,19 +888,19 @@
 .score-profile-ai-suggestion > div:first-child > svg { grid-row: 1 / span 2; color: var(--color-signal); }
 .score-profile-ai-suggestion > div:first-child > strong {
   overflow: hidden;
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
   text-overflow: ellipsis;
-  text-transform: var(--type-label-md-text-transform);
+  text-transform: var(--type-title-sm-text-transform);
   white-space: nowrap;
 }
 .score-profile-ai-suggestion > div:first-child > span {
   overflow: hidden;
   color: var(--color-muted);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
   text-overflow: ellipsis;
-  text-transform: var(--type-caption-text-transform);
+  text-transform: var(--type-label-md-text-transform);
   white-space: nowrap;
 }
 .score-profile-ai-rationale {
@@ -893,17 +919,17 @@
   box-shadow: var(--surface-floating-depth-shadow);
 }
 .score-profile-ai-rationale > strong {
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 .score-profile-ai-rationale p,
 .score-profile-ai-rationale > span {
   margin: 0;
   color: #ffffff;
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 .score-profile-ai-rationale p { line-height: 1.45; }
 .score-profile-ai-rationale > span { display: flex; justify-content: space-between; gap: 8px; }
@@ -927,9 +953,9 @@
 }
 .score-profile-preset-shelf button strong {
   color: var(--color-text);
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 .score-profile-preset-shelf button.is-selected {
   border-color: #ffffff;
@@ -958,9 +984,9 @@
   padding: 8px 10px;
   background: transparent;
   color: var(--color-muted);
-  font: var(--type-button);
-  letter-spacing: var(--type-button-letter-spacing);
-  text-transform: var(--type-button-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
   cursor: pointer;
 }
 
@@ -973,10 +999,10 @@
 .score-profile-list button.is-selected em { color: #000000; }
 .score-profile-list em {
   color: var(--color-signal);
-  font: var(--type-caption);
+  font: var(--type-label-md);
   font-style: normal;
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .score-profile-editor-head {
@@ -986,7 +1012,7 @@
   gap: 10px;
   padding: 12px 0;
 }
-.score-profile-editor-head > strong { font: var(--type-title-sm); letter-spacing: var(--type-title-sm-letter-spacing); text-transform: var(--type-title-sm-text-transform); }
+.score-profile-editor-head > strong { font: var(--type-title-md); letter-spacing: var(--type-title-md-letter-spacing); text-transform: var(--type-title-md-text-transform); }
 .score-profile-editor-head > div:last-child { display: flex; gap: 4px; }
 .score-profile-editor-head button,
 .score-profile-actions button {
@@ -999,9 +1025,9 @@
   padding: 5px 8px;
   background: transparent;
   color: var(--color-muted);
-  font: var(--type-button);
-  letter-spacing: var(--type-button-letter-spacing);
-  text-transform: var(--type-button-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
   cursor: pointer;
 }
 
@@ -1027,9 +1053,9 @@
   padding: 9px 10px;
   background: var(--color-surface-strong);
   color: var(--color-muted);
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 .score-profile-name input {
   min-width: 0;
@@ -1038,9 +1064,9 @@
   padding: 6px 8px;
   background: var(--color-background);
   color: var(--color-text);
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .score-profile-mixer {
@@ -1056,9 +1082,9 @@
   gap: 12px;
 }
 .score-profile-mixer-summary strong {
-  font: var(--type-title-sm);
-  letter-spacing: var(--type-title-sm-letter-spacing);
-  text-transform: var(--type-title-sm-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
 }
 .score-profile-allocation-bar {
   display: flex;
@@ -1086,11 +1112,11 @@
 .score-profile-allocation-bar i {
   overflow: hidden;
   padding: 0 4px;
-  font: var(--type-caption);
+  font: var(--type-label-md);
   font-style: normal;
-  letter-spacing: var(--type-caption-letter-spacing);
+  letter-spacing: var(--type-label-md-letter-spacing);
   text-overflow: ellipsis;
-  text-transform: var(--type-caption-text-transform);
+  text-transform: var(--type-label-md-text-transform);
   white-space: nowrap;
 }
 .score-profile-allocation-legend {
@@ -1103,9 +1129,9 @@
   align-items: center;
   gap: 4px;
   color: var(--color-muted);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 .score-profile-allocation-legend i {
   width: 7px;
@@ -1144,16 +1170,16 @@
   padding-bottom: 8px;
 }
 .score-profile-mixer-card > header strong {
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 .score-profile-mixer-card > header em {
   color: var(--color-signal);
-  font: var(--type-label-md);
+  font: var(--type-title-sm);
   font-style: normal;
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 .score-profile-mixer-card > header button,
 .score-profile-mixer-parameter > span button {
@@ -1182,9 +1208,9 @@
   justify-content: space-between;
   gap: 6px;
   color: var(--color-muted);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 .score-profile-mixer-parameters { display: grid; gap: 7px; }
 .score-profile-mixer-add {
@@ -1195,9 +1221,9 @@
 }
 .score-profile-mixer-add > span {
   color: var(--color-muted);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-transform: var(--type-caption-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 .score-profile-mixer-add button {
   display: inline-flex;
@@ -1208,9 +1234,9 @@
   padding: 3px 6px;
   background: transparent;
   color: var(--color-muted);
-  font: var(--type-button);
-  letter-spacing: var(--type-button-letter-spacing);
-  text-transform: var(--type-button-text-transform);
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
   cursor: pointer;
 }
 .score-profile-mixer button:disabled,
@@ -1236,6 +1262,40 @@
 .score-profile-actions button:disabled,
 .score-profile-editor-head button:disabled { cursor: default; opacity: .5; }
 
+@container stock-discovery (max-width: 620px) {
+  .stock-discovery-select-row { column-gap: 8px; }
+
+  .stock-discovery-select-row {
+    grid-template-columns: 28px minmax(90px, 1fr) 66px 58px 72px 68px;
+  }
+
+  .stock-discovery-select-row.has-rank {
+    grid-template-columns: 26px 28px minmax(90px, 1fr) 66px 58px 72px 68px;
+  }
+
+  .stock-discovery-select-row.has-score {
+    grid-template-columns: 24px 28px minmax(80px, 1fr) 60px 56px 66px 62px 54px;
+  }
+
+  .stock-discovery-dollar-volume { display: none; }
+}
+
+@container stock-discovery (max-width: 520px) {
+  .stock-discovery-select-row {
+    grid-template-columns: 28px minmax(80px, 1fr) 64px 56px 70px;
+  }
+
+  .stock-discovery-select-row.has-rank {
+    grid-template-columns: 24px 28px minmax(80px, 1fr) 64px 56px 70px;
+  }
+
+  .stock-discovery-select-row.has-score {
+    grid-template-columns: 22px 26px minmax(70px, 1fr) 56px 52px 62px 52px;
+  }
+
+  .stock-discovery-sector { display: none; }
+}
+
 @container stock-discovery (max-width: 420px) {
   .stock-discovery-filters[open] {
     position: absolute;
@@ -1248,18 +1308,18 @@
   }
 
   .stock-discovery-select-row {
-    grid-template-columns: 28px minmax(70px, 1fr) 56px 64px;
+    grid-template-columns: 28px minmax(70px, 1fr) 62px 56px;
   }
 
   .stock-discovery-select-row.has-rank {
-    grid-template-columns: 24px 28px minmax(70px, 1fr) 56px 64px;
+    grid-template-columns: 24px 28px minmax(70px, 1fr) 62px 56px;
   }
 
   .stock-discovery-select-row.has-score {
-    grid-template-columns: 24px 28px minmax(70px, 1fr) 56px 64px 56px;
+    grid-template-columns: 24px 28px minmax(70px, 1fr) 62px 56px 56px;
   }
 
-  .stock-discovery-sector { display: none; }
+  .stock-discovery-market-cap { display: none; }
   .stock-discovery-filter-group.is-metrics { grid-template-columns: 1fr; }
   .stock-discovery-filter-reset { margin-left: 0; }
   .score-profile-preset-shelf > div,
@@ -26218,6 +26278,20 @@ textarea:focus,
   flex-direction: column;
   align-items: center;
   gap: 2px;
+}
+
+.paper-position-row[role="button"] {
+  cursor: pointer;
+}
+
+.paper-position-row[role="button"]:hover,
+.paper-position-row[role="button"]:focus-visible {
+  background: color-mix(in srgb, var(--color-signal) 8%, var(--coinbase-canvas));
+}
+
+.paper-position-row[role="button"]:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: -2px;
 }
 
 .paper-order-row strong,

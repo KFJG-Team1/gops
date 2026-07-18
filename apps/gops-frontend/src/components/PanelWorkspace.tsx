@@ -790,6 +790,36 @@ export function PanelWorkspace({
     updatePanelProps(contentId, { symbol });
   };
 
+  const changeLinkedRecommendationChartSymbol = (sourceContentId: string, symbol: string) => {
+    const sourceSlot = panelStateRef.current.slots.find((slot) => slot.contentId === sourceContentId);
+    const chartSlots = panelStateRef.current.slots.filter((slot) => (
+      panelStateRef.current.contents[slot.contentId]?.kind === "chart"
+    ));
+    if (chartSlots.length === 0) return;
+    const sourceCenter = sourceSlot
+      ? {
+        x: sourceSlot.gridRect.col + sourceSlot.gridRect.colSpan / 2,
+        y: sourceSlot.gridRect.row + sourceSlot.gridRect.rowSpan / 2
+      }
+      : null;
+    const target = sourceCenter
+      ? [...chartSlots].sort((left, right) => {
+        const leftCenter = {
+          x: left.gridRect.col + left.gridRect.colSpan / 2,
+          y: left.gridRect.row + left.gridRect.rowSpan / 2
+        };
+        const rightCenter = {
+          x: right.gridRect.col + right.gridRect.colSpan / 2,
+          y: right.gridRect.row + right.gridRect.rowSpan / 2
+        };
+        const leftDistance = Math.abs(leftCenter.x - sourceCenter.x) + Math.abs(leftCenter.y - sourceCenter.y);
+        const rightDistance = Math.abs(rightCenter.x - sourceCenter.x) + Math.abs(rightCenter.y - sourceCenter.y);
+        return leftDistance - rightDistance;
+      })[0]
+      : chartSlots[0];
+    if (target) changePanelChartSymbol(target.contentId, symbol);
+  };
+
   const toggleChartAddTarget = (contentId: string) => {
     setChartAddTargetContentId((current) => current === contentId ? null : contentId);
   };
@@ -995,6 +1025,7 @@ export function PanelWorkspace({
         onUpdatePanelProps={updatePanelProps}
         onChangePanelChartSymbol={changePanelChartSymbol}
         onSelectSymbol={onSelectSymbol}
+        onSelectRecommendationSymbol={changeLinkedRecommendationChartSymbol}
         selectedRecommendationSymbol={selectedRecommendationSymbol}
         selectedRecommendation={selectedRecommendation}
         recommendationNewsKeywordLinked={recommendationNewsKeywordLinked}
