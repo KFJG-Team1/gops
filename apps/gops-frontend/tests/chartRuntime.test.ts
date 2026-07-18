@@ -4983,6 +4983,20 @@ assert.deepEqual(
 const chartAnalysisCompareContent = chartAnalysisLayout.contents[chartAnalysisLayout.slots[0].contentId];
 assert.equal(chartAnalysisCompareContent?.props?.baseSymbol, "NVDA");
 assert.deepEqual(chartAnalysisCompareContent?.props?.symbols, ["NVDA"]);
+const savedAmdChartAnalysisLayout = serializeTiledPanelState(createTiledPanelStateFromSpec([
+  { kind: "compare", symbol: "AMD", gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 3 } },
+  { kind: "indices", gridRect: { col: 1, row: 4, colSpan: 4, rowSpan: 2 } },
+  { kind: "watchlistNews", gridRect: { col: 5, row: 4, colSpan: 4, rowSpan: 2 } }
+], { width: 1280, height: 720 }));
+const restoredChartAnalysisLayout = buildPresetLayout(
+  { ...chartAnalysisPreset, layout: savedAmdChartAnalysisLayout },
+  { width: 1280, height: 720 },
+  { symbol: "AMD" }
+);
+assert.ok(restoredChartAnalysisLayout);
+const restoredChartAnalysisCompareContent = restoredChartAnalysisLayout.contents[restoredChartAnalysisLayout.slots[0].contentId];
+assert.equal(restoredChartAnalysisCompareContent?.props?.baseSymbol, "NVDA");
+assert.deepEqual(restoredChartAnalysisCompareContent?.props?.symbols, ["NVDA"]);
 const regularRecommendationPreset = DEFAULT_PRESETS.find((preset) => preset.id === "regular");
 assert.ok(regularRecommendationPreset);
 const regularRecommendationLayout = buildPresetLayout(regularRecommendationPreset, { width: 1280, height: 720 });

@@ -128,7 +128,7 @@ export function RelatedIndexTooltip() {
       return;
     }
     const bounds = tooltipRef.current?.getBoundingClientRect();
-    const width = Math.min(bounds?.width ?? 250, 250);
+    const width = Math.min(bounds?.width ?? 330, 330);
     const height = bounds?.height ?? 150;
     const centered = current.anchor.left + current.anchor.width / 2 - width / 2;
     const left = Math.max(8, Math.min(centered, window.innerWidth - width - 8));
@@ -156,11 +156,14 @@ export function RelatedIndexTooltip() {
       <strong>{current.entry.commentary.title}</strong>
       <p><GlossaryText text={current.entry.commentary.body} /></p>
       {current.entry.commentary.evidence.length > 0 && (
-        <div className="related-index-tooltip-evidence" aria-label="선정 근거">
+        <dl className="related-index-tooltip-evidence" aria-label="선정 근거">
           {current.entry.commentary.evidence.map((item) => (
-            <span key={`${item.label}-${item.value}`}><b>{item.label}</b>{item.value}</span>
+            <div key={`${item.label}-${item.value}`}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+            </div>
           ))}
-        </div>
+        </dl>
       )}
     </div>,
     document.body

@@ -8,6 +8,7 @@ import {
   cancelPaperOrder
 } from "../orders/paperTradingClient";
 import { usePaperAccount } from "../orders/PaperAccountProvider";
+import { visiblePaperAccountError } from "../orders/paperAccountPresentation";
 import { PriceConditionPanel } from "./PriceConditionPanel";
 import { selectPortfolioHoldingSymbol } from "./portfolioSelection";
 
@@ -29,7 +30,8 @@ export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: Pap
     orders: history,
     ordersLoading: historyLoading,
     ordersError: historyError,
-    refreshOrders: refreshHistory
+    refreshOrders: refreshHistory,
+    latestSubmittedOrderId
   } = usePaperAccount();
   const [tab, setTab] = useState<AccountTab>("holdings");
   const [actionError, setActionError] = useState<string>();
@@ -38,6 +40,10 @@ export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: Pap
   useEffect(() => {
     if (tab === "history") void refreshHistory();
   }, [refreshHistory, tab]);
+
+  useEffect(() => {
+    if (latestSubmittedOrderId) setTab("conditions");
+  }, [latestSubmittedOrderId]);
 
   const cancelOrder = async (orderId: string) => {
     setCancellingOrderId(orderId);
@@ -53,6 +59,7 @@ export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: Pap
   };
 
   const orders = useMemo(() => history.filter((order) => order.status !== "pending"), [history]);
+  const visibleError = visiblePaperAccountError(actionError, historyError, accountError);
   const account = snapshot?.account;
   const openHolding = (symbol: string) => {
     selectPortfolioHoldingSymbol(symbol);
@@ -154,14 +161,17 @@ export function PaperAccountPanel({ defaultSymbol, symbols, onOpenCompany }: Pap
                 defaultSymbol={defaultSymbol}
                 symbols={symbols}
                 onOpenCompany={onOpenCompany}
+                pendingOrders={snapshot.open_orders}
+                cancellingOrderId={cancellingOrderId}
+                onCancelPendingOrder={(orderId) => void cancelOrder(orderId)}
               />
             )}
           </div>
         </>
       ) : null}
 
-      {(actionError || historyError || accountError) && (
-        <div className="paper-account-error">{actionError || historyError || accountError}</div>
+      {visibleError && (
+        <div className="paper-account-error">{visibleError}</div>
       )}
     </section>
   );

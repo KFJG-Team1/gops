@@ -13,6 +13,7 @@ import {
   subscribePortfolioRefresh,
   type SimulatorStatus
 } from "../src/simulator/simulatorApi";
+import { visiblePaperAccountError } from "../src/orders/paperAccountPresentation";
 
 
 assert.deepEqual(simulatorSpeeds, [1, 5, 20, 60]);
@@ -74,6 +75,8 @@ requestPortfolioRefresh();
 unsubscribeRefresh();
 requestPortfolioRefresh();
 assert.equal(refreshCalls, 1);
+assert.equal(visiblePaperAccountError("simulation_data_unavailable"), undefined);
+assert.equal(visiblePaperAccountError(undefined, "가상계좌를 불러오지 못했습니다."), "가상계좌를 불러오지 못했습니다.");
 
 const controlSource = readFileSync(
   fileURLToPath(new URL("../src/simulator/SimulatorControl.tsx", import.meta.url)),
@@ -158,6 +161,10 @@ const paperAccountSource = readFileSync(
   fileURLToPath(new URL("../src/components/PaperAccountPanel.tsx", import.meta.url)),
   "utf-8"
 );
+const priceConditionSource = readFileSync(
+  fileURLToPath(new URL("../src/components/PriceConditionPanel.tsx", import.meta.url)),
+  "utf-8"
+);
 assert.match(paperAccountSource, /selectPortfolioHoldingSymbol\(symbol\)/);
 assert.match(paperAccountSource, /onOpenCompany\(symbol\)/);
 assert.match(paperAccountSource, /aria-label=\{`\$\{position\.symbol\} 차트 열기`\}/);
@@ -212,6 +219,11 @@ assert.doesNotMatch(stylesSource, /\.paper-account-tabs \{[^}]*padding-right:/);
 assert.doesNotMatch(paperAccountSource, />시간<|>관리</);
 assert.match(paperAccountSource, />예약 매매<[^]*>거래내역<[^]*>미체결 \{snapshot\.open_orders\.length\}<[^]*>보유종목</);
 assert.match(paperAccountSource, /tab === "conditions"[^]*<PriceConditionPanel[^]*view="account"/);
+assert.match(paperAccountSource, /latestSubmittedOrderId[^]*setTab\("conditions"\)/);
+assert.match(paperAccountSource, /pendingOrders=\{snapshot\.open_orders\}/);
+assert.match(priceConditionSource, /pendingOrders\.map\(\(order\) =>/);
+assert.match(priceConditionSource, />접수됨<[^]*>직접 취소 전</);
+assert.match(priceConditionSource, /onCancelPendingOrder\?\.\(order\.order_id\)/);
 assert.match(orderTicketSource, />주문 유형</);
 assert.match(orderTicketSource, />일반 주문</);
 assert.match(orderTicketSource, /지정가/);
@@ -227,6 +239,10 @@ assert.doesNotMatch(orderTicketSource, /\/api\/orders\/balance/);
 assert.match(orderTicketSource, /priceType === "market"/);
 assert.doesNotMatch(orderTicketSource, /시장가 주문은 현재 해외주식 모의투자 v1에서 지원되지 않습니다/);
 assert.match(orderTicketSource, /order_type: priceType/);
+assert.match(
+  orderTicketSource,
+  /const paperAccountOrder = executionMode === "paper"[^]*submittedOrder\.simulation === true[^]*if \(paperAccountOrder\) \{[^]*recordSubmittedOrder\(submittedOrder\);[^]*requestPortfolioRefresh\(\);[^]*return;/
+);
 
 const layoutPresetSource = readFileSync(
   fileURLToPath(new URL("../src/layout/layoutPresets.ts", import.meta.url)),
@@ -249,6 +265,7 @@ const paperAccountProviderSource = readFileSync(
 assert.match(portfolioHoldingsSource, /portfolioStores/);
 assert.match(portfolioHoldingsSource, /paperSnapshotToPortfolioPayload\(paperAccount\.snapshot\)/);
 assert.match(paperAccountProviderSource, /subscribePortfolioRefresh\(\(\) =>/);
+assert.match(paperAccountProviderSource, /recordSubmittedOrder[^]*open_orders:/);
 assert.match(apiSource, /function requestPortfolioRefresh/);
 assert.doesNotMatch(portfolioHoldingsSource, /buildDemoPortfolioPayload|DEMO_PORTFOLIO_ENABLED/);
 

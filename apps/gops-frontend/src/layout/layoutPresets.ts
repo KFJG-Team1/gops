@@ -43,6 +43,7 @@ const ASSET_PORTFOLIO_LAYOUT_VERSION = 4;
 const PORTFOLIO_FLOW_PANEL_VERSION = 2;
 const STOCK_COMPANY_LAYOUT_VERSION = 2;
 const COMPANY_COMPARE_LAYOUT_VERSION = 2;
+const CHART_ANALYSIS_DEFAULT_SYMBOL = "NVDA";
 
 // Sensible starting arrangements built from the existing panels (8 cols x 6 rows).
 // These are provided defaults; the user can rearrange and save their own presets.
@@ -77,7 +78,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   compare: {
     name: "차트분석",
     spec: [
-      { kind: "compare", symbol: "NVDA", gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 3 } },
+      { kind: "compare", symbol: CHART_ANALYSIS_DEFAULT_SYMBOL, gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 3 } },
       { kind: "indices", gridRect: { col: 1, row: 4, colSpan: 4, rowSpan: 2 } },
       { kind: "watchlistNews", gridRect: { col: 5, row: 4, colSpan: 4, rowSpan: 2 } }
     ]
@@ -152,7 +153,9 @@ export function buildPresetLayout(
     if (!shouldReplaceLegacyAssetLayout && !shouldReplaceLegacyStockLayout && !shouldReplaceLegacyRecommendationLayout) {
       const restored = restoreTiledPanelStateSnapshot(layout, viewport, options.layoutMetrics);
       if (restored) {
-        return restored;
+        return preset.kind === "default" && preset.id === "compare"
+          ? resetChartAnalysisDefaultSymbol(restored)
+          : restored;
       }
     }
   }
@@ -161,6 +164,38 @@ export function buildPresetLayout(
     return definition ? createTiledPanelStateFromSpec(definition.spec, viewport, options) : null;
   }
   return null;
+}
+
+export function resetChartAnalysisDefaultSymbol(state: TiledPanelState): TiledPanelState {
+  const compareContentId = state.slots
+    .map((slot) => slot.contentId)
+    .find((contentId) => state.contents[contentId]?.kind === "compare");
+  if (!compareContentId) {
+    return state;
+  }
+  const content = state.contents[compareContentId];
+  if (
+    content.props?.baseSymbol === CHART_ANALYSIS_DEFAULT_SYMBOL
+    && Array.isArray(content.props.symbols)
+    && content.props.symbols.length === 1
+    && content.props.symbols[0] === CHART_ANALYSIS_DEFAULT_SYMBOL
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    contents: {
+      ...state.contents,
+      [compareContentId]: {
+        ...content,
+        props: {
+          ...(content.props ?? {}),
+          baseSymbol: CHART_ANALYSIS_DEFAULT_SYMBOL,
+          symbols: [CHART_ANALYSIS_DEFAULT_SYMBOL]
+        }
+      }
+    }
+  };
 }
 
 export function migrateRecommendationNewsKeywordSnapshot(value: unknown): unknown {

@@ -15,6 +15,7 @@ import {
   type RiskVerdict
 } from "../orders/orderClient";
 import { searchPaperSymbols } from "../orders/paperTradingClient";
+import { usePaperAccount } from "../orders/PaperAccountProvider";
 import {
   fetchSimulatorStatus,
   requestPortfolioRefresh,
@@ -264,6 +265,7 @@ export function OrderTicket({
   chartPriceSelection = null
 }: OrderTicketProps) {
   const { authEnabled, user, loading: authLoading, login } = useAuth();
+  const { recordSubmittedOrder } = usePaperAccount();
   const [form, setForm] = useState<OrderFormState>({ ...DEFAULT_FORM, symbol: activeSymbol });
   const [priceType, setPriceType] = useState<OrderPriceType>("limit");
   const [symbolSearchQuery, setSymbolSearchQuery] = useState("");
@@ -570,6 +572,19 @@ export function OrderTicket({
       if (payload.risk) {
         setRisk(payload.risk as RiskVerdict);
       }
+      const submittedOrder = payload as OrderSnapshot;
+      const paperAccountOrder = executionMode === "paper"
+        || submittedOrder.simulation === true
+        || submittedOrder.execution_mode === "paper"
+        || submittedOrder.execution_mode === "simulation";
+      if (paperAccountOrder) {
+        socketRef.current?.close();
+        socketRef.current = null;
+        setOrder(undefined);
+        recordSubmittedOrder(submittedOrder);
+        requestPortfolioRefresh();
+        return;
+      }
       setOrder(payload);
       if (payload.simulation) {
         requestPortfolioRefresh();
@@ -712,15 +727,6 @@ export function OrderTicket({
           </button>
         </div>
       </section>
-
-      {executionMode === "kis" && simulationMode && (
-        <div className="simulation-order-banner">
-          <div>
-            <span>SIMULATION · 실제 주문 전송 없음</span>
-            <strong>2026-07-15 KST 틱 호가로 가상 체결</strong>
-          </div>
-        </div>
-      )}
 
       <section className="order-ticket-section order-details-section" aria-label="주문 상세 입력">
         <div className="order-details-grid">

@@ -12,7 +12,7 @@ import {
 import { useAuth } from "./auth/AuthProvider";
 import { submitAlertCommand } from "./alerts/alertApi";
 import { PresetDock } from "./components/PresetDock";
-import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migrateCompanyComparePanelSnapshot, migratePortfolioInvestmentSnapshot, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
+import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migrateCompanyComparePanelSnapshot, migratePortfolioInvestmentSnapshot, resetChartAnalysisDefaultSymbol, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
 import { useLayoutPresets } from "./layout/useLayoutPresets";
 import {
   chartRuntimeReducer,
@@ -686,6 +686,12 @@ export function App() {
     applyLayout: applyPresetLayout,
     buildLayout: buildPresetLayoutForCurrent
   });
+  useEffect(() => {
+    if (presetControls.activePresetId !== "compare") {
+      return;
+    }
+    setPanelState((current) => resetChartAnalysisDefaultSymbol(current));
+  }, [presetControls.activePresetId]);
   const applyAgentLayoutWithHistory = useCallback((
     state: TiledPanelState,
     proposal: AgentLayoutProposal,
