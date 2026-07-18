@@ -17,6 +17,26 @@ export type CompanyJournalReport = {
     benchmarkReturnPercent?: number | null;
     relativeReturnPercentagePoints?: number | null;
     financial?: Record<string, number | null>;
+    analystOutlook?: {
+      source?: "yahoo-finance";
+      recentWindowDays?: number;
+      upgradeCount?: number;
+      downgradeCount?: number;
+      recentActions?: Array<{
+        firm: string;
+        action: string;
+        fromGrade: string;
+        toGrade: string;
+        priorPriceTarget: number | null;
+        priceTarget: number | null;
+        actionAt: string;
+        source: string;
+      }>;
+      latestConsensus?: Record<string, unknown> | null;
+      previousConsensus?: Record<string, unknown> | null;
+      consensusMeanTargetChangePercent?: number | null;
+      summary?: string;
+    };
   };
   sourceReceipt: Record<string, unknown>;
   missingData: string[];

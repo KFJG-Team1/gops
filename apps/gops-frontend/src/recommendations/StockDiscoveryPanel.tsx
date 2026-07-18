@@ -67,6 +67,7 @@ export function StockDiscoveryPanel({
   selectedAgentReferenceKeys,
   emphasizedAgentReferenceKeys,
   onSelectReference,
+  onSelectSymbol,
   initialPopular = false
 }: {
   activeSymbol: string;
@@ -79,6 +80,7 @@ export function StockDiscoveryPanel({
     selection?: StockRecommendationSelection | null,
     replaceExisting?: boolean
   ) => void;
+  onSelectSymbol: (symbol: string) => void;
   initialPopular?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<"list" | "logic">("list");
@@ -240,6 +242,7 @@ export function StockDiscoveryPanel({
           <div className="stock-discovery-list">
         {visibleRows.map((row, index) => {
           const recommendation = row.recommendation;
+          const showsRank = mode !== "all";
           const reference = recommendation ? stockRecommendationReference(recommendation, sourcePanelId) : null;
           const scoreBreakdown = recommendation ? recommendationScoreBreakdown(recommendation) : [];
           const referenceKey = reference ? agentReferenceKey(reference) : "";
@@ -251,10 +254,11 @@ export function StockDiscoveryPanel({
             <div key={row.market.symbol} className={`stock-discovery-row ${selected ? "is-selected" : ""} ${emphasized ? "is-agent-reference-emphasized" : ""}`}>
               <button
                 type="button"
-                className={`stock-discovery-select-row ${mode === "recommended" || mode === "popular" ? "has-rank" : ""} ${mode === "recommended" ? "has-score" : ""}`}
+                className={`stock-discovery-select-row ${showsRank ? "has-rank" : ""} ${mode === "recommended" ? "has-score" : ""}`}
                 aria-label={`${row.market.symbol} 선택`}
                 aria-pressed={selected}
                 onClick={() => {
+                  onSelectSymbol(row.market.symbol);
                   if (mode === "recommended" && recommendation && reference && payload) {
                     onSelectReference(reference, { item: recommendation, payload, reference });
                   } else if (mode !== "recommended") {
@@ -262,10 +266,13 @@ export function StockDiscoveryPanel({
                   }
                 }}
               >
-                {(mode === "recommended" || mode === "popular") && <span className="stock-discovery-rank">{index + 1}</span>}
+                {showsRank && <span className="stock-discovery-rank">{index + 1}</span>}
                 <StockLogo symbol={row.market.symbol} companyName={row.market.companyName} size="xs" />
                 <span className="stock-discovery-company"><strong>{row.market.symbol}</strong><span>{row.market.companyName}</span></span>
+                <span className="stock-discovery-price" title={`현재가 ${formatUsdPrice(row.market.lastPrice)}`}>{formatUsdPrice(row.market.lastPrice)}</span>
                 <span className={changeClass(row.market.changePercent)}>{formatChange(row.market.changePercent)}</span>
+                <span className="stock-discovery-dollar-volume" title={`거래대금 ${formatCompactDollar(row.market.sessionDollarVolume)}`}>{formatCompactDollar(row.market.sessionDollarVolume)}</span>
+                <span className="stock-discovery-market-cap" title={`시가총액 ${formatCompactDollar(row.market.marketCap)}`}>{formatCompactDollar(row.market.marketCap)}</span>
                 <span className="stock-discovery-sector">{sectorLabelKo(row.market.sector)}</span>
                 {mode === "recommended" && recommendation && (
                   <span className="stock-discovery-badges">
@@ -552,6 +559,20 @@ function finiteVolume(value: number | null | undefined) {
 function formatChange(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function formatUsdPrice(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "--";
+  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatCompactDollar(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "--";
+  const absolute = Math.abs(value);
+  if (absolute >= 1_000_000_000_000) return `$${(value / 1_000_000_000_000).toFixed(2)}T`;
+  if (absolute >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`;
+  if (absolute >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  return `$${Math.round(value).toLocaleString("en-US")}`;
 }
 
 function formatScore(value: number | null | undefined) {

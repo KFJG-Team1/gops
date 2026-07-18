@@ -50,10 +50,8 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   market: {
     name: "추천종목",
     spec: [
-      { kind: "recommendationsList", gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 } },
-      { kind: "indexCommentary", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 1 } },
-      { kind: "themeRadar", gridRect: { col: 6, row: 2, colSpan: 3, rowSpan: 2 } },
-      { kind: "newsKeyword", gridRect: { col: 6, row: 4, colSpan: 3, rowSpan: 3 } }
+      { kind: "recommendationsList", gridRect: { col: 1, row: 1, colSpan: 4, rowSpan: 6 } },
+      { kind: "chart", gridRect: { col: 5, row: 1, colSpan: 4, rowSpan: 6 } }
     ]
   },
   stock: {
@@ -89,11 +87,9 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     spec: [
       {
         kind: "recommendationsList",
-        gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 }
+        gridRect: { col: 1, row: 1, colSpan: 4, rowSpan: 6 }
       },
-      { kind: "indexCommentary", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 1 } },
-      { kind: "themeRadar", gridRect: { col: 6, row: 2, colSpan: 3, rowSpan: 2 } },
-      { kind: "news", gridRect: { col: 6, row: 4, colSpan: 3, rowSpan: 3 } }
+      { kind: "chart", gridRect: { col: 5, row: 1, colSpan: 4, rowSpan: 6 } }
     ]
   },
   asset: {
@@ -149,7 +145,11 @@ export function buildPresetLayout(
         || storedLayoutHasPanelKind(layout, "companyCompare")
       )
       && !hasCurrentStockCompanyLayout(layout);
-    if (!shouldReplaceLegacyAssetLayout && !shouldReplaceLegacyStockLayout) {
+    const shouldReplaceLegacyRecommendationLayout = preset.kind === "default"
+      && (preset.id === "market" || preset.id === "regular")
+      && isStoredTiledPanelStateShape(layout)
+      && isLegacyDefaultRecommendationLayout(layout);
+    if (!shouldReplaceLegacyAssetLayout && !shouldReplaceLegacyStockLayout && !shouldReplaceLegacyRecommendationLayout) {
       const restored = restoreTiledPanelStateSnapshot(layout, viewport, options.layoutMetrics);
       if (restored) {
         return restored;
@@ -388,6 +388,27 @@ function isLegacyDefaultStockLayout(value: StoredTiledPanelState): boolean {
     && company && company.col === 7 && company.row === 1 && company.colSpan === 2 && company.rowSpan === 3
     && news && news.col === 1 && news.row === 4 && news.colSpan === 8 && news.rowSpan === 2
   );
+}
+
+function isLegacyDefaultRecommendationLayout(value: StoredTiledPanelState): boolean {
+  if (value.slots.length !== 4) return false;
+  const entries = value.slots.map((slot) => ({
+    kind: value.contents[slot.contentId]?.kind,
+    gridRect: slot.gridRect
+  }));
+  const matches = (kinds: PanelContentKind[], col: number, row: number, colSpan: number, rowSpan: number) => (
+    entries.some((entry) => (
+      Boolean(entry.kind && kinds.includes(entry.kind))
+      && entry.gridRect.col === col
+      && entry.gridRect.row === row
+      && entry.gridRect.colSpan === colSpan
+      && entry.gridRect.rowSpan === rowSpan
+    ))
+  );
+  return matches(["recommendationsList"], 1, 1, 5, 6)
+    && matches(["indexCommentary", "indices"], 6, 1, 3, 1)
+    && matches(["themeRadar"], 6, 2, 3, 2)
+    && matches(["news", "newsKeyword"], 6, 4, 3, 3);
 }
 
 export function migratePortfolioInvestmentSnapshot(value: unknown): unknown {
