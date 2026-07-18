@@ -16,6 +16,7 @@ import {
 } from "../src/simulator/simulatorApi";
 import { visiblePaperAccountError } from "../src/orders/paperAccountPresentation";
 import { companyJournalRequestKey } from "../src/components/CompanyJournalPanel";
+import { shouldReloadMarketIndicesForSimulatorStatus } from "../src/market/useMarketIndices";
 
 
 assert.deepEqual(simulatorSpeeds, [1, 5, 20, 60]);
@@ -28,6 +29,43 @@ assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "live"), 
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("live", "live"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation", "run-1", "run-2"), true);
+assert.equal(shouldReloadMarketIndicesForSimulatorStatus(null, { mode: "live", runId: null }), false);
+assert.equal(shouldReloadMarketIndicesForSimulatorStatus(null, { mode: "simulation", runId: "run-1" }), true);
+assert.equal(
+  shouldReloadMarketIndicesForSimulatorStatus(
+    { mode: "live", runId: null },
+    { mode: "simulation", runId: "run-1" }
+  ),
+  true
+);
+assert.equal(
+  shouldReloadMarketIndicesForSimulatorStatus(
+    { mode: "simulation", runId: "run-1" },
+    { mode: "simulation", runId: "run-1" }
+  ),
+  false
+);
+assert.equal(
+  shouldReloadMarketIndicesForSimulatorStatus(
+    { mode: "simulation", runId: null },
+    { mode: "simulation", runId: "run-1" }
+  ),
+  true
+);
+assert.equal(
+  shouldReloadMarketIndicesForSimulatorStatus(
+    { mode: "simulation", runId: "run-1" },
+    { mode: "simulation", runId: "run-2" }
+  ),
+  true
+);
+assert.equal(
+  shouldReloadMarketIndicesForSimulatorStatus(
+    { mode: "simulation", runId: "run-1" },
+    { mode: "live", runId: null }
+  ),
+  true
+);
 assert.equal(simulatorPrimaryAction({ mode: "live", state: "idle" }), "start");
 assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "ready" }), "resume");
 assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "paused" }), "resume");
@@ -146,6 +184,10 @@ const companyJournalPerformanceSource = readFileSync(
   fileURLToPath(new URL("../src/components/CompanyJournalPerformanceChart.tsx", import.meta.url)),
   "utf-8"
 );
+const marketIndicesHookSource = readFileSync(
+  fileURLToPath(new URL("../src/market/useMarketIndices.ts", import.meta.url)),
+  "utf-8"
+);
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
 assert.doesNotMatch(appSource, /shouldOpenHeatmapForSimulatorTransition/);
 assert.match(appSource, /simulationHeatmapItems\(current, status\)/);
@@ -180,6 +222,9 @@ assert.match(companyJournalSource, /disableRemoteFetch=\{previewEnabled \|\| sim
 assert.match(companyJournalSource, /companyJournalRequestKey/);
 assert.match(companyJournalSource, /disableRemoteFetch=\{simulatorMode === "simulation"\}/);
 assert.match(companyJournalPerformanceSource, /if \(disableRemoteFetch\) \{/);
+assert.match(marketIndicesHookSource, /window\.addEventListener\(simulatorStatusEvent, handleSimulatorStatus\)/);
+assert.match(marketIndicesHookSource, /activeRequestRef\.current\?\.abort\(\)/);
+assert.match(marketIndicesHookSource, /TRANSITION_RETRY_MS/);
 assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, requestedInterval\)/);
 assert.match(chartPanelSource, /fetchChartCommentaryAsset\(requestedSymbol, requestedInterval\)/);
 assert.match(chartPanelSource, /scheduleChartAnalysisAssetRequest/);
