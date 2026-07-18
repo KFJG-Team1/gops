@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
-import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { usePaperAccount } from "../orders/PaperAccountProvider";
 import type { PaperAccountSnapshot } from "../orders/paperTradingClient";
@@ -10,6 +10,7 @@ import {
   type PortfolioPerformanceResponse
 } from "./portfolioPerformanceApi";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
+import { selectPortfolioHoldingSymbol, usePortfolioSelectedSymbol } from "./portfolioSelection";
 
 type SortMode = "custom" | "value" | "return";
 type AllocationMode = "asset" | "symbol" | "sector";
@@ -170,31 +171,6 @@ type PortfolioHoldingsStore = {
   refreshQueued: boolean;
 };
 const portfolioStores = new Map<PortfolioHoldingsSource, PortfolioHoldingsStore>();
-const portfolioSelectionListeners = new Set<() => void>();
-type PortfolioSelectionState = { symbol: string | null; revision: number };
-const emptyPortfolioSelection: PortfolioSelectionState = { symbol: null, revision: 0 };
-let portfolioSelectionState = emptyPortfolioSelection;
-
-export function selectPortfolioHoldingSymbol(symbol: string): void {
-  const normalized = symbol.trim().toUpperCase();
-  if (!normalized) return;
-  portfolioSelectionState = {
-    symbol: normalized,
-    revision: portfolioSelectionState.revision + 1
-  };
-  portfolioSelectionListeners.forEach((listener) => listener());
-}
-
-export function usePortfolioSelectedSymbol(): PortfolioSelectionState {
-  return useSyncExternalStore(
-    (listener) => {
-      portfolioSelectionListeners.add(listener);
-      return () => portfolioSelectionListeners.delete(listener);
-    },
-    () => portfolioSelectionState,
-    () => emptyPortfolioSelection
-  );
-}
 
 function portfolioStore(source: PortfolioHoldingsSource): PortfolioHoldingsStore {
   const existing = portfolioStores.get(source);

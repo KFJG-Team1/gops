@@ -7,10 +7,9 @@ import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { TreeMapCanvas } from "../treemap/TreeMapCanvas";
 import {
-  selectPortfolioHoldingSymbol,
-  usePortfolioHoldingsData,
-  usePortfolioSelectedSymbol
+  usePortfolioHoldingsData
 } from "./PortfolioHoldingsPanel";
+import { selectPortfolioHoldingSymbol, usePortfolioSelectedSymbol } from "./portfolioSelection";
 import type { PortfolioPosition } from "./portfolioHoldingsApi";
 
 type PersonalHeatmapView = "holdings" | "relations";

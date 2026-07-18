@@ -139,6 +139,9 @@ const paperAccountSource = readFileSync(
   fileURLToPath(new URL("../src/components/PaperAccountPanel.tsx", import.meta.url)),
   "utf-8"
 );
+assert.match(paperAccountSource, /selectPortfolioHoldingSymbol\(symbol\)/);
+assert.match(paperAccountSource, /onOpenCompany\(symbol\)/);
+assert.match(paperAccountSource, /aria-label=\{`\$\{position\.symbol\} 차트 열기`\}/);
 const stylesSource = readFileSync(
   fileURLToPath(new URL("../src/styles.css", import.meta.url)),
   "utf-8"

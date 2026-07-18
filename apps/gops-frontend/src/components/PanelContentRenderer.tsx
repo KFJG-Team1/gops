@@ -135,6 +135,7 @@ type PanelContentRendererProps = {
   onUpdatePanelProps: (contentId: string, props: Record<string, unknown>) => void;
   onChangePanelChartSymbol: (contentId: string, symbol: string) => void;
   onSelectSymbol: (symbol: string) => void;
+  onSelectRecommendationSymbol: (contentId: string, symbol: string) => void;
   selectedRecommendationSymbol: string | null;
   selectedRecommendation: StockRecommendationSelection | null;
   recommendationNewsKeywordLinked: boolean;
@@ -192,6 +193,7 @@ export function PanelContentRenderer({
   onUpdatePanelProps,
   onChangePanelChartSymbol,
   onSelectSymbol,
+  onSelectRecommendationSymbol,
   selectedRecommendationSymbol,
   selectedRecommendation,
   recommendationNewsKeywordLinked,
@@ -408,6 +410,7 @@ export function PanelContentRenderer({
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onSelectReference={onSelectRecommendationReference}
+        onSelectSymbol={(nextSymbol) => onSelectRecommendationSymbol(content.id, nextSymbol)}
         initialPopular={content.props?.initialPopular === true}
       />
     );
@@ -422,6 +425,7 @@ export function PanelContentRenderer({
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onSelectReference={onSelectRecommendationReference}
+        onSelectSymbol={(nextSymbol) => onSelectRecommendationSymbol(content.id, nextSymbol)}
         initialPopular={content.props?.initialPopular === true}
       />
     );

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [workspaceStyles, panelSource, profileSource, apiSource] = await Promise.all([
+const [workspaceStyles, panelSource, profileSource, apiSource, panelWorkspaceSource] = await Promise.all([
   readFile(new URL("../src/styles.css", import.meta.url), "utf8"),
   readFile(new URL("../src/recommendations/StockDiscoveryPanel.tsx", import.meta.url), "utf8"),
   readFile(new URL("../src/recommendations/ScoreProfileManager.tsx", import.meta.url), "utf8"),
-  readFile(new URL("../src/recommendations/recommendationApi.ts", import.meta.url), "utf8")
+  readFile(new URL("../src/recommendations/recommendationApi.ts", import.meta.url), "utf8"),
+  readFile(new URL("../src/components/PanelWorkspace.tsx", import.meta.url), "utf8")
 ]);
 
 assert.match(panelSource, /종목 목록/, "the unified panel exposes a discovery tab");
@@ -20,9 +21,15 @@ assert.doesNotMatch(panelSource, /stock-discovery-logic-sidebar|stock-discovery-
 assert.match(panelSource, /<ScoreProfileManager/, "the logic tab renders the score profile editor directly");
 assert.match(panelSource, /effectiveRecommendationScore/, "recommendations display and sort by the applied score");
 assert.doesNotMatch(panelSource, /popularityPercentileScore|popularityScore|거래활성/, "non-recommendation lists do not invent a second score");
-assert.match(panelSource, /stock-discovery-rank/, "recommendation mode exposes its ordered list position");
+assert.match(panelSource, /const showsRank = mode !== "all"/, "recommendation, popular, gainer, and volume modes expose their ordered list position");
+assert.match(panelSource, /\{showsRank && <span className="stock-discovery-rank">\{index \+ 1\}<\/span>\}/, "ranked modes render a dedicated leading rank column");
 assert.doesNotMatch(panelSource, /추천 선택|stock-discovery-reference/, "row selection does not use a separate recommendation button");
-assert.doesNotMatch(panelSource, /stock-discovery-volume|stock-discovery-metric-summary/, "discovery rows omit secondary market metrics");
+assert.match(panelSource, /onSelectSymbol\(row\.market\.symbol\)/, "selecting any discovery row also updates its linked chart symbol");
+assert.match(panelWorkspaceSource, /changeLinkedRecommendationChartSymbol[\s\S]*changePanelChartSymbol\(target\.contentId, symbol\)/, "recommendation rows target the nearest chart panel in the current layout");
+assert.match(panelSource, /stock-discovery-price[\s\S]*row\.market\.lastPrice/, "discovery rows show the current price");
+assert.match(panelSource, /stock-discovery-dollar-volume[\s\S]*row\.market\.sessionDollarVolume/, "discovery rows show compact session dollar volume");
+assert.match(panelSource, /stock-discovery-market-cap[\s\S]*row\.market\.marketCap/, "discovery rows show compact market capitalization");
+assert.doesNotMatch(panelSource, /stock-discovery-metric-summary|매수.?비율|매도.?비율|거래.?비율/, "discovery rows omit the trading-ratio column");
 assert.doesNotMatch(panelSource, /stock-discovery-mode-group|>사용자</, "the list header does not invent user and market groupings");
 assert.match(panelSource, /<summary><Filter size=\{13\} \/>필터/, "the screen conditions use the concise filter label");
 assert.match(panelSource, /<strong>상세 지표<\/strong>[\s\S]*screenerMetricDefinitions\.map/, "every list mode exposes the complete metric screener");
@@ -58,11 +65,23 @@ assert.match(workspaceStyles, /\.stock-discovery-tabs/, "recommendation tabs hav
 assert.match(workspaceStyles, /\.stock-discovery-mode-switcher/, "list modes use a dedicated segmented switcher");
 assert.match(workspaceStyles, /grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/, "all five list modes share one switcher");
 assert.match(workspaceStyles, /\.stock-discovery-select-row[\s\S]*justify-items: start;/, "stock row columns use left alignment");
-assert.match(workspaceStyles, /minmax\(120px, 140px\)[\s\S]*minmax\(100px, 1fr\)/, "company width is capped while sector space remains flexible");
+assert.match(workspaceStyles, /minmax\(180px, 2fr\) repeat\(5, minmax\(96px, 1fr\)\)/, "company uses two units while the five market columns share equal tracks");
+assert.match(workspaceStyles, /\.stock-discovery-price,[\s\S]*text-align: right;[\s\S]*justify-self: stretch;/, "price, change, volume, and market-cap values share aligned right edges");
+assert.match(workspaceStyles, /\.stock-discovery-select-row\.has-score \{[\s\S]*minmax\(110px, 1\.5fr\) repeat\(5, minmax\(60px, 1fr\)\) 58px;[\s\S]*column-gap: 8px;/, "scored rows use a compact recommendation-only grid that keeps the score visible without horizontal scrolling");
+assert.match(workspaceStyles, /@container stock-discovery \(max-width: 620px\)[\s\S]*\.stock-discovery-select-row\.has-score \{[\s\S]*minmax\(80px, 1fr\) 60px 56px 66px 62px 54px;/, "recommendation score remains visible at the medium panel boundary");
+assert.match(workspaceStyles, /@container stock-discovery \(max-width: 520px\)[\s\S]*\.stock-discovery-select-row\.has-score \{[\s\S]*minmax\(70px, 1fr\) 56px 52px 62px 52px;/, "recommendation score remains visible at the narrow panel boundary");
+assert.match(workspaceStyles, /\.stock-discovery-rank \{[\s\S]*font: var\(--type-title-sm\);/, "rank text moves one design-system size step above label-md");
+assert.match(workspaceStyles, /\.stock-discovery-company > strong \{[\s\S]*font: var\(--type-title-sm\);/, "ticker text moves one design-system size step above label-md");
+assert.match(workspaceStyles, /\.stock-discovery-company > span,[\s\S]*font: var\(--type-label-md\);/, "company and sector metadata move one visual size step above caption");
+assert.match(workspaceStyles, /\.stock-discovery-price,[\s\S]*font: var\(--type-label-md\);/, "market values move one visual size step above caption");
+assert.match(workspaceStyles, /\.stock-discovery-badges > em \{[\s\S]*font: var\(--type-label-md\);/, "recommendation score text moves one visual size step above caption");
+assert.match(workspaceStyles, /\.stock-discovery-rank \{[\s\S]*text-align: right;/, "rank values align to the shared right edge");
+assert.match(workspaceStyles, /\.stock-discovery-sector \{[\s\S]*justify-self: stretch;[\s\S]*text-align: right;/, "sector labels align with the numeric market columns");
 assert.match(workspaceStyles, /\.stock-discovery-badges \{[\s\S]*justify-self: end;/, "score badges stay separated at the row edge");
 assert.match(workspaceStyles, /\.stock-discovery-badges \.is-recommended \{[\s\S]*background: #ffffff;[\s\S]*color: #000000;/, "recommendation scores use the white pill contract");
 assert.match(workspaceStyles, /\.stock-discovery-score-breakdown/, "score composition appears in a compact hover breakdown");
 assert.match(workspaceStyles, /\.stock-discovery-company,[\s\S]*align-items: flex-start;/, "company and score content align to the left edge of their columns");
+assert.match(workspaceStyles, /\.stock-discovery-company \{[\s\S]*width: 100%;[\s\S]*overflow: hidden;/, "long company names stay inside their own grid column");
 assert.match(workspaceStyles, /\.stock-discovery-row\.is-selected \{ background: #fff;/, "the selected row uses the white selection contract");
 assert.match(workspaceStyles, /\.stock-discovery-logic-page/, "the detailed weight editor fills its panel tab");
 assert.doesNotMatch(workspaceStyles, /\.stock-discovery-logic-sidebar|\.stock-discovery-logic-backdrop/, "legacy side rail styling is removed");
@@ -70,6 +89,13 @@ assert.match(workspaceStyles, /\.stock-discovery-metric-filters/, "detailed metr
 assert.match(workspaceStyles, /\.score-profile-weight-input/, "weight sliders and numeric inputs share an explicit control layout");
 assert.match(workspaceStyles, /\.score-profile-mixer/, "the weight editor has a dedicated mixer layout");
 assert.match(workspaceStyles, /\.score-profile-allocation-bar/, "the weight mixer has a proportional allocation overview");
+assert.match(workspaceStyles, /\.stock-discovery-logic-page > header strong \{[\s\S]*font: var\(--type-title-lg\);/, "logic-page title moves one design-system step above title-md");
+assert.match(workspaceStyles, /\.score-profile-manager \{[\s\S]*font: var\(--type-label-md\);/, "logic-page body and inherited weight controls move one visual step above compact body text");
+assert.match(workspaceStyles, /\.score-profile-manager-head strong \{[\s\S]*font: var\(--type-title-sm\);/, "logic library labels move one design-system step above label-md");
+assert.match(workspaceStyles, /\.score-profile-editor-head > strong \{ font: var\(--type-title-md\);/, "selected logic heading preserves hierarchy after the one-step increase");
+assert.match(workspaceStyles, /\.score-profile-ai-query textarea \{[\s\S]*font: var\(--type-label-md\);/, "logic prompt text moves one visual step above body-md");
+assert.match(workspaceStyles, /\.score-profile-editor-head button,[\s\S]*font: var\(--type-title-sm\);/, "logic action labels move one design-system step above button text");
+assert.match(workspaceStyles, /\.score-profile-mixer-primary > span,[\s\S]*font: var\(--type-label-md\);/, "weight labels move one visual step above caption");
 assert.match(workspaceStyles, /var\(--color-signal\)[\s\S]*var\(--color-up\)[\s\S]*var\(--color-caution\)[\s\S]*var\(--color-danger\)[\s\S]*#8b5cf6[\s\S]*#14b8a6/, "allocation segments retain the original muted signal palette");
 assert.match(workspaceStyles, /\.score-profile-preset-shelf button\.is-selected \{[\s\S]*background: #ffffff;[\s\S]*color: #000000;/, "the selected starting preset uses a white fill");
 assert.match(workspaceStyles, /\.score-profile-ai-suggestion:hover \.score-profile-ai-rationale/, "profile suggestion evidence appears on hover");
