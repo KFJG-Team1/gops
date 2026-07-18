@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import {
   aggregateQuarterlySeriesToAnnual,
   companyJournalAnnualHistory,
-  companyJournalHistoryYears
+  companyJournalHistoryYears,
+  totalLiabilitiesFor
 } from "../src/components/CompanyJournalSummaryPanel";
 import { nearestFinancialYear } from "../src/components/CompanyJournalPanel";
 import { buildCompanyJournalDiagnosis } from "../src/components/companyJournalDiagnosis";
@@ -70,6 +71,11 @@ assert.equal(annual[0]?.sharesOutstanding, 5);
 assert.equal(annual[0]?.debtRatio, 0.6);
 assert.equal(annual[0]?.currentRatio, 3);
 assert.equal(annual[0]?.netDebt, 5);
+assert.equal(
+  totalLiabilitiesFor({ period: "2025FY", totalAssets: 211_429, totalEquity: 114_281 }),
+  97_148,
+  "missing SEC liabilities must fall back to the accounting identity instead of hiding stability"
+);
 
 assert.equal(companyJournalHistoryYears(2026), 6);
 assert.equal(nearestFinancialYear({ text: "EPS 21년도 성장", matchedText: "EPS", startIndex: 0 }), 2021);
@@ -153,5 +159,7 @@ assert.match(journalSummarySource, /data-journal-financial-year/);
 assert.match(journalSummarySource, /formatUsdCompactTable\(point\.revenue\)/);
 assert.match(journalSummarySource, /formatUsdCompactTable\(point\.netIncome\)/);
 assert.match(journalSummarySource, /"debt-ratio", "current-ratio", "interest-coverage", focusedMetric/);
+assert.match(journalSummarySource, /const estimateX = x;\s*const actualX = x;/);
+assert.doesNotMatch(journalSummarySource, /comparisonGap/);
 
 console.log("company journal financial aggregation tests passed");
