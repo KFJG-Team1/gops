@@ -50,6 +50,7 @@ import {
 type ChartCanvasProps = {
   chart: ChartState;
   expansions?: SemanticExpansion[];
+  extraFutureSlots?: number;
   previewDrawings?: DrawingEntity[];
   agentVisualOverlays?: AgentVisualOverlay[];
   hoveredNodeId?: string;
@@ -94,6 +95,7 @@ const emptySpotlightDrawingIds: string[] = [];
 export function ChartCanvas({
   chart,
   expansions = emptyExpansions,
+  extraFutureSlots = 0,
   previewDrawings = emptyPreviewDrawings,
   agentVisualOverlays = emptyAgentVisualOverlays,
   hoveredNodeId,
@@ -122,6 +124,7 @@ export function ChartCanvas({
   const renderInputRef = useRef({
     chart,
     expansions,
+    extraFutureSlots,
     previewDrawings,
     agentVisualOverlays,
     hoveredNodeId,
@@ -136,6 +139,7 @@ export function ChartCanvas({
   renderInputRef.current = {
     chart,
     expansions,
+    extraFutureSlots,
     previewDrawings,
     agentVisualOverlays,
     hoveredNodeId,
@@ -197,6 +201,7 @@ export function ChartCanvas({
       const sceneChart = chartWithSpotlightProposalVisible(input.chart, input.spotlightDrawingIds);
       const scene = buildChartScene(sceneChart, rect.width, rect.height, {
         expansions: input.expansions,
+        extraFutureSlots: input.extraFutureSlots,
         hoveredNodeId: input.hoveredNodeId,
         selectedNodeId: input.selectedNodeId,
         emphasizeSelectedNode: input.emphasizeSelectedNode
@@ -239,7 +244,7 @@ export function ChartCanvas({
 
   useEffect(() => {
     scheduleBaseDrawRef.current();
-  }, [agentVisualOverlays, analysisTraceOverlay, chart, editingDrawingId, emphasizeSelectedNode, expansions, hoveredNodeId, onScene, previewDrawings, selectedNodeId, spotlightCandleTimestamp, spotlightDrawingIds]);
+  }, [agentVisualOverlays, analysisTraceOverlay, chart, editingDrawingId, emphasizeSelectedNode, expansions, extraFutureSlots, hoveredNodeId, onScene, previewDrawings, selectedNodeId, spotlightCandleTimestamp, spotlightDrawingIds]);
 
   const rememberPointer: PointerEventHandler<HTMLCanvasElement> = (event) => {
     const rect = event.currentTarget.getBoundingClientRect();

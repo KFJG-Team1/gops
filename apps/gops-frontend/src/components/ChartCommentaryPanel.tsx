@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { chartExplanationMatchesAsset, chartExplanationMatchesSource, type ChartExplanationAnchor } from "../agent/chartExplanation";
 import {
   normalizeChartCommentaryState,
@@ -14,7 +14,8 @@ import {
   type ChartAnalysisAsset,
   type ChartAssetCommentary,
   type ChartAssetCommentaryLink,
-  type ChartAssetCommentaryReference
+  type ChartAssetCommentaryReference,
+  type ChartAssetCommentaryV2
 } from "../chart/analysisAssetsApi";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import { buildChartCommentaryViewModel, type ChartCommentaryScenario } from "../chart/commentaryModel";
@@ -333,6 +334,8 @@ function CurrentCommentary({
   );
 }
 
+type StructuredCommentarySegment = ChartAssetCommentaryV2["paragraphs"][number]["segments"][number];
+
 function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candles, chartLayers, onRestoreFocus }: {
   commentary: ChartAssetCommentary;
   chartDocumentId?: string;
@@ -343,6 +346,8 @@ function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candl
   onRestoreFocus: () => void;
 }) {
   const [pinnedDrawingLinkId, setPinnedDrawingLinkId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const commentaryBodyId = `chart-commentary-body-${useId().replace(/:/g, "")}`;
   const subscribeInteraction = useCallback(
     (listener: () => void) => subscribeChartCommentaryInteraction(chartDocumentId, listener),
     [chartDocumentId]
@@ -373,9 +378,23 @@ function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candl
     }));
     return result;
   }, [commentary, references]);
+  const collapsedLinkSegments = useMemo(() => {
+    if (commentary.version !== "chart-commentary.v2") return [];
+    const result: StructuredCommentarySegment[] = [];
+    const seenActions = new Set<string>();
+    commentary.paragraphs.forEach((paragraph) => paragraph.segments.forEach((segment) => {
+      if (!segment.link) return;
+      const actionKey = commentaryLinkActionKey(segment.link, references);
+      if (seenActions.has(actionKey)) return;
+      seenActions.add(actionKey);
+      result.push(segment);
+    }));
+    return result;
+  }, [commentary, references]);
   useEffect(() => {
     setPinnedDrawingLinkId(null);
-  }, [commentary.sourceIdentity.contextDigest, chartDocumentId]);
+    setExpanded(false);
+  }, [commentary.sourceIdentity.contextDigest, chartDocumentId, symbol, interval]);
 
   const focusDrawing = (drawingIds: string[], mode: FocusMode) => {
     if (chartDocumentId) dispatchFocus(chartDocumentId, symbol, interval, drawingIds, mode);
@@ -406,28 +425,65 @@ function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candl
     </div>;
   }
 
-  return <div className="chart-commentary-generated" data-prompt-version={commentary.promptVersion}>
-    {commentary.paragraphs.map((paragraph) => <p key={paragraph.id}>
-      {paragraph.segments.map((segment) => <CommentaryInlineSegment
-        key={segment.id}
-        segmentId={segment.id}
-        text={segment.text}
-        link={segment.link}
-        references={references}
-        recommendation={segment.link?.kind === "indicator" ? recommendations.get(segment.link.layer) : undefined}
-        chartDocumentId={chartDocumentId}
-        interval={interval}
-        candles={candles}
-        chartLayers={chartLayers}
-        interactionSnapshot={interactionSnapshot}
-        drawingIds={drawingLinks.get(segment.id) ?? []}
-        drawingPinned={pinnedDrawingLinkId === segment.id}
-        onDrawingFocus={focusDrawing}
-        onDrawingRestore={restoreDrawingFocus}
-        onDrawingPin={toggleDrawingPin}
-      />)}
-    </p>)}
+  const renderSegment = (segment: StructuredCommentarySegment) => <CommentaryInlineSegment
+    key={segment.id}
+    segmentId={segment.id}
+    text={segment.text}
+    link={segment.link}
+    references={references}
+    recommendation={segment.link?.kind === "indicator" ? recommendations.get(segment.link.layer) : undefined}
+    chartDocumentId={chartDocumentId}
+    interval={interval}
+    candles={candles}
+    chartLayers={chartLayers}
+    interactionSnapshot={interactionSnapshot}
+    drawingIds={drawingLinks.get(segment.id) ?? []}
+    drawingPinned={pinnedDrawingLinkId === segment.id}
+    onDrawingFocus={focusDrawing}
+    onDrawingRestore={restoreDrawingFocus}
+    onDrawingPin={toggleDrawingPin}
+  />;
+  const canCollapse = collapsedLinkSegments.length > 0;
+  const showFullCommentary = !canCollapse || expanded;
+
+  return <div
+    className={`chart-commentary-generated ${showFullCommentary ? "is-expanded" : "is-collapsed"}`}
+    data-prompt-version={commentary.promptVersion}
+  >
+    {!showFullCommentary && <div className="chart-commentary-link-overview" aria-label="차트 연동 핵심 근거">
+      {collapsedLinkSegments.map((segment, index) => <span className="chart-commentary-link-item" key={segment.id}>
+        {index > 0 && <span className="chart-commentary-link-separator" aria-hidden="true"> · </span>}
+        {renderSegment(segment)}
+      </span>)}
+    </div>}
+    <div id={commentaryBodyId} className="chart-commentary-full-text" hidden={!showFullCommentary}>
+      {showFullCommentary && commentary.paragraphs.map((paragraph) => <p key={paragraph.id}>
+        {paragraph.segments.map((segment) => renderSegment(segment))}
+      </p>)}
+    </div>
+    {canCollapse && <button
+      type="button"
+      className="chart-commentary-disclosure"
+      aria-expanded={expanded}
+      aria-controls={commentaryBodyId}
+      onClick={() => setExpanded((current) => !current)}
+    >{expanded ? "종합 해설 접기" : "종합 해설 보기"}</button>}
   </div>;
+}
+
+function commentaryLinkActionKey(
+  link: ChartAssetCommentaryLink,
+  references: Map<string, ChartAssetCommentaryReference>
+): string {
+  if (link.kind === "indicator") return `indicator:${link.layer}`;
+  if (link.kind === "drawing") {
+    const drawingIds = [...new Set(link.referenceIds.flatMap((referenceId) => {
+      const reference = references.get(referenceId);
+      return reference?.type === "drawing" ? reference.drawingIds : [];
+    }))].sort();
+    return `drawing:${(drawingIds.length ? drawingIds : [...link.referenceIds].sort()).join("|")}`;
+  }
+  return `${link.kind}:${link.referenceId}`;
 }
 
 function CommentaryInlineSegment({

@@ -208,14 +208,14 @@ export function chartEventMarkersForScene(
   const candidates: Array<Omit<ChartEventMarker, "x" | "top"> & { baseX: number }> = [];
   if (visibility.earnings) {
     response.earnings.forEach((event) => {
-      const unit = matchingEventUnit(units, event.eventAt, eventMarketDate(event), scene.chart.interval);
+      const unit = matchingEventUnit(units, chartEventReferenceTimestamp(event), chartEventMarketDate(event), scene.chart.interval);
       if (!unit) return;
       const baseX = slotCenterToX(scene, unit.slotCenter);
       if (baseX < scene.plot.left || baseX > scene.plot.right) return;
       candidates.push({
         id: event.id,
         type: "earnings",
-        marketDate: eventMarketDate(event),
+        marketDate: chartEventMarketDate(event),
         baseX,
         label: "E",
         event
@@ -224,7 +224,7 @@ export function chartEventMarkersForScene(
   }
   if (visibility.news) {
     response.newsDays.forEach((event) => {
-      const reference = newsReferenceTimestamp(event);
+      const reference = chartEventReferenceTimestamp(event);
       const unit = matchingEventUnit(units, reference, event.date, scene.chart.interval);
       if (!unit) return;
       const baseX = slotCenterToX(scene, unit.slotCenter);
@@ -298,6 +298,52 @@ export function marketDateForTimestamp(timestamp: string): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+export function chartEventReferenceTimestamp(event: ChartEarningsEvent | ChartNewsDay): string {
+  if (event.type === "earnings") return event.eventAt;
+  const storedTime = event.sources
+    .map((source) => source.publishedAt)
+    .find((value): value is string => Boolean(value) && marketDateForTimestamp(value as string) === event.date);
+  return storedTime ?? `${event.date}T16:00:00.000Z`;
+}
+
+export function chartEventMarketDate(event: ChartEarningsEvent | ChartNewsDay): string {
+  return event.type === "news" ? event.date : marketDateForTimestamp(event.eventAt);
+}
+
+export function chartEventTargetCandleIndex(
+  candles: CandleDto[],
+  interval: ChartInterval,
+  event: ChartEarningsEvent | ChartNewsDay
+): number {
+  const marketDate = chartEventMarketDate(event);
+  const sameDay = candles
+    .map((candle, index) => ({ candle, index }))
+    .filter(({ candle }) => marketDateForTimestamp(candle.timestamp) === marketDate);
+  if (!sameDay.length) return -1;
+  if (interval === "1D") return sameDay[0].index;
+  const referenceTime = Date.parse(chartEventReferenceTimestamp(event));
+  if (!Number.isFinite(referenceTime)) return sameDay[0].index;
+  return sameDay.reduce((best, candidate) => (
+    Math.abs(Date.parse(candidate.candle.timestamp) - referenceTime)
+      < Math.abs(Date.parse(best.candle.timestamp) - referenceTime)
+      ? candidate
+      : best
+  )).index;
+}
+
+export function upcomingDailyEventLogicalIndex(candles: CandleDto[], eventAt: string): number | null {
+  const latest = candles.at(-1);
+  const latestDate = latest ? marketDateForTimestamp(latest.timestamp) : "";
+  const eventDate = marketDateForTimestamp(eventAt);
+  const latestTime = Date.parse(`${latestDate}T00:00:00.000Z`);
+  const eventTime = Date.parse(`${eventDate}T00:00:00.000Z`);
+  if (!latest || !Number.isFinite(latestTime) || !Number.isFinite(eventTime) || eventTime <= latestTime) {
+    return null;
+  }
+  const daySlots = Math.max(1, Math.round((eventTime - latestTime) / 86_400_000));
+  return candles.length - 1 + daySlots;
+}
+
 function matchingEventUnit(
   units: SceneCandleUnit[],
   timestamp: string,
@@ -322,17 +368,6 @@ function matchingEventUnit(
   return sameDay.reduce((best, unit) => (
     Math.abs(Date.parse(unit.timestamp) - eventTime) < Math.abs(Date.parse(best.timestamp) - eventTime) ? unit : best
   ));
-}
-
-function newsReferenceTimestamp(event: ChartNewsDay): string {
-  const storedTime = event.sources
-    .map((source) => source.publishedAt)
-    .find((value): value is string => Boolean(value) && marketDateForTimestamp(value as string) === event.date);
-  return storedTime ?? `${event.date}T16:00:00.000Z`;
-}
-
-function eventMarketDate(event: ChartEarningsEvent): string {
-  return marketDateForTimestamp(event.eventAt);
 }
 
 function isChartEarningsEvent(value: unknown): value is ChartEarningsEvent {

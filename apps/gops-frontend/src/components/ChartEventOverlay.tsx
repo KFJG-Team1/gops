@@ -17,8 +17,14 @@ type ChartEventOverlayProps = {
   response: ChartEventsResponse | null;
   earningsVisible: boolean;
   upcomingStyle?: CSSProperties;
-  openRequest?: { eventId: string; revision: number } | null;
+  openRequest?: ChartEventOpenRequest | null;
   onSelectedEventChange?: (eventId: string | null) => void;
+};
+
+export type ChartEventOpenRequest = {
+  eventId: string;
+  revision: number;
+  anchor?: { x: number; top: number };
 };
 
 type SelectedChartEvent = {
@@ -84,8 +90,8 @@ export function ChartEventOverlay({
     if (upcomingEvent?.id === openRequest.eventId && container && earningsVisible) {
       setSelected((current) => current?.event.id === upcomingEvent.id ? null : {
         event: upcomingEvent,
-        anchorX: Math.max(40, container.clientWidth - 110),
-        anchorTop: Math.max(44, container.clientHeight - 28),
+        anchorX: openRequest.anchor?.x ?? Math.max(40, container.clientWidth - 110),
+        anchorTop: openRequest.anchor?.top ?? Math.max(44, container.clientHeight - 28),
         upcoming: upcoming ?? undefined
       });
       handledOpenRevisionRef.current = openRequest.revision;

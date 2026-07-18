@@ -115,6 +115,8 @@ import { fetchCandles, fetchChartEvents, fetchIndicators, fetchVolumeProfile, op
 import {
   chartEventMarkerLayoutKey,
   chartEventMarkersForScene,
+  chartEventTargetCandleIndex,
+  upcomingDailyEventLogicalIndex,
   chartEventRequestRange,
   latestChartEventRefreshRange,
   mergeChartEventsResponses,
@@ -173,8 +175,10 @@ import {
   subscribeOrderFlowDemoTicks
 } from "../chart/orderFlowClient";
 import { replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowMinuteDto } from "../chart/orderFlow";
-import { activeBelowPaneIds, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, isChartRightAxisPoint, priceAxisLabelWidth, priceToY, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
+import { activeBelowPaneIds, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, isChartRightAxisPoint, priceAxisLabelWidth, priceToY, unitBoundsX, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
+  viewportCenteredOnLogicalIndex,
+  viewportCenteredOnSceneX,
   viewportAfterOlderCandlesLoaded,
   viewportAfterSnapshotCandlesChange,
   type ViewportAnchor
@@ -202,6 +206,7 @@ import {
 } from "../chart/types";
 import {
   dragDeltaToRightOffset,
+  futureEmptySlotCount,
   horizontalWheelDeltaToRightOffset,
   latestCandleRightOffset,
   normalizeViewport,
@@ -213,7 +218,7 @@ import {
   type ViewportClampOptions
 } from "../chart/viewport";
 import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
-import { ChartEventOverlay } from "./ChartEventOverlay";
+import { ChartEventOverlay, type ChartEventOpenRequest } from "./ChartEventOverlay";
 import { ChartTradeOverlay } from "./ChartTradeOverlay";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ContextualAgentAskButton } from "./ContextualAgentAskButton";
@@ -262,6 +267,11 @@ type PriceAxisPointer = {
   x: number;
   y: number;
 };
+
+type PendingCommentaryNavigation =
+  | { kind: "candle"; timestamp: string; candleKey?: string; attempts: number }
+  | { kind: "event"; eventId: string; attempts: number }
+  | { kind: "upcoming"; eventId: string; targetLogicalIndex?: number; attempts: number };
 
 type ExpansionOverlay = {
   id: string;
@@ -522,7 +532,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [chartEventMarkers, setChartEventMarkers] = useState<ChartEventMarker[]>([]);
   const [chartTradeMarkers, setChartTradeMarkers] = useState<ChartTradeMarker[]>([]);
   const [chartEventUpcomingStyle, setChartEventUpcomingStyle] = useState<CSSProperties>();
-  const [commentaryEventOpenRequest, setCommentaryEventOpenRequest] = useState<{ eventId: string; revision: number } | null>(null);
+  const [commentaryEventOpenRequest, setCommentaryEventOpenRequest] = useState<ChartEventOpenRequest | null>(null);
+  const [commentaryExtraFutureSlots, setCommentaryExtraFutureSlots] = useState(0);
   const effectiveSpotlightDrawingIds = useMemo(() => [...new Set([
     ...spotlightDrawingIds,
     ...proposalPriceSourceSpotlightIds
@@ -729,7 +740,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const chartTradeMarkerKeyRef = useRef("");
   const chartEventUpcomingStyleKeyRef = useRef("");
   const chartEventsRef = useRef<ChartEventsResponse | null>(null);
-  const pendingCommentaryCandleRef = useRef<{ timestamp: string; candleKey?: string } | null>(null);
+  const pendingCommentaryNavigationRef = useRef<PendingCommentaryNavigation | null>(null);
+  const commentaryExtraFutureSlotsRef = useRef(0);
   const selectedCommentaryEventIdRef = useRef<string | null>(null);
   const commentaryInteractionIdentityRef = useRef<string | null>(null);
   const chartEventCoverageRef = useRef<ChartEventCoverage | null>(null);
@@ -777,6 +789,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     selectedSemanticNodeRef.current = selectedSemanticNode;
   }, [selectedSemanticNode]);
+
+  useEffect(() => {
+    commentaryExtraFutureSlotsRef.current = commentaryExtraFutureSlots;
+  }, [commentaryExtraFutureSlots]);
 
   useEffect(() => () => {
     clearChartCommentaryInteraction(document.id);
@@ -991,7 +1007,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const previousIdentity = commentaryInteractionIdentityRef.current;
     commentaryInteractionIdentityRef.current = commentaryInteractionIdentity;
     if (previousIdentity === null || previousIdentity === commentaryInteractionIdentity) return;
-    pendingCommentaryCandleRef.current = null;
+    pendingCommentaryNavigationRef.current = null;
+    commentaryExtraFutureSlotsRef.current = 0;
+    setCommentaryExtraFutureSlots(0);
     setSelectedSemanticNode(null);
     const selectedEventId = selectedCommentaryEventIdRef.current;
     if (selectedEventId) {
@@ -1389,7 +1407,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
       chart.candles.length,
       plotWidth,
-      viewportClampOptionsForChart(chart, matchingScene)
+      viewportClampOptionsForChart(chart, matchingScene, commentaryExtraFutureSlotsRef.current)
     );
     if (!viewportNeedsOlderCandles(visibleViewport, chart.candles.length)) {
       return;
@@ -2118,7 +2136,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           },
           current.candles.length,
           plotWidth,
-          viewportClampOptionsForChart(current, currentScene)
+          viewportClampOptionsForChart(current, currentScene, commentaryExtraFutureSlotsRef.current)
         ));
       }
     }
@@ -2136,7 +2154,11 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     const currentChart = chartRef.current;
     const currentScene = sceneRef.current;
     const plotWidth = currentScene ? currentScene.plot.right - currentScene.plot.left : undefined;
-    const clampOptions = viewportClampOptionsForChart(currentChart, currentScene);
+    const clampOptions = viewportClampOptionsForChart(
+      currentChart,
+      currentScene,
+      commentaryExtraFutureSlotsRef.current
+    );
     const requestedViewport = normalizeViewport(viewport, currentChart.candles.length, plotWidth, clampOptions);
     const nextViewport = requestedViewport;
     if (nextViewport.visibleCount === currentChart.visibleCount && nextViewport.rightOffset === currentChart.rightOffset) {
@@ -2146,10 +2168,21 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   }, [dispatchDocumentCommand]);
 
   useEffect(() => {
-    const moveToCandleIndex = (index: number) => {
+    const moveToLogicalIndex = (index: number) => {
       const current = chartRef.current;
-      const centeredRightOffset = Math.max(0, current.candles.length - 1 - index - Math.floor(current.visibleCount / 2));
-      applyViewport({ visibleCount: current.visibleCount, rightOffset: centeredRightOffset }, "external");
+      const scene = sceneRef.current;
+      const plotWidth = scene ? scene.plot.right - scene.plot.left : undefined;
+      const nextViewport = viewportCenteredOnLogicalIndex(
+        current.candles.length,
+        index,
+        { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
+        plotWidth,
+        viewportClampOptionsForChart(current, scene, commentaryExtraFutureSlotsRef.current)
+      );
+      const changed = nextViewport.visibleCount !== current.visibleCount
+        || Math.abs(nextViewport.rightOffset - current.rightOffset) > 0.0001;
+      if (changed) applyViewport(nextViewport, "external");
+      return changed;
     };
     const handleIndicatorToggle = (event: Event) => {
       const detail = (event as CustomEvent<ChartCommentaryIndicatorToggleRequest>).detail;
@@ -2164,17 +2197,56 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       if (detail?.chartDocumentId !== document.id || !detail.reference) return;
       const reference = detail.reference;
       const current = chartRef.current;
-      if (reference.type === "earnings" && reference.eventId.endsWith(":upcoming")) {
-        if (current.layers["events:earnings"] === false) {
-          dispatchDocumentCommand("chart.layer.visibility.set", { layer: "events:earnings", visible: true });
-        }
+      if (reference.type !== "candle" && selectedCommentaryEventIdRef.current === reference.eventId) {
+        pendingCommentaryNavigationRef.current = null;
         setCommentaryEventOpenRequest((previous) => ({
           eventId: reference.eventId,
           revision: (previous?.revision ?? 0) + 1
         }));
         return;
       }
-      const index = commentaryReferenceCandleIndex(reference, current.candles, current.interval);
+      if (reference.type === "earnings" && reference.eventId.endsWith(":upcoming")) {
+        if (current.layers["events:earnings"] === false) {
+          dispatchDocumentCommand("chart.layer.visibility.set", { layer: "events:earnings", visible: true });
+        }
+        if (current.interval === "1D") {
+          const targetLogicalIndex = upcomingDailyEventLogicalIndex(current.candles, reference.eventAt);
+          if (targetLogicalIndex !== null) {
+            const desiredRightOffset = current.candles.length
+              - targetLogicalIndex
+              - 0.5
+              - current.visibleCount / 2;
+            const extraFutureSlots = Math.max(
+              0,
+              Math.ceil(-desiredRightOffset) - futureEmptySlotCount(current.visibleCount)
+            );
+            if (extraFutureSlots > commentaryExtraFutureSlotsRef.current) {
+              commentaryExtraFutureSlotsRef.current = extraFutureSlots;
+              setCommentaryExtraFutureSlots(extraFutureSlots);
+            }
+            pendingCommentaryNavigationRef.current = {
+              kind: "upcoming",
+              eventId: reference.eventId,
+              targetLogicalIndex,
+              attempts: 0
+            };
+            if (moveToLogicalIndex(targetLogicalIndex)) return;
+          }
+        }
+        pendingCommentaryNavigationRef.current = null;
+        setCommentaryEventOpenRequest((previous) => ({
+          eventId: reference.eventId,
+          revision: (previous?.revision ?? 0) + 1,
+          anchor: commentaryPlotCenterAnchor(sceneRef.current, chartWrapRef.current)
+        }));
+        return;
+      }
+      const index = commentaryReferenceCandleIndex(
+        reference,
+        current.candles,
+        current.interval,
+        chartEventsRef.current
+      );
       if (index < 0) return;
       if (reference.type === "candle") {
         if (!isAnalysisAssetInterval(current.interval)) return;
@@ -2187,31 +2259,36 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           ? candleKeyForTimestamp(selected.timestamp, current.interval)
           : null;
         if (expectedCandleKey && expectedCandleKey === selectedCandleKey) {
-          pendingCommentaryCandleRef.current = null;
+          pendingCommentaryNavigationRef.current = null;
           setSelectedSemanticNode(null);
           return;
         }
-        moveToCandleIndex(index);
-        pendingCommentaryCandleRef.current = {
+        pendingCommentaryNavigationRef.current = {
+          kind: "candle",
           timestamp: reference.timestamp,
+          attempts: 0,
           ...(reference.candleKey ? { candleKey: reference.candleKey } : {})
         };
-        const unit = commentarySemanticCandle(sceneRef.current, reference.timestamp, reference.candleKey, current.interval);
-        if (unit) {
+        if (!moveToLogicalIndex(index)) {
+          const unit = commentarySemanticCandle(sceneRef.current, reference.timestamp, reference.candleKey, current.interval);
+          if (!unit) return;
           setSelectedSemanticNode(snapshotFromSemanticUnit(unit));
-          pendingCommentaryCandleRef.current = null;
+          pendingCommentaryNavigationRef.current = null;
         }
         return;
       }
-      moveToCandleIndex(index);
       const layer: ChartLayerKey = reference.type === "news" ? "events:news" : "events:earnings";
       if (current.layers[layer] === false) {
         dispatchDocumentCommand("chart.layer.visibility.set", { layer, visible: true });
       }
-      setCommentaryEventOpenRequest((previous) => ({
-        eventId: reference.eventId,
-        revision: (previous?.revision ?? 0) + 1
-      }));
+      pendingCommentaryNavigationRef.current = { kind: "event", eventId: reference.eventId, attempts: 0 };
+      if (!moveToLogicalIndex(index)) {
+        pendingCommentaryNavigationRef.current = null;
+        setCommentaryEventOpenRequest((previous) => ({
+          eventId: reference.eventId,
+          revision: (previous?.revision ?? 0) + 1
+        }));
+      }
     };
     window.addEventListener(chartCommentaryIndicatorToggleEventName, handleIndicatorToggle);
     window.addEventListener(chartCommentaryReferenceOpenEventName, handleReferenceOpen);
@@ -2234,7 +2311,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
 
   useEffect(() => {
-    pendingCommentaryCandleRef.current = null;
+    pendingCommentaryNavigationRef.current = null;
+    commentaryExtraFutureSlotsRef.current = 0;
+    setCommentaryExtraFutureSlots(0);
     setCommentaryEventOpenRequest(null);
     updateChartCommentaryInteraction(document.id, { activeEventId: null });
   }, [chart.interval, chart.symbol, document.id]);
@@ -2292,17 +2371,50 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
 
   const handleScene = useCallback((scene: ChartScene) => {
     sceneRef.current = scene;
-    const pendingCommentaryCandle = pendingCommentaryCandleRef.current;
-    if (pendingCommentaryCandle) {
+    const settlePendingAtX = (targetX: number, pending: PendingCommentaryNavigation) => {
+      const centerX = (scene.plot.left + scene.plot.right) / 2;
+      if (Math.abs(targetX - centerX) <= 1 || pending.attempts >= 2) return true;
+      const nextViewport = viewportCenteredOnSceneX(
+        scene.chart.candles.length,
+        { visibleCount: scene.chart.visibleCount, rightOffset: scene.chart.rightOffset },
+        targetX,
+        centerX,
+        scene.scales.slotWidth,
+        scene.plot.right - scene.plot.left,
+        viewportClampOptionsForChart(scene.chart, scene, commentaryExtraFutureSlotsRef.current)
+      );
+      if (
+        nextViewport.visibleCount === scene.chart.visibleCount
+        && Math.abs(nextViewport.rightOffset - scene.chart.rightOffset) <= 0.0001
+      ) return true;
+      pending.attempts += 1;
+      applyViewport(nextViewport, "external");
+      return false;
+    };
+    const pendingCommentaryNavigation = pendingCommentaryNavigationRef.current;
+    if (pendingCommentaryNavigation?.kind === "candle") {
       const unit = commentarySemanticCandle(
         scene,
-        pendingCommentaryCandle.timestamp,
-        pendingCommentaryCandle.candleKey,
+        pendingCommentaryNavigation.timestamp,
+        pendingCommentaryNavigation.candleKey,
         scene.chart.interval
       );
-      if (unit) {
+      if (unit && settlePendingAtX(unitBoundsX(scene, unit).center, pendingCommentaryNavigation)) {
         setSelectedSemanticNode(snapshotFromSemanticUnit(unit));
-        pendingCommentaryCandleRef.current = null;
+        pendingCommentaryNavigationRef.current = null;
+      }
+    } else if (
+      pendingCommentaryNavigation?.kind === "upcoming"
+      && typeof pendingCommentaryNavigation.targetLogicalIndex === "number"
+    ) {
+      const targetX = createCoordinateTransform(scene).logicalToX(pendingCommentaryNavigation.targetLogicalIndex);
+      if (settlePendingAtX(targetX, pendingCommentaryNavigation)) {
+        pendingCommentaryNavigationRef.current = null;
+        setCommentaryEventOpenRequest((previous) => ({
+          eventId: pendingCommentaryNavigation.eventId,
+          revision: (previous?.revision ?? 0) + 1,
+          anchor: commentaryPlotCenterAnchor(scene, chartWrapRef.current)
+        }));
       }
     }
     const planDrawingId = chartTradeSetupSnapshot?.setup.drawingIds.plan;
@@ -2386,6 +2498,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       chartEventMarkerKeyRef.current = nextEventMarkerKey;
       setChartEventMarkers(nextEventMarkers);
     }
+    const pendingEventNavigation = pendingCommentaryNavigationRef.current;
+    if (pendingEventNavigation?.kind === "event") {
+      const marker = nextEventMarkers.find((item) => item.id === pendingEventNavigation.eventId);
+      if (marker) {
+        const targetX = markerScaleX > 0 ? marker.x / markerScaleX : marker.x;
+        if (settlePendingAtX(targetX, pendingEventNavigation)) {
+          pendingCommentaryNavigationRef.current = null;
+          setCommentaryEventOpenRequest((previous) => ({
+            eventId: pendingEventNavigation.eventId,
+            revision: (previous?.revision ?? 0) + 1
+          }));
+        }
+      }
+    }
     const nextTradeMarkers = chartTradeMarkersForScene(
       scene,
       chartTradeFills,
@@ -2404,7 +2530,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       chartEventUpcomingStyleKeyRef.current = upcomingStyleKey;
       setChartEventUpcomingStyle({ right: upcomingRight, bottom: upcomingBottom });
     }
-  }, [activeAnalysisAsset, analysisTraceDiagnosticOverlay, chartEvents, chartTradeFills, chartTradeSetupSnapshot, earningsEventsVisible, effectiveSpotlightDrawingIds, newsEventsVisible]);
+  }, [activeAnalysisAsset, analysisTraceDiagnosticOverlay, applyViewport, chartEvents, chartTradeFills, chartTradeSetupSnapshot, earningsEventsVisible, effectiveSpotlightDrawingIds, newsEventsVisible]);
 
   const toggleAgentSemanticUnitSelection = useCallback((unit: SemanticRenderUnit) => {
     if (unit.kind !== "candle") {
@@ -2581,7 +2707,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       { visibleCount: current.visibleCount, rightOffset: current.rightOffset },
       current.candles.length,
       plotWidth,
-      viewportClampOptionsForChart(current, scene)
+      viewportClampOptionsForChart(current, scene, commentaryExtraFutureSlotsRef.current)
     );
     if (resolvedHorizontalDelta !== null) {
       const slotWidth = scene
@@ -2595,7 +2721,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         current.candles.length,
         deltaMode,
         plotWidth,
-        viewportClampOptionsForChart(current, scene)
+        viewportClampOptionsForChart(current, scene, commentaryExtraFutureSlotsRef.current)
       );
       queueWheelViewport({
         visibleCount: currentViewport.visibleCount,
@@ -2615,7 +2741,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         delta,
         current.candles.length,
         plotWidth,
-        viewportClampOptionsForChart(current, scene)
+        viewportClampOptionsForChart(current, scene, commentaryExtraFutureSlotsRef.current)
       ));
       return;
     }
@@ -2628,7 +2754,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       current.candles.length,
       anchorRatio,
       plotWidth,
-      viewportClampOptionsForChart(current, scene)
+      viewportClampOptionsForChart(current, scene, commentaryExtraFutureSlotsRef.current)
     );
     queueWheelViewport(nextViewport);
   };
@@ -2804,7 +2930,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
       chart.candles.length,
       scene.plot.right - scene.plot.left,
-      viewportClampOptionsForChart(chart, scene)
+      viewportClampOptionsForChart(chart, scene, commentaryExtraFutureSlotsRef.current)
     );
     dragAnchorRef.current = {
       x: event.clientX,
@@ -2935,7 +3061,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         scene.scales.slotWidth,
         dragAnchor.visibleCount,
         chart.candles.length,
-        viewportClampOptionsForChart(chartRef.current, scene)
+        viewportClampOptionsForChart(chartRef.current, scene, commentaryExtraFutureSlotsRef.current)
       )
     };
     transientViewportRef.current = nextViewport;
@@ -3189,6 +3315,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         <ChartCanvas
           chart={renderChart}
           expansions={renderExpansions}
+          extraFutureSlots={commentaryExtraFutureSlots}
           previewDrawings={previewDrawings}
           hoveredNodeId={hoveredSemanticNodeId}
           selectedNodeId={selectedSemanticNode?.nodeId}
@@ -4820,8 +4947,13 @@ function analysisCandidateCountsEqual(
     && left.total === right.total && left.visible === right.visible && left.stored === right.stored);
 }
 
-function viewportClampOptionsForChart(chart: ChartState, scene: ChartScene | null | undefined): ViewportClampOptions {
-  const extraFutureSlots = scene ? Math.max(0, Math.ceil(scene.semantic.expansionExtraSlots)) : 0;
+function viewportClampOptionsForChart(
+  chart: ChartState,
+  scene: ChartScene | null | undefined,
+  commentaryExtraFutureSlots = 0
+): ViewportClampOptions {
+  const extraFutureSlots = (scene ? Math.max(0, Math.ceil(scene.semantic.expansionExtraSlots)) : 0)
+    + Math.max(0, Math.ceil(commentaryExtraFutureSlots));
   const minimumVisibleSlots = Math.max(0, Math.ceil(chart.requestedLimit ?? 0));
   return {
     ...(extraFutureSlots > 0 ? { extraFutureSlots } : {}),
@@ -4910,17 +5042,35 @@ function formatHoverTimestamp(value: string): string {
 function commentaryReferenceCandleIndex(
   reference: ChartCommentaryReferenceOpenRequest["reference"],
   candles: CandleDto[],
-  interval: ChartInterval
+  interval: ChartInterval,
+  events: ChartEventsResponse | null
 ): number {
   if (!isCommentaryAssetInterval(interval)) return -1;
   if (reference.type === "candle") {
     const expected = reference.candleKey ?? candleKeyForTimestamp(reference.timestamp, interval);
     return candles.findIndex((candle) => candleKeyForTimestamp(candle.timestamp, interval) === expected);
   }
+  const storedEvent = reference.type === "news"
+    ? events?.newsDays.find((event) => event.id === reference.eventId)
+    : events?.earnings.find((event) => event.id === reference.eventId);
+  if (storedEvent) return chartEventTargetCandleIndex(candles, interval, storedEvent);
   const marketDate = reference.type === "news"
     ? reference.marketDate
     : marketDateForTimestamp(reference.eventAt);
   return candles.findIndex((candle) => marketDateForTimestamp(candle.timestamp) === marketDate);
+}
+
+function commentaryPlotCenterAnchor(
+  scene: ChartScene | null,
+  container: HTMLDivElement | null
+): ChartEventOpenRequest["anchor"] | undefined {
+  if (!scene || !container) return undefined;
+  const scaleX = scene.width > 0 ? container.clientWidth / scene.width : 1;
+  const scaleY = scene.height > 0 ? container.clientHeight / scene.height : 1;
+  return {
+    x: ((scene.plot.left + scene.plot.right) / 2) * scaleX,
+    top: Math.max(scene.plot.top + 4, scene.plot.bottom - 28) * scaleY
+  };
 }
 
 function commentarySemanticCandle(

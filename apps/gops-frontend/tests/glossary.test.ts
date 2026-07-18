@@ -10,8 +10,8 @@ allGlossaryEntries.forEach((entry) => {
 Object.values(stockGlossary).forEach((entry) => {
   assert.equal(entry.aliases.some((alias) => /[A-Za-z]/.test(alias)), true, `${entry.id} requires an English alias`);
 });
-assert.equal(allGlossaryEntries.length, 95);
-assert.equal(new Set(allGlossaryEntries.map((entry) => entry.id)).size, 95);
+assert.equal(allGlossaryEntries.length, 110);
+assert.equal(new Set(allGlossaryEntries.map((entry) => entry.id)).size, 110);
 const glossaryById = new Map(allGlossaryEntries.map((entry) => [entry.id, entry]));
 assert.equal(
   glossaryById.get("invalidation")?.description,

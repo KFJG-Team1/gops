@@ -191,27 +191,6 @@ export const extraGlossary: GlossaryEntry[] = [
     category: "general"
   },
   {
-    id: "operating_margin",
-    term: "영업이익률",
-    aliases: ["영업이익률", "operating margin"],
-    description: "매출에서 영업비용을 뺀 이익이 매출의 몇 %인지 나타냅니다. 본업에서 얼마나 남기는지를 보여줍니다.",
-    category: "general"
-  },
-  {
-    id: "net_margin",
-    term: "순이익률",
-    aliases: ["순이익률", "net margin"],
-    description: "세금과 이자까지 모두 반영한 최종 이익이 매출의 몇 %인지 나타냅니다.",
-    category: "general"
-  },
-  {
-    id: "roe",
-    term: "ROE",
-    aliases: ["ROE", "자기자본이익률"],
-    description: "주주가 투자한 자본으로 1년에 얼마의 이익을 냈는지 나타내는 비율입니다.",
-    category: "general"
-  },
-  {
     id: "debt_to_equity",
     term: "부채/자본",
     aliases: ["부채/자본", "부채비율", "debt to equity", "D/E"],

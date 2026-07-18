@@ -156,6 +156,7 @@ export type CoordinateTransform = {
 
 export type ChartSceneOptions = {
   expansions?: SemanticExpansion[];
+  extraFutureSlots?: number;
   hoveredNodeId?: string;
   selectedNodeId?: string;
   emphasizeSelectedNode?: boolean;
@@ -293,7 +294,14 @@ function buildChartScenePass(
     belowPanes
   };
   const plotWidth = Math.max(1, plot.right - plot.left);
-  const baseViewportOptions = viewportClampOptionsForChart(chart);
+  const requestedExtraFutureSlots = Math.max(0, Math.ceil(options.extraFutureSlots ?? 0));
+  const chartViewportOptions = viewportClampOptionsForChart(chart);
+  const baseViewportOptions: ViewportClampOptions = {
+    ...chartViewportOptions,
+    ...(requestedExtraFutureSlots > 0
+      ? { extraFutureSlots: (chartViewportOptions.extraFutureSlots ?? 0) + requestedExtraFutureSlots }
+      : {})
+  };
   const resolveViewportTimeline = (viewport: ChartViewport) => {
     const viewportEndIndex = Math.max(0, chart.candles.length - viewport.rightOffset);
     const viewportStartIndex = viewportEndIndex - viewport.visibleCount;
@@ -330,7 +338,10 @@ function buildChartScenePass(
     { visibleCount: chart.visibleCount, rightOffset: chart.rightOffset },
     chart.candles.length,
     plotWidth,
-    { ...baseViewportOptions, extraFutureSlots: semanticFutureSlots }
+    {
+      ...baseViewportOptions,
+      extraFutureSlots: (baseViewportOptions.extraFutureSlots ?? 0) + semanticFutureSlots
+    }
   );
   const frame = viewport.visibleCount === baseFrame.viewport.visibleCount && viewport.rightOffset === baseFrame.viewport.rightOffset
     ? baseFrame

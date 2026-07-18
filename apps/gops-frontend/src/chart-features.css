@@ -558,8 +558,53 @@
   gap: 12px;
 }
 
+.chart-commentary-generated.is-collapsed {
+  gap: 6px;
+}
+
 .chart-commentary-generated p {
   margin: 0;
+}
+
+.chart-commentary-full-text {
+  display: grid;
+  gap: 12px;
+}
+
+.chart-commentary-link-overview {
+  color: var(--color-text);
+  font: var(--type-body-md);
+  line-height: 1.55;
+}
+
+.chart-commentary-link-separator {
+  color: var(--color-muted);
+}
+
+.chart-commentary-disclosure {
+  justify-self: start;
+  appearance: none;
+  border: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: var(--color-muted);
+  font: var(--type-caption);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-muted) 48%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.chart-commentary-disclosure:hover,
+.chart-commentary-disclosure:focus-visible {
+  color: var(--color-text);
+  text-decoration-color: currentColor;
+}
+
+.chart-commentary-disclosure:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid color-mix(in srgb, var(--color-signal) 72%, transparent);
+  outline-offset: 2px;
 }
 
 .chart-commentary-inline-reference {
@@ -594,6 +639,31 @@
   text-decoration-style: solid;
   text-decoration-color: currentColor;
   text-decoration-thickness: 2px;
+}
+
+.chart-commentary-generated.is-collapsed .chart-commentary-inline-reference,
+.chart-commentary-generated.is-collapsed .chart-commentary-inline-reference:hover:not(:disabled),
+.chart-commentary-generated.is-collapsed .chart-commentary-inline-reference:focus-visible,
+.chart-commentary-generated.is-collapsed .chart-commentary-inline-reference[aria-pressed="true"] {
+  color: var(--color-text);
+  text-decoration-color: color-mix(in srgb, var(--color-text) 62%, transparent);
+}
+
+.chart-commentary-generated.is-collapsed .chart-commentary-inline-reference:hover:not(:disabled),
+.chart-commentary-generated.is-collapsed .chart-commentary-inline-reference:focus-visible {
+  text-decoration-color: var(--color-text);
+  text-decoration-thickness: 1.5px;
+}
+
+.chart-commentary-generated.is-collapsed .chart-commentary-inline-reference[aria-pressed="true"] {
+  text-decoration-color: var(--color-text);
+  text-decoration-thickness: 2px;
+}
+
+.chart-commentary-generated.is-collapsed .chart-commentary-inline-reference:disabled,
+.chart-commentary-generated.is-collapsed .chart-commentary-inline-reference.is-unavailable {
+  color: var(--color-muted);
+  text-decoration-color: color-mix(in srgb, var(--color-muted) 45%, transparent);
 }
 
 .chart-commentary-inline-reference:focus-visible {

@@ -176,7 +176,7 @@
   --color-bearish: var(--color-change-down);
   --color-danger: var(--color-change-down);
   --color-ma5: var(--coinbase-primary);
-  --color-ma20: var(--coinbase-semantic-up);
+  --color-ma20: var(--color-point-purple);
   --color-ma60: var(--coinbase-accent-yellow);
   --color-drawing: var(--coinbase-ink);
   --color-preview: var(--coinbase-ink);

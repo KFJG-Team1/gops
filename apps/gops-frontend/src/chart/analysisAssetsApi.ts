@@ -269,7 +269,7 @@ export type ChartAssetCommentaryV2 = {
   status: "ready";
   generatedAt: string;
   model: string;
-  promptVersion: "chart-commentary.ko.v2" | "chart-commentary.ko.v3";
+  promptVersion: "chart-commentary.ko.v2" | "chart-commentary.ko.v3" | "chart-commentary.ko.v4" | "chart-commentary.ko.v5";
   sourceIdentity: ChartAssetCommentarySourceIdentity;
   paragraphs: Array<{
     id: string;
@@ -541,7 +541,9 @@ function normalizeCommentary(value: unknown, asset: {
 
   if (
     source.version !== "chart-commentary.v2"
-    || (source.promptVersion !== "chart-commentary.ko.v2" && source.promptVersion !== "chart-commentary.ko.v3")
+    || ![
+      "chart-commentary.ko.v2", "chart-commentary.ko.v3", "chart-commentary.ko.v4", "chart-commentary.ko.v5"
+    ].includes(source.promptVersion)
     || !Array.isArray(source.paragraphs)
     || source.paragraphs.length !== 3
   ) return undefined;
@@ -571,7 +573,14 @@ function normalizeCommentary(value: unknown, asset: {
       if (!validCommentaryLink(segment.link, referenceById, directlyLinkedReferenceIds, linkedIndicatorLayers)) return undefined;
     }
   }
-  if (linkCount > 8) return undefined;
+  const conciseV4 = source.promptVersion === "chart-commentary.ko.v4";
+  const progressiveV5 = source.promptVersion === "chart-commentary.ko.v5";
+  if (linkCount > (progressiveV5 ? 6 : conciseV4 ? 5 : 8)) return undefined;
+  if (conciseV4 && source.indicatorRecommendations.length > 2) return undefined;
+  if (progressiveV5 && source.indicatorRecommendations.some((item: { layer: ChartAssetCommentaryIndicatorLayer }) => item.layer === "volume")) {
+    return undefined;
+  }
+  if (progressiveV5 && linkedIndicatorLayers.has("volume")) return undefined;
   const recommendationLayers = new Set(
     source.indicatorRecommendations.map((item: { layer: ChartAssetCommentaryIndicatorLayer }) => item.layer)
   );

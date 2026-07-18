@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import "./contextualAgentProps.test";
+import "./commentaryNavigation.test";
 import "./drawingTools.test";
 import "./uiScale.test";
 import "./glossary.test";
@@ -83,6 +84,8 @@ import {
 } from "../src/chart/semanticTimeline";
 import {
   anchoredViewportForCandles,
+  viewportCenteredOnLogicalIndex,
+  viewportCenteredOnSceneX,
   viewportAfterOlderCandlesLoaded,
   viewportAfterSnapshotCandlesChange,
   viewportPreservingRightEdgeAfterCandlesChange,
@@ -113,6 +116,7 @@ import { fetchVolumeProfile } from "../src/chart/cdcClient";
 import {
   chartEventMarkersForScene,
   chartEventRequestRange,
+  chartEventTargetCandleIndex,
   latestChartEventRefreshRange,
   mergeChartEventsResponses,
   missingChartEventRanges,
@@ -538,8 +542,8 @@ assert.equal(createChartDocument("chart-doc-themed-default", "AAPL", "1m").style
 assert.equal(createChartDocument("chart-doc-themed-default-bullish", "AAPL", "1m").style.bullish, fallbackChartStyle.bullish);
 const chartTypeDefaultDocument = createChartDocument("chart-doc-type-default", "AAPL", "1m");
 assert.equal(chartTypeDefaultDocument.chartType, "candle");
-assert.equal(chartTypeDefaultDocument.layers["sma:5"], true);
-assert.equal(chartTypeDefaultDocument.layers.ma5, true);
+assert.equal(chartTypeDefaultDocument.layers["sma:5"], false);
+assert.equal(chartTypeDefaultDocument.layers.ma5, false);
 assert.equal(chartTypeDefaultDocument.layers["sma:120"], false);
 assert.equal(chartTypeDefaultDocument.layers["events:earnings"], true);
 assert.equal(chartTypeDefaultDocument.layers["events:news"], true);
@@ -664,6 +668,18 @@ const intradayEventScene = buildFrontendChartScene(frontendChartState({
   layers: { candles: true, volume: false, "events:earnings": true, "events:news": true }
 }), 800, 360);
 assert.equal(chartEventMarkersForScene(intradayEventScene, chartEventsFixture, { earnings: true, news: true }).length, 2);
+assert.equal(
+  chartEventTargetCandleIndex(intradayEventScene.allCandles, "1h", chartEventsFixture.newsDays[0]),
+  1
+);
+assert.equal(
+  chartEventTargetCandleIndex(intradayEventScene.allCandles, "1h", chartEventsFixture.earnings[0]),
+  2
+);
+assert.equal(
+  chartEventTargetCandleIndex(dailyEventScene.allCandles, "1D", chartEventsFixture.newsDays[0]),
+  1
+);
 const weeklyEventScene = buildFrontendChartScene(frontendChartState({
   interval: "1W",
   candles: [testCandle("2026-07-13T04:00:00.000Z")],
@@ -3536,6 +3552,35 @@ assert.equal(latestCandleRightOffset(120), -30);
 assert.equal(latestCandleRightOffset(104), -26);
 assert.equal(latestCandleRightOffset(36), -9);
 assert.equal(frontendLatestCandleRightOffset(6), -1);
+const centeredRecentViewport = viewportCenteredOnLogicalIndex(
+  140,
+  138,
+  { visibleCount: 120, rightOffset: 0 },
+  800
+);
+assert.equal(centeredRecentViewport.rightOffset, -58.5);
+const centeredRecentCandles = Array.from(
+  { length: 140 },
+  (_, index) => testCandle(new Date(Date.UTC(2026, 0, index + 1, 4)).toISOString(), 100 + index)
+);
+const centeredRecentScene = buildFrontendChartScene(frontendChartState({
+  interval: "1D",
+  candles: centeredRecentCandles,
+  visibleCount: centeredRecentViewport.visibleCount,
+  rightOffset: centeredRecentViewport.rightOffset
+}), 800, 360);
+const centeredRecentUnit = centeredRecentScene.semantic.units.find((unit) => (
+  unit.kind === "candle" && unit.depth === 0 && unit.timestamp === centeredRecentCandles[138].timestamp
+));
+assert.ok(centeredRecentUnit);
+assert.ok(Math.abs(
+  slotCenterToX(centeredRecentScene, centeredRecentUnit.slotCenter)
+    - (centeredRecentScene.plot.left + centeredRecentScene.plot.right) / 2
+) <= 0.5);
+assert.equal(
+  viewportCenteredOnSceneX(140, centeredRecentViewport, 450, 400, 5, 800).rightOffset,
+  -68.5
+);
 assert.deepEqual(frontendNormalizeViewport({ visibleCount: 72, rightOffset: -120 }, 160, 640, { extraFutureSlots: 14 }), {
   visibleCount: 72,
   rightOffset: -62
@@ -4551,8 +4596,12 @@ assert.match(chartPanelSource, /setVolumeProfileRuntimeStatus\("empty"\)/);
 assert.match(chartPanelSource, /setVolumeProfileRuntimeStatus\("error"\)/);
 assert.match(chartPanelSource, /setVolumeProfileRuntimeStatus\("unavailable"\)/);
 assert.match(chartPanelSource, /expectedCandleKey === selectedCandleKey[\s\S]*setSelectedSemanticNode\(null\)/);
-assert.match(chartPanelSource, /applyViewport\(\{ visibleCount: current\.visibleCount, rightOffset: centeredRightOffset \}, "external"\)/);
+assert.match(chartPanelSource, /viewportCenteredOnLogicalIndex\(/);
+assert.match(chartPanelSource, /viewportCenteredOnSceneX\(/);
+assert.doesNotMatch(chartPanelSource, /centeredRightOffset = Math\.max\(0/);
+assert.match(chartPanelSource, /pendingCommentaryNavigationRef\.current/);
 assert.match(chartEventOverlaySource, /markers\.find\(\(item\) => item\.id === openRequest\.eventId\)/);
+assert.match(chartEventOverlaySource, /openRequest\.anchor\?\.x/);
 assert.match(chartEventOverlaySource, /current\?\.event\.id === marker\.id \? null/);
 assert.match(chartEventOverlaySource, /onSelectedEventChange\?\.\(selected\?\.event\.id \?\? null\)/);
 assert.match(chartEventOverlaySource, /data-chart-commentary-event-trigger/);
@@ -4859,7 +4908,7 @@ const recommendationLayout = buildPresetLayout(recommendationPreset, { width: 12
 assert.ok(recommendationLayout);
 assert.deepEqual(
   recommendationLayout.slots.map((slot) => recommendationLayout.contents[slot.contentId]?.kind),
-  ["recommendationsList", "indices", "themeRadar", "news"]
+  ["recommendationsList", "indexCommentary", "themeRadar", "newsKeyword"]
 );
 const companyAnalysisPreset = DEFAULT_PRESETS.find((preset) => preset.id === "stock");
 assert.ok(companyAnalysisPreset);
@@ -4867,7 +4916,7 @@ const companyAnalysisLayout = buildPresetLayout(companyAnalysisPreset, { width: 
 assert.ok(companyAnalysisLayout);
 assert.deepEqual(
   companyAnalysisLayout.slots.map((slot) => companyAnalysisLayout.contents[slot.contentId]?.kind),
-  ["company", "companyJournal", "newsList"]
+  ["company", "companyJournal", "newsKeyword"]
 );
 assert.deepEqual(companyAnalysisLayout.slots[0]?.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 6 });
 const legacyCompanyAnalysisLayout = serializeTiledPanelState(createTiledPanelStateFromSpec([

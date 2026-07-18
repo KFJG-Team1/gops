@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 const layoutStorageKey = "gops:workspace-grid-layout:v1";
 const candles = fixtureCandles();
@@ -85,18 +85,31 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(holdingSummary.getByRole("columnheader")).toHaveText(["보유 상태", "평균 매입가", "보유 수량"]);
   await expect(holdingSummary.getByRole("cell")).toHaveText(["보유", "$148.42", "18주"]);
   await expect(commentaryPanel.getByLabel("종합 해설")).toBeVisible();
-  await expect(commentaryPanel.locator(".chart-commentary-generated")).toHaveAttribute("data-prompt-version", "chart-commentary.ko.v2");
+  const storedCommentary = commentaryPanel.locator(".chart-commentary-generated");
+  await expect(storedCommentary).toHaveAttribute("data-prompt-version", "chart-commentary.ko.v5");
   await expect(commentaryPanel.locator(".chart-commentary-reference-tag")).toHaveCount(0);
-  await expect(commentaryPanel.locator(".chart-commentary-generated > p")).toHaveCount(3);
+  await expect(storedCommentary).toHaveClass(/is-collapsed/);
+  await expect(storedCommentary.locator(".chart-commentary-link-overview")).toBeVisible();
+  await expect(storedCommentary.locator(".chart-commentary-full-text > p")).toHaveCount(0);
+  const commentaryDisclosure = commentaryPanel.getByRole("button", { name: "종합 해설 보기" });
+  await expect(commentaryDisclosure).toHaveAttribute("aria-expanded", "false");
+  await expect(commentaryPanel).toHaveScreenshot("chart-commentary-panel-collapsed.png", { timeout: 15_000 });
   const drawingReference = commentaryPanel.getByRole("button", { name: "상승 삼각형 돌파 확인 구조 관련 작도 강조 고정" });
   await drawingReference.click();
   await expect(drawingReference).toHaveAttribute("aria-pressed", "true");
-  await drawingReference.click();
-  await expect(drawingReference).toHaveAttribute("aria-pressed", "false");
   const indicatorRecommendation = commentaryPanel.getByRole("button", { name: "상대강도지수 차트 레이어 전환" });
   await expect(indicatorRecommendation).toHaveAttribute("aria-pressed", "false");
   await indicatorRecommendation.click();
   await expect(indicatorRecommendation).toHaveAttribute("aria-pressed", "true");
+  await commentaryDisclosure.click();
+  await expect(storedCommentary).toHaveClass(/is-expanded/);
+  await expect(storedCommentary.locator(".chart-commentary-link-overview")).toHaveCount(0);
+  await expect(storedCommentary.locator(".chart-commentary-full-text > p")).toHaveCount(3);
+  await expect(commentaryPanel.getByRole("button", { name: "종합 해설 접기" })).toHaveAttribute("aria-expanded", "true");
+  await expect(indicatorRecommendation).toHaveAttribute("aria-pressed", "true");
+  await expect(drawingReference).toHaveAttribute("aria-pressed", "true");
+  await drawingReference.click();
+  await expect(drawingReference).toHaveAttribute("aria-pressed", "false");
   await indicatorRecommendation.click();
   await expect(indicatorRecommendation).toHaveAttribute("aria-pressed", "false");
   const volumeProfileRecommendation = commentaryPanel.getByRole("button", { name: "Volume Profile 차트 레이어 전환" });
@@ -181,6 +194,15 @@ test("five analysis layers render independently with commentary focus and cards"
   await candleReference.click();
   await expect(candleReference).toHaveAttribute("aria-pressed", "true");
   await expect(chart.getByRole("button", { name: "선택 항목에 질문하기" })).toBeVisible();
+  const centeredLatestOffset = await chart.evaluate((element) => {
+    const visibleCount = Number(element.getAttribute("data-chart-visible-count"));
+    const candleCount = Number(element.getAttribute("data-chart-candle-count"));
+    return {
+      actual: Number(element.getAttribute("data-chart-right-offset")),
+      expected: candleCount - (candleCount - 1) - 0.5 - visibleCount / 2
+    };
+  });
+  expect(Math.abs(centeredLatestOffset.actual - centeredLatestOffset.expected)).toBeLessThan(0.01);
   await candleReference.click();
   await expect(candleReference).toHaveAttribute("aria-pressed", "false");
   await expect(chart.getByRole("button", { name: "선택 항목에 질문하기" })).toHaveCount(0);
@@ -190,10 +212,46 @@ test("five analysis layers render independently with commentary focus and cards"
   await newsReference.click();
   await expect(newsReference).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".chart-event-popover")).toBeVisible();
+  const centeredNewsOffset = await chart.evaluate((element) => {
+    const visibleCount = Number(element.getAttribute("data-chart-visible-count"));
+    const candleCount = Number(element.getAttribute("data-chart-candle-count"));
+    return {
+      actual: Number(element.getAttribute("data-chart-right-offset")),
+      expected: candleCount - (candleCount - 1) - 0.5 - visibleCount / 2
+    };
+  });
+  expect(Math.abs(centeredNewsOffset.actual - centeredNewsOffset.expected)).toBeLessThan(0.01);
   await newsReference.click();
   await expect(newsReference).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".chart-event-popover")).toHaveCount(0);
   await expect(chart.locator("[data-chart-event-id^='news:NVDA:']")).toBeVisible();
+});
+
+test("five analysis layers commentary references center before opening", async ({ page }) => {
+  await page.goto("/?symbol=NVDA");
+  const chart = page.locator(".chart-panel");
+  const commentaryPanel = page.locator(".chart-commentary-panel");
+  await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+
+  const candleReference = commentaryPanel.locator("button.chart-commentary-inline-reference.is-candle").filter({ hasText: "최근 완료 봉" });
+  await candleReference.click();
+  await expect(candleReference).toHaveAttribute("aria-pressed", "true");
+  const candleOffset = await centeredOffsetSnapshot(chart, 139);
+  expect(Math.abs(candleOffset.actual - candleOffset.expected)).toBeLessThan(0.01);
+  await candleReference.click();
+  await expect(candleReference).toHaveAttribute("aria-pressed", "false");
+  await expect(chart).toHaveAttribute("data-chart-right-offset", String(candleOffset.actual));
+
+  const newsReference = commentaryPanel.locator("button.chart-commentary-inline-reference.is-news").filter({ hasText: "최근 뉴스 맥락" });
+  await newsReference.click();
+  await expect(newsReference).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".chart-event-popover")).toBeVisible();
+  const newsOffset = await centeredOffsetSnapshot(chart, 139);
+  expect(Math.abs(newsOffset.actual - newsOffset.expected)).toBeLessThan(0.01);
+  await newsReference.click();
+  await expect(newsReference).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".chart-event-popover")).toHaveCount(0);
+  await expect(chart).toHaveAttribute("data-chart-right-offset", String(newsOffset.actual));
 });
 
 test("interpretation alone keeps broad final underlays and shortlisted candidates", async ({ page }) => {
@@ -896,6 +954,17 @@ function fixtureCandles() {
   });
 }
 
+async function centeredOffsetSnapshot(chart: Locator, targetIndex: number) {
+  return chart.evaluate((element, index) => {
+    const visibleCount = Number(element.getAttribute("data-chart-visible-count"));
+    const candleCount = Number(element.getAttribute("data-chart-candle-count"));
+    return {
+      actual: Number(element.getAttribute("data-chart-right-offset")),
+      expected: candleCount - index - 0.5 - visibleCount / 2
+    };
+  }, targetIndex);
+}
+
 function drawing(id: string, type: string, anchors: Array<Record<string, unknown>>, label: string, color: string) {
   return { id, type, anchors, symbol: "NVDA", interval: "1D", sourceInterval: "1D", style: { color, lineWidth: 2, opacity: .95 }, label, locked: false, visible: true, createdBy: "system", sourceProposalId: "chart-asset:NVDA:1D:test", createdAt: candles.at(-1)?.timestamp, updatedAt: candles.at(-1)?.timestamp };
 }
@@ -1002,7 +1071,7 @@ function assetResponse(): Record<string, unknown> {
     indicators: { sma60: 170, sma120: 165, cross: { status: "none", direction: null } },
     commentary: {
       version: "chart-commentary.v2", status: "ready", generatedAt: asOf, model: "fixture-model",
-      promptVersion: "chart-commentary.ko.v2",
+      promptVersion: "chart-commentary.ko.v5",
       sourceIdentity: {
         geometryInputDigest: "sha256:fixture", candlesAsOf: asOf, indicatorsAsOf: asOf,
         contextDigest: "sha256:fixture-context"

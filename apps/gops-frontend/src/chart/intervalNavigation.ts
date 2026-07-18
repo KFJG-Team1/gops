@@ -12,6 +12,50 @@ export type ViewportAnchor = {
 
 type ViewportNavigationOptions = Pick<ViewportClampOptions, "minimumVisibleSlots">;
 
+export function viewportCenteredOnLogicalIndex(
+  candleCount: number,
+  targetLogicalIndex: number,
+  viewport: ChartViewport,
+  plotWidth?: number,
+  options: ViewportClampOptions = {}
+): ChartViewport {
+  const normalized = normalizeViewport(viewport, candleCount, plotWidth, options);
+  const safeTarget = Number.isFinite(targetLogicalIndex) ? targetLogicalIndex : 0;
+  return normalizeViewport(
+    {
+      visibleCount: normalized.visibleCount,
+      rightOffset: candleCount - safeTarget - 0.5 - normalized.visibleCount / 2
+    },
+    candleCount,
+    plotWidth,
+    options
+  );
+}
+
+export function viewportCenteredOnSceneX(
+  candleCount: number,
+  viewport: ChartViewport,
+  targetX: number,
+  plotCenterX: number,
+  slotWidth: number,
+  plotWidth?: number,
+  options: ViewportClampOptions = {}
+): ChartViewport {
+  const normalized = normalizeViewport(viewport, candleCount, plotWidth, options);
+  if (![targetX, plotCenterX, slotWidth].every(Number.isFinite) || slotWidth <= 0) {
+    return normalized;
+  }
+  return normalizeViewport(
+    {
+      visibleCount: normalized.visibleCount,
+      rightOffset: normalized.rightOffset - (targetX - plotCenterX) / slotWidth
+    },
+    candleCount,
+    plotWidth,
+    options
+  );
+}
+
 export function adjacentInterval(interval: ChartInterval, direction: IntervalDirection): ChartInterval | null {
   const index = chartIntervals.indexOf(interval);
   if (index < 0) {

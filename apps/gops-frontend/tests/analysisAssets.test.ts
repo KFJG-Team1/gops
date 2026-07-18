@@ -165,6 +165,70 @@ assert.equal(
   normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": commentaryV3Asset } }, "AAPL").assets["1D"]?.commentary?.promptVersion,
   "chart-commentary.ko.v3"
 );
+const commentaryV4Asset = structuredClone(commentaryV2Asset);
+commentaryV4Asset.commentary.promptVersion = "chart-commentary.ko.v4";
+assert.equal(
+  normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": commentaryV4Asset } }, "AAPL").assets["1D"]?.commentary?.promptVersion,
+  "chart-commentary.ko.v4"
+);
+const legacyThreeIndicatorAsset: any = structuredClone(commentaryV2Asset);
+legacyThreeIndicatorAsset.commentary.promptVersion = "chart-commentary.ko.v3";
+legacyThreeIndicatorAsset.commentary.paragraphs[1].segments.splice(-1, 0,
+  { id: "volume-link", text: "거래량", link: { kind: "indicator", layer: "volume", referenceIds: ["candle:previous"] } },
+  { id: "macd-link", text: "MACD", link: { kind: "indicator", layer: "macd:12:26:9", referenceIds: ["candle:previous"] } }
+);
+legacyThreeIndicatorAsset.commentary.indicatorRecommendations.push(
+  { layer: "volume", label: "거래량", reason: "수급 확인", referenceIds: ["candle:previous"] },
+  { layer: "macd:12:26:9", label: "MACD", reason: "추세 강도 확인", referenceIds: ["candle:previous"] }
+);
+assert.equal(
+  normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": legacyThreeIndicatorAsset } }, "AAPL").assets["1D"]?.commentary?.promptVersion,
+  "chart-commentary.ko.v3"
+);
+const invalidV4ThreeIndicatorAsset: any = structuredClone(legacyThreeIndicatorAsset);
+invalidV4ThreeIndicatorAsset.commentary.promptVersion = "chart-commentary.ko.v4";
+assert.equal(
+  normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": invalidV4ThreeIndicatorAsset } }, "AAPL").assets["1D"]?.commentary,
+  undefined
+);
+const commentaryV5Asset: any = structuredClone(commentaryV2Asset);
+commentaryV5Asset.commentary.promptVersion = "chart-commentary.ko.v5";
+commentaryV5Asset.commentary.paragraphs[1].segments.splice(-1, 0,
+  { id: "volume-profile-link", text: "Volume Profile", link: { kind: "indicator", layer: "volume-profile", referenceIds: ["candle:previous"] } },
+  { id: "bollinger-link", text: "볼린저 밴드", link: { kind: "indicator", layer: "bollinger:20:2", referenceIds: ["candle:previous"] } }
+);
+commentaryV5Asset.commentary.indicatorRecommendations.push(
+  { layer: "volume-profile", label: "거래량 프로파일", reason: "가격 분포 확인", referenceIds: ["candle:previous"] },
+  { layer: "bollinger:20:2", label: "볼린저 밴드", reason: "변동성 확인", referenceIds: ["candle:previous"] }
+);
+commentaryV5Asset.commentary.references.push({
+  id: "news:latest", type: "news", eventId: "news:AAPL:2026-07-10", marketDate: "2026-07-10"
+});
+commentaryV5Asset.commentary.paragraphs[2].segments.unshift({
+  id: "news-link", text: "최근 뉴스", link: { kind: "news", referenceId: "news:latest" }
+});
+assert.equal(
+  normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": commentaryV5Asset } }, "AAPL").assets["1D"]?.commentary?.promptVersion,
+  "chart-commentary.ko.v5"
+);
+const invalidV5VolumeAsset: any = structuredClone(commentaryV5Asset);
+invalidV5VolumeAsset.commentary.paragraphs[1].segments.find((segment: any) => segment.id === "volume-profile-link").link.layer = "volume";
+invalidV5VolumeAsset.commentary.indicatorRecommendations.find((item: any) => item.layer === "volume-profile").layer = "volume";
+assert.equal(
+  normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": invalidV5VolumeAsset } }, "AAPL").assets["1D"]?.commentary,
+  undefined
+);
+const invalidV5SevenLinks: any = structuredClone(commentaryV5Asset);
+invalidV5SevenLinks.commentary.references.push({
+  id: "candle:extra", type: "candle", timestamp: previous, candleKey: previous.slice(0, 10)
+});
+invalidV5SevenLinks.commentary.paragraphs[2].segments.push({
+  id: "extra-candle-link", text: "이전 완료 봉", link: { kind: "candle", referenceId: "candle:extra" }
+});
+assert.equal(
+  normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": invalidV5SevenLinks } }, "AAPL").assets["1D"]?.commentary,
+  undefined
+);
 
 let interactionNotifications = 0;
 const stopInteractionSubscription = subscribeChartCommentaryInteraction("doc-commentary", () => {
@@ -387,6 +451,7 @@ assert.match(globalStylesSource, /--color-evidence-pattern:\s*color-mix\(in srgb
 assert.match(globalStylesSource, /--color-evidence-support:\s*color-mix\(in srgb, var\(--color-up\) 18%, var\(--color-axis\)\)/);
 assert.match(globalStylesSource, /--color-evidence-resistance:\s*color-mix\(in srgb, var\(--color-down\) 18%, var\(--color-axis\)\)/);
 assert.match(globalStylesSource, /--color-evidence-trend:\s*var\(--color-axis\)/);
+assert.match(globalStylesSource, /--color-ma20:\s*var\(--color-point-purple\)/);
 removedGeometryColorLiterals.forEach((literal) => assert.equal(globalStylesSource.toLowerCase().includes(literal.toLowerCase()), false));
 assert.match(semanticCatalogSource, /상승 페넌트/);
 assert.match(opsSource, /<th>감지 패턴<\/th>/);
@@ -406,9 +471,16 @@ assert.match(commentarySource, /subscribeChartCommentaryInteraction/);
 assert.match(commentarySource, /aria-busy=\{runtimeStatus === "loading"/);
 assert.match(commentarySource, /aria-pressed=\{active\}/);
 assert.match(commentarySource, /data-chart-commentary-event-trigger/);
+assert.match(commentarySource, /collapsedLinkSegments/);
+assert.match(commentarySource, /종합 해설 보기/);
+assert.match(commentarySource, /종합 해설 접기/);
+assert.match(commentarySource, /aria-expanded=\{expanded\}/);
+assert.match(commentarySource, /commentary\.sourceIdentity\.contextDigest, chartDocumentId, symbol, interval/);
 assert.doesNotMatch(commentarySource, /chart-commentary-reference-tags|chart-commentary-reference-tag/);
 assert.match(chartFeatureStylesSource, /\.chart-commentary-inline-reference[\s\S]*color: var\(--color-signal\)/);
 assert.match(chartFeatureStylesSource, /\.chart-commentary-inline-reference\[aria-pressed="true"\][\s\S]*text-decoration-thickness: 2px/);
+assert.match(chartFeatureStylesSource, /\.chart-commentary-generated\.is-collapsed \.chart-commentary-inline-reference[\s\S]*color: var\(--color-text\)/);
+assert.match(chartFeatureStylesSource, /\.chart-commentary-disclosure[\s\S]*font: var\(--type-caption\)/);
 assert.match(commentarySource, /usePortfolioHoldingsData\(undefined, "kis"\)/);
 assert.match(commentarySource, /<HoldingSummary/);
 assert.match(commentarySource, /aria-label="실계좌 보유 현황"/);
