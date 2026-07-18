@@ -309,6 +309,22 @@ export async function fetchLatestCoachReport(signal?: AbortSignal): Promise<Coac
   return normalizeCoachReport(payload?.report);
 }
 
+const internalCoachWarningFragments = [
+  "dev demo",
+  "dev fixture",
+  "fixed replay",
+  "paper ledger",
+  "portfolio snapshot",
+  "decision-check archive",
+  "실제 시장 일봉으로 만든 가상 진입 예시",
+  "사용자 판단·체결 기록은 포함하지 않습니다"
+] as const;
+
+function isUserFacingCoachWarning(value: string): boolean {
+  const normalized = value.toLocaleLowerCase("en-US");
+  return !internalCoachWarningFragments.some((fragment) => normalized.includes(fragment));
+}
+
 export function normalizeCoachReport(value: unknown): CoachReport | null {
   const source = readObject(value);
   const contractVersion = readString(source?.contractVersion);
@@ -339,6 +355,7 @@ export function normalizeCoachReport(value: unknown): CoachReport | null {
     warnings: readArray(source.warnings)
       .map(readString)
       .filter((item): item is string => Boolean(item))
+      .filter(isUserFacingCoachWarning)
   };
 }
 

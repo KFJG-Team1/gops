@@ -876,11 +876,6 @@ function PortfolioMultiSummaryView({ dashboard, refreshing, onRefresh }: { dashb
           <span className="portfolio-multi-composition-dividend" aria-hidden="true" />
         </div>
 
-        <div className="portfolio-multi-composition-boundary" aria-hidden="true">
-          <span>자산 100%</span>
-          <span>배당금</span>
-        </div>
-
         <div className="portfolio-multi-composition-legend">
           <div className="portfolio-multi-composition-legend-item is-stock">
             <i aria-hidden="true" />
