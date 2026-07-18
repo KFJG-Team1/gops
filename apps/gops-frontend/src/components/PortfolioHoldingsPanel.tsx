@@ -901,13 +901,9 @@ function PortfolioMultiSummaryView({ dashboard, refreshing, onRefresh }: { dashb
             <div>
               <span>연간 예상 배당금</span>
               <strong>{formatPanelMoney(dividend?.value, "USD")}</strong>
-              <em>자산 비중 아님 · 배당률 {formatRatioPercent(dashboard.dividendYield)}</em>
             </div>
           </div>
         </div>
-        <p className="portfolio-multi-composition-note">
-          배당금은 자산 구성에 포함되지 않는 별도의 연간 예상 수익입니다.
-        </p>
       </div>
     </article>
   );

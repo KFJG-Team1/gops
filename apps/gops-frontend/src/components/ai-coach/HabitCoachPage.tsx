@@ -191,7 +191,7 @@ export function HabitCoachPage({
           <div className={styles.sectionHeading}>
             <div>
               <span>02</span>
-              <h4 id={`${instanceId}-insight-title`}>나의 문제점과 추천 알람</h4>
+              <h4 id={`${instanceId}-insight-title`}>다음에 보완할 습관</h4>
             </div>
           </div>
 
@@ -210,7 +210,7 @@ export function HabitCoachPage({
           <div className={styles.sectionHeading}>
             <div>
               <span>03</span>
-              <h4 id={`${instanceId}-representative-title`}>포트폴리오 영향 대표 매수 거래</h4>
+              <h4 id={`${instanceId}-representative-title`}>내 습관을 보여주는 거래</h4>
             </div>
           </div>
           <div className={styles.representativeCarousel}>
@@ -234,7 +234,7 @@ function EvidenceSummary({ report }: { report: HabitReport }) {
   const analyzed = report.analyzedTradeCount ?? report.sampleSize;
   const excluded = report.excludedTradeCount ?? Math.max(0, total - analyzed);
   const subject = report.stage === "entry" ? "매수 거래" : report.stage === "exit" ? "매도 거래" : "포트폴리오 기록";
-  const analyzedLabel = report.stage === "portfolio" ? "분석 snapshot" : "분석 사용";
+  const analyzedLabel = report.stage === "portfolio" ? "살펴본 기록" : "살펴본 거래";
 
   return (
     <dl className={styles.evidenceSummary} aria-label="분석 근거">
@@ -269,7 +269,7 @@ function PortfolioDiversificationSection({
   return (
     <section className={styles.diversificationSection} aria-labelledby={`${instanceId}-diversification-title`}>
       <div className={styles.sectionHeading}>
-        <div><span>04</span><h4 id={`${instanceId}-diversification-title`}>시장·섹터 분산 분석</h4></div>
+        <div><span>04</span><h4 id={`${instanceId}-diversification-title`}>분산 상태 살펴보기</h4></div>
       </div>
 
       {diversification.sectorExposures.length ? <div className={styles.exposureList}>
@@ -324,10 +324,10 @@ function buildTendencyKeywords(report?: HabitReport, profile?: HabitLongTermProf
       percent,
       value: `${formatNumber(records.confirmedTradeCount)}건 / ${formatNumber(sampleSize)}건`,
       detail: report?.stage === "exit"
-        ? "목표가와 손절 기준을 확인한 매도는 계속 가져가야 할 장점입니다."
+        ? "팔기 전에 목표 가격과 손절 기준을 정하는 습관이 좋습니다."
         : report?.stage === "portfolio"
-          ? "거래 후 종목·섹터 비중을 확인한 기록은 계속 유지할 장점입니다."
-          : "매수 전에 RSI와 거래량을 확인한 거래는 계속 유지할 장점입니다.",
+          ? "거래 뒤 종목과 업종 비중을 다시 확인하는 습관이 좋습니다."
+          : "가격만 보지 않고 RSI와 거래량을 함께 확인하는 습관이 좋습니다.",
       tone: "strong"
     });
   }
@@ -367,24 +367,24 @@ function defaultStrengths(report?: HabitReport, profile?: HabitLongTermProfile):
 
   if (report?.stage === "exit") {
     return [
-      { label: "목표가 확인 후 매도", percent, value: sampleSize ? `${formatNumber(strongCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `${formatNumber(strongCount)}건에서 목표가를 확인한 뒤 매도했습니다. 이 기준은 계속 가져가야 합니다.`, tone: "strong" },
-      { label: "손절 기준 기록", percent: sampleSize ? Math.round(mediumCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(mediumCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `${formatNumber(mediumCount)}건에서 손절 기준이 남아 있어 매도 판단을 비교할 수 있습니다.`, tone: "strong" },
-      { label: "수익 반납 점검", percent: sampleSize ? Math.round(eventCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(eventCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `${formatNumber(eventCount)}건에서 MFE 이후 수익 반납을 점검했습니다. 매도 습관의 장점입니다.`, tone: "balanced" }
+      { label: "계획한 가격에서 매도", percent, value: sampleSize ? `${formatNumber(strongCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `오른 종목도 감정에 맡기지 않고 계획한 가격에서 정리했습니다.`, tone: "strong" },
+      { label: "손실 기준을 먼저 정함", percent: sampleSize ? Math.round(mediumCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(mediumCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `사기 전에 어디서 판단을 바꿀지 정해 둔 점이 좋습니다.`, tone: "strong" },
+      { label: "오른 종목을 나눠 팖", percent: sampleSize ? Math.round(eventCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(eventCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `이익을 먼저 챙기면서 남은 상승 가능성도 열어 두었습니다.`, tone: "balanced" }
     ];
   }
 
   if (report?.stage === "portfolio") {
     return [
-      { label: "종목 비중 확인", percent, value: sampleSize ? `${formatNumber(strongCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `${formatNumber(strongCount)}건에서 거래 후 종목 비중을 확인했습니다.`, tone: "strong" },
-      { label: "섹터 비중 확인", percent: sampleSize ? Math.round(mediumCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(mediumCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `${formatNumber(mediumCount)}건에서 섹터 집중도를 확인했습니다.`, tone: "strong" },
-      { label: "현금 비중 확인", percent: sampleSize ? Math.round(eventCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(eventCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `${formatNumber(eventCount)}건에서 현금 완충력을 함께 점검했습니다.`, tone: "balanced" }
+      { label: "한 종목에 몰리지 않음", percent, value: sampleSize ? `${formatNumber(strongCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `좋아 보이는 종목도 계좌를 흔들 만큼 크게 담지 않았습니다.`, tone: "strong" },
+      { label: "여러 업종에 나눠 담음", percent: sampleSize ? Math.round(mediumCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(mediumCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `서로 다르게 움직이는 업종을 함께 담아 쏠림을 줄였습니다.`, tone: "strong" },
+      { label: "기회를 위한 현금 유지", percent: sampleSize ? Math.round(eventCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(eventCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `급락이나 새 기회에 대응할 현금을 남겨 두었습니다.`, tone: "balanced" }
     ];
   }
 
   return [
-    { label: "RSI 확인 후 매수", percent, value: sampleSize ? `${formatNumber(strongCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `${formatNumber(strongCount)}건에서 RSI 과열 여부를 확인한 뒤 매수했습니다. MACD 문제와 별개로 유지할 장점입니다.`, tone: "strong" },
-    { label: "거래량 확인 후 매수", percent: sampleSize ? Math.round(mediumCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(mediumCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `${formatNumber(mediumCount)}건에서 상대 거래량을 확인했습니다. 저거래량 추격 매수를 줄이는 데 필요합니다.`, tone: "strong" },
-    { label: "실적 일정 확인 후 매수", percent: sampleSize ? Math.round(eventCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(eventCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `${formatNumber(eventCount)}건에서 실적 일정을 확인했습니다. 실적 전 변동성을 피하는 장점입니다.`, tone: "balanced" }
+    { label: "과열될 때 따라 사지 않음", percent, value: sampleSize ? `${formatNumber(strongCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `주가가 빠르게 올랐을 때 RSI를 보고 한 번 더 생각했습니다.`, tone: "strong" },
+    { label: "거래량까지 확인하고 삼", percent: sampleSize ? Math.round(mediumCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(mediumCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `가격뿐 아니라 실제 매수세가 붙었는지도 함께 확인했습니다.`, tone: "strong" },
+    { label: "실적 일정을 미리 봄", percent: sampleSize ? Math.round(eventCount / sampleSize * 100) : null, value: sampleSize ? `${formatNumber(eventCount)}건 / ${formatNumber(sampleSize)}건` : "계산 대기", detail: `큰 변동이 생길 수 있는 실적 발표일을 매수 전에 확인했습니다.`, tone: "balanced" }
   ];
 }
 
@@ -495,9 +495,9 @@ function defaultProblems(report?: HabitReport): LongTermProblem[] {
 
   if (stage === "exit") {
     return [
-      { id: "default-exit-target", rank: 0, title: "목표가 도달 후 보유 지속", headline: "목표가에 도달한 뒤에도 보유를 지속한 사례가 반복됐습니다.", condition: "사전 목표가 도달 후 미청산", reason: "목표가에 도달한 뒤에도 보유를 지속해 수익 반납 위험이 반복됐습니다. 강하게 가지고가라", stage },
-      { id: "default-exit-loss", rank: 0, title: "손실 청산 지연", headline: "손실 구간에서 매도 결정이 늦어진 사례가 반복됐습니다.", condition: "손절 기준 이탈 후 보유", reason: "손실이 커진 뒤에는 회복 기대가 판단을 흐릴 수 있어 기준 이탈 시 빠르게 확인해야 합니다.", stage },
-      { id: "default-exit-mfe", rank: 0, title: "수익 반납 확인 부족", headline: "유리했던 구간을 지나 수익을 반납한 사례가 반복됐습니다.", condition: "MFE 이후 하락 전환", reason: "최대 유리 구간 이후 MACD와 거래량이 약해지면 분할 매도를 검토해야 합니다.", stage }
+      { id: "default-exit-target", rank: 0, title: "목표 가격을 지나서도 보유함", headline: "처음 정한 목표 가격에 왔을 때 일부라도 정리하지 않아, 챙길 수 있던 수익을 돌려준 경우가 있습니다.", condition: "사전 목표가 도달 후 미청산", reason: "목표 가격에 오면 일부를 먼저 팔고 나머지는 추세를 따라가는 방법을 검토해 보세요.", stage },
+      { id: "default-exit-loss", rank: 0, title: "손절 결정을 미룸", headline: "손절 기준을 벗어난 뒤에도 회복을 기다리다가 손실이 더 커진 경우가 있습니다.", condition: "손절 기준 이탈 후 보유", reason: "기대보다 미리 정한 기준을 우선하도록 알람을 활용해 보세요.", stage },
+      { id: "default-exit-mfe", rank: 0, title: "오른 뒤 약해지는 흐름을 놓침", headline: "충분히 올랐던 종목의 힘이 약해졌는데도 대응하지 못해 수익을 돌려준 경우가 있습니다.", condition: "MFE 이후 하락 전환", reason: "MACD와 거래량이 함께 약해지면 일부 매도를 검토해 보세요.", stage }
     ];
   }
 

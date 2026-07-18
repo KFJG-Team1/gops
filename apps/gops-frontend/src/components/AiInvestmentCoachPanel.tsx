@@ -71,8 +71,8 @@ export function AiInvestmentCoachPanel({ runtimeId }: { runtimeId: string }) {
   };
 
   const content = (() => {
-    if (!resolved && archiveState === "loading") return <Unavailable title="AI 투자 코치" message="저장된 회고를 불러오는 중입니다." />;
-    if (!resolved && archiveState === "unavailable") return <Unavailable title="AI 투자 코치" message="저장된 회고를 불러올 수 없습니다. 다음 생성 후 다시 확인해 주세요." />;
+    if (!resolved && archiveState === "loading") return <Unavailable title="AI 투자 코치" message="최근 거래와 투자 습관을 정리하고 있습니다." />;
+    if (!resolved && archiveState === "unavailable") return <Unavailable title="AI 투자 코치" message="아직 정리할 거래가 없습니다. 거래가 체결되면 회고를 시작합니다." />;
     if (page === 0) return <CurrentPositionCoachPage key={resolved?.analysisId ?? "empty"} report={resolved} onOpenAlertCenter={openAlertCenter} />;
     if (page === 1) return resolved?.page2 ? <HabitCoachPage key={resolved.analysisId} viewModel={resolved.page2} /> : <Unavailable title={PAGES[1]} />;
     if (page === 2) return plan ? <ImprovementCoachPage key={resolved?.analysisId ?? "empty"} plan={plan} onExperimentStatusChange={updateExperiment} onGuardrailEnabledChange={updateGuardrail} /> : <Unavailable title={PAGES[2]} />;
@@ -93,6 +93,6 @@ export function AiInvestmentCoachPanel({ runtimeId }: { runtimeId: string }) {
   );
 }
 
-function Unavailable({ title, message = "데이터 연결 대기" }: { title: string; message?: string }) {
-  return <div className={styles.placeholder} role="status"><CircleAlert /><h2>{title}</h2><p>{message}</p><small>해당 분석 데이터가 준비되면 이 페이지에 표시됩니다.</small></div>;
+function Unavailable({ title, message = "아직 충분한 거래 기록이 없습니다." }: { title: string; message?: string }) {
+  return <div className={styles.placeholder} role="status"><CircleAlert /><h2>{title}</h2><p>{message}</p><small>거래 기록이 쌓이면 이 페이지에서 투자 습관과 다음 원칙을 정리해 드립니다.</small></div>;
 }

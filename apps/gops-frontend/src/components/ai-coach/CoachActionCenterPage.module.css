@@ -5,9 +5,9 @@
   min-width: 0;
   gap: var(--panel-gap);
   color: var(--color-text);
-  font: var(--type-body-md);
-  letter-spacing: var(--type-body-md-letter-spacing);
-  text-transform: var(--type-body-md-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .notice,
@@ -209,6 +209,9 @@
   overflow: hidden;
   min-width: 0;
   color: var(--color-text);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -234,9 +237,9 @@
   color: var(--color-signal);
   background: transparent;
   cursor: pointer;
-  font: var(--type-button);
-  letter-spacing: var(--type-button-letter-spacing);
-  text-transform: var(--type-button-text-transform);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
 .alertManage button:hover:not(:disabled) {
