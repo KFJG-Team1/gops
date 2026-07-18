@@ -31,7 +31,6 @@ import { StockRecommendationExplainPanel } from "../recommendations/StockRecomme
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
 import { ChartComparisonPanel } from "./ChartComparisonPanel";
-import type { CoachReport } from "./ai-coach/types";
 import {
   CompanyInfoPanel,
   CompanyMultiPanel,
@@ -531,9 +530,8 @@ export function PanelContentRenderer({
   }
 
   if (content.kind === "aiCoach") {
-    const coachReport = content.props?.coachReport;
     return <Suspense fallback={<div className="workspace-panel-placeholder" role="status">AI 투자 코치를 불러오는 중입니다</div>}>
-      <AiInvestmentCoachPanel report={coachReport && typeof coachReport === "object" ? coachReport as CoachReport : null} />
+      <AiInvestmentCoachPanel runtimeId={content.id} />
     </Suspense>;
   }
 

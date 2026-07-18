@@ -5,10 +5,10 @@ import { fileURLToPath } from "node:url";
 import {
   formatSimulatorVirtualTime,
   requestPortfolioRefresh,
+  simulationHeatmapItems,
   simulatorPrimaryAction,
   simulationAwareNowMs,
   simulatorSpeeds,
-  shouldOpenHeatmapForSimulatorTransition,
   shouldResetMarketDataForSimulatorTransition,
   simulatorStatusPollIntervalMs,
   subscribePortfolioRefresh,
@@ -28,9 +28,6 @@ assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "live"), 
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("live", "live"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation", "run-1", "run-2"), true);
-assert.equal(shouldOpenHeatmapForSimulatorTransition("live", "simulation"), true);
-assert.equal(shouldOpenHeatmapForSimulatorTransition("simulation", "simulation"), false);
-assert.equal(shouldOpenHeatmapForSimulatorTransition("simulation", "live"), false);
 assert.equal(simulatorPrimaryAction({ mode: "live", state: "idle" }), "start");
 assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "ready" }), "resume");
 assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "paused" }), "resume");
@@ -92,6 +89,29 @@ assert.equal(refreshCalls, 1);
 assert.equal(visiblePaperAccountError("simulation_data_unavailable"), undefined);
 assert.equal(visiblePaperAccountError(undefined, "가상계좌를 불러오지 못했습니다."), "가상계좌를 불러오지 못했습니다.");
 
+const simulatorHeatmap = simulationHeatmapItems([
+  { symbol: "NVDA", lastPrice: null, changePercent: null },
+  { symbol: "AAPL", lastPrice: 200, changePercent: 1 },
+  { symbol: "MSFT", lastPrice: 500, changePercent: -1 }
+], {
+  mode: "simulation",
+  virtualTime: "2026-07-15T00:01:00+09:00",
+  symbols: [
+    { symbol: "NVDA", price: 101.5, changePercent: 2.01 },
+    { symbol: "AAPL", price: null, changePercent: null }
+  ]
+});
+assert.deepEqual(simulatorHeatmap.map((item) => item.symbol), ["NVDA", "AAPL"]);
+assert.deepEqual(simulatorHeatmap[0], {
+  symbol: "NVDA",
+  lastPrice: 101.5,
+  changePercent: 2.01,
+  priceSource: "gops-simulator",
+  priceUpdatedAt: "2026-07-15T00:01:00+09:00"
+});
+assert.equal(simulatorHeatmap[1].lastPrice, null);
+assert.equal(simulatorHeatmap[1].changePercent, null);
+
 const controlSource = readFileSync(
   fileURLToPath(new URL("../src/simulator/SimulatorControl.tsx", import.meta.url)),
   "utf-8"
@@ -125,8 +145,9 @@ const companyJournalPerformanceSource = readFileSync(
   "utf-8"
 );
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
-assert.match(appSource, /shouldOpenHeatmapForSimulatorTransition\(previousMode, status\.mode\)/);
-assert.match(appSource, /navigateMainView\(\{ mode: "treemap" \}, \{ replace: true \}\)/);
+assert.doesNotMatch(appSource, /shouldOpenHeatmapForSimulatorTransition/);
+assert.match(appSource, /simulationHeatmapItems\(current, status\)/);
+assert.match(appSource, /const simulationActive = \(\) => currentSimulatorModeRef\.current === "simulation"/);
 assert.doesNotMatch(controlSource, /onNotification/);
 assert.doesNotMatch(controlSource, /simulator-breaking-toast|simulator-phase-toast/);
 assert.doesNotMatch(controlSource, /setInterval\(refresh,\s*250\)/);

@@ -57,6 +57,10 @@ export type NewsKeywordResponse = {
   dailySummaries: NewsKeywordDailySummary[];
 };
 
+export function newsKeywordEndpoint(_mode: SimulatorStatus["mode"]) {
+  return "/api/market/news/daily";
+}
+
 type NewsKeywordPanelProps = {
   symbol: string;
   initialPayload?: unknown;
@@ -94,9 +98,7 @@ export function NewsKeywordPanel({
     setError(undefined);
     try {
       const params = new URLSearchParams({ symbol, limit: "30", locale: "ko-KR" });
-      const endpoint = simulatorMode === "simulation"
-        ? "/api/market/news/latest"
-        : "/api/market/news/daily";
+      const endpoint = newsKeywordEndpoint(simulatorMode);
       const response = await fetch(`${endpoint}?${params.toString()}`, { signal });
       const parsedPayload = await response.json().catch(() => null);
       if (!response.ok) {
@@ -190,11 +192,9 @@ export function NewsKeywordPanel({
       {error && !loading && <div className="panel-error-row">{error}</div>}
       {!loading && !error && keywordSummaries.length === 0 && (
         <div className="news-keyword-empty">
-          {simulatorMode === "simulation"
-            ? "SIM 모드에는 데일리 뉴스 키워드가 없습니다"
-            : summaries.length > 0
-              ? "새 뉴스 키워드 요약을 준비 중입니다"
-              : `${symbol.toUpperCase()} 뉴스 키워드가 없습니다`}
+          {summaries.length > 0
+            ? "새 뉴스 키워드 요약을 준비 중입니다"
+            : `${symbol.toUpperCase()} 뉴스 키워드가 없습니다`}
         </div>
       )}
 

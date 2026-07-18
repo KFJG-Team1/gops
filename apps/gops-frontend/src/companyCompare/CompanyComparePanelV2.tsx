@@ -37,6 +37,12 @@ import {
   type CompanyCompareResponse,
   type CompanyCompareSectionId
 } from "./companyCompareApi";
+import {
+  buildBusinessHighlights,
+  buildBusinessModelHighlights,
+  buildRevenueHighlights,
+  buildRiskHighlights
+} from "./companyCompareQualitativePresentation";
 
 type CompanyComparePanelProps = {
   baseSymbol: string;
@@ -73,7 +79,7 @@ type AlignedTrendPoint = {
 
 type QualitativeMatrixRow = {
   label: string;
-  values: Record<string, string>;
+  values: Record<string, string[]>;
 };
 
 const REQUEST_DEBOUNCE_MS = 400;
@@ -104,6 +110,11 @@ const QUANTITATIVE_AXIS_IDS = new Set<CompanyCompareSectionId>([
   "profit_structure",
   "financial_health",
   "earnings_stability"
+]);
+const MATRIX_AXIS_IDS = new Set<CompanyCompareSectionId>([
+  "growth_style",
+  "profit_structure",
+  "financial_health"
 ]);
 const METRIC_PRIORITY: Partial<Record<CompanyCompareSectionId, string[]>> = {
   growth_style: ["revenue_growth_yoy", "operating_income_growth_yoy", "net_income_growth_yoy"],
@@ -409,6 +420,7 @@ function CockpitAxisContent({
       : narrativeFailed || response.narrative.status === "failed"
         ? "비교 근거는 확인할 수 있지만 모든 기업을 포함한 AI 해석은 현재 사용할 수 없습니다."
         : "현재 확보된 근거를 같은 기준으로 나란히 비교합니다.");
+  const matrixLayout = MATRIX_AXIS_IDS.has(axis.id);
   return (
     <div className="compare-cockpit-content" role="tabpanel" aria-live="polite">
       <header className="compare-cockpit-heading">
@@ -419,15 +431,17 @@ function CockpitAxisContent({
         <span className="compare-cockpit-source-count">{formatSourceCount(metrics, qualitativeSection)}</span>
       </header>
 
-      <section className="compare-cockpit-brief" aria-label={`${axis.title} AI 근거 요약`}>
-        {narrativeLoading && !narrativeSection ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />}
-        <div>
-          <span>AI EVIDENCE BRIEF</span>
-          <p><GlossaryText text={brief} /></p>
-        </div>
-      </section>
+      <AiEvidenceBrief
+        axisTitle={axis.title}
+        structure={buildBriefStructure(brief, symbols, metrics)}
+        loading={narrativeLoading && !narrativeSection}
+        hero={matrixLayout}
+        symbols={symbols}
+      />
 
-      {axis.id === "earnings_stability" ? (
+      {matrixLayout ? (
+        <QuantitativeMetricCards metrics={metrics} symbols={symbols} axisTitle={axis.title} />
+      ) : axis.id === "earnings_stability" ? (
         <EarningsStabilityView
           points={trendPoints}
           symbols={symbols}
@@ -438,24 +452,213 @@ function CockpitAxisContent({
         <RelationshipPairsView response={response} symbols={symbols} />
       ) : axis.id === "recent_flow" ? (
         <RecentIssuesView response={response} symbols={symbols} />
-      ) : axis.id === "business_model" || axis.id === "risk_profile" ? (
-        <QualitativeMatrixView rows={qualitativeRows} symbols={symbols} axisTitle={axis.title} />
       ) : (
-        <div className="compare-cockpit-metrics is-quantitative">
-          {metrics.map((metric) => (
-            <QuantitativeMetricRow
-              key={metric.id}
-              metric={metric}
-              symbols={symbols}
-            />
-          ))}
-          {metrics.length === 0 && (
-            <div className="compare-cockpit-no-data">이 분석축에 표시할 비교 근거가 아직 없습니다.</div>
-          )}
-        </div>
+        <QualitativeMatrixView rows={qualitativeRows} symbols={symbols} axisTitle={axis.title} />
       )}
     </div>
   );
+}
+
+function QuantitativeMetricCards({
+  metrics,
+  symbols,
+  axisTitle
+}: {
+  metrics: CompanyCompareMetric[];
+  symbols: string[];
+  axisTitle: string;
+}) {
+  if (metrics.length === 0) {
+    return <div className="compare-cockpit-no-data">이 분석축에 표시할 비교 근거가 아직 없습니다.</div>;
+  }
+  return (
+    <div
+      className="compare-cockpit-metric-cards"
+      role="list"
+      aria-label={`${symbols.join(", ")} ${axisTitle} 지표 비교`}
+      style={{
+        "--metric-count": metrics.length,
+        "--company-count": symbols.length
+      } as CSSProperties}
+    >
+      {metrics.map((metric) => {
+        const values = symbols.map((symbol) => metric.values.find((value) => value.symbol === symbol));
+        const extent = Math.max(0, ...values.map((value) => Math.abs(value?.value ?? 0)));
+        return (
+          <article
+            className="compare-cockpit-metric-card"
+            role="listitem"
+            data-company-count={symbols.length}
+            aria-label={`${metric.label}: ${symbols.map((symbol, index) => `${symbol} ${values[index]?.display ?? "데이터 없음"}`).join(", ")}`}
+            key={metric.id}
+          >
+            <header>
+              <strong>{metric.label}</strong>
+              <span>{metricCaption(metric.id)}</span>
+            </header>
+            <div className="compare-cockpit-metric-card-values" data-company-count={symbols.length}>
+              {symbols.map((symbol, symbolIndex) => {
+                const value = values[symbolIndex];
+                return (
+                  <div className="compare-cockpit-metric-card-value" key={symbol}>
+                    <span>
+                      <i style={{ "--company-color": companyColor(symbolIndex) } as CSSProperties} aria-hidden="true" />
+                      {symbol}
+                    </span>
+                    <div aria-hidden="true">
+                      <i style={{
+                        "--company-color": companyColor(symbolIndex),
+                        "--compare-bar-width": `${barWidth(value?.value ?? null, extent)}%`
+                      } as CSSProperties} />
+                    </div>
+                    <b title={value?.asOf ? `기준 ${value.asOf}` : undefined}>{value?.display ?? "데이터 없음"}</b>
+                  </div>
+                );
+              })}
+            </div>
+            <footer>{metricSummary(metric, symbols)}</footer>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+type BriefLine = { symbol: string; text: string };
+type BriefStructure = { lead: string | null; lines: BriefLine[] };
+
+function AiEvidenceBrief({
+  axisTitle,
+  structure,
+  loading,
+  hero,
+  symbols
+}: {
+  axisTitle: string;
+  structure: BriefStructure;
+  loading: boolean;
+  hero: boolean;
+  symbols: string[];
+}) {
+  return (
+    <section
+      className={`compare-cockpit-brief-v2 ${hero ? "is-hero" : "is-top"}`}
+      aria-label={`${axisTitle} AI 근거 요약`}
+    >
+      <div className="compare-cockpit-brief-v2-lead-row">
+        <span className="compare-cockpit-brief-v2-eyebrow">
+          {loading ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />}
+          AI 기업 비교 리포트
+        </span>
+        {structure.lead && (
+          <p className="compare-cockpit-brief-v2-lead"><GlossaryText text={structure.lead} /></p>
+        )}
+      </div>
+      {structure.lines.length > 0 && (
+        <ul className="compare-cockpit-brief-v2-lines">
+          {structure.lines.map((line) => (
+            <li
+              key={line.symbol}
+              style={{ "--company-color": companyColor(Math.max(0, symbols.indexOf(line.symbol))) } as CSSProperties}
+            >
+              <span>
+                <i aria-hidden="true" />
+                {line.symbol}
+              </span>
+              <p><GlossaryText text={line.text} /></p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function buildBriefStructure(
+  text: string,
+  symbols: string[],
+  metrics: CompanyCompareMetric[] = []
+): BriefStructure {
+  const sentences = splitBriefSentences(text);
+  const general: string[] = [];
+  const bySymbol = new Map<string, string[]>();
+  sentences.forEach((sentence) => {
+    const mentioned = symbols.filter((symbol) => mentionsSymbol(sentence, symbol));
+    if (mentioned.length === 1) {
+      bySymbol.set(mentioned[0], [...(bySymbol.get(mentioned[0]) ?? []), sentence]);
+    } else {
+      general.push(sentence);
+    }
+  });
+  const lines = symbols
+    .filter((symbol) => bySymbol.has(symbol))
+    .map((symbol) => ({ symbol, text: (bySymbol.get(symbol) ?? []).join(" ") }));
+  if (lines.length < 2) {
+    const metricStructure = buildMetricBriefStructure(metrics, symbols);
+    if (metricStructure.lines.length > 0) return metricStructure;
+    return { lead: text, lines: [] };
+  }
+  const lead = general.join(" ").trim();
+  return { lead: lead.length > 0 ? lead : null, lines };
+}
+
+function buildMetricBriefStructure(
+  metrics: CompanyCompareMetric[],
+  symbols: string[]
+): BriefStructure {
+  if (metrics.length === 0) return { lead: null, lines: [] };
+  const lines = symbols.map((symbol) => {
+    const facts = metrics.flatMap((metric) => {
+      const value = metric.values.find((entry) => entry.symbol === symbol);
+      return value?.display ? [`${metric.label} ${value.display}`] : [];
+    });
+    return {
+      symbol,
+      text: facts.length > 0 ? facts.join(" · ") : "동일 기준 데이터 없음"
+    };
+  });
+  const revenueMetric = metrics.find((metric) => metric.id === "revenue_growth_yoy");
+  const variationMetric = metrics.find((metric) => metric.id === "net_income_growth_yoy") ?? metrics.at(-1);
+  const revenueLeader = revenueMetric ? metricLeader(revenueMetric, symbols) : null;
+  const variationLeader = variationMetric ? metricLeader(variationMetric, symbols, true) : null;
+  const lead = revenueLeader && variationLeader && revenueMetric && variationMetric
+    ? `${revenueLeader}는 ${revenueMetric.label}이 가장 높고, ${variationLeader}는 ${variationMetric.label} 변동 폭이 두드러집니다.`
+    : "기업별 주요 지표를 같은 기준으로 비교합니다.";
+  return { lead, lines };
+}
+
+function metricLeader(
+  metric: CompanyCompareMetric,
+  symbols: string[],
+  byAbsoluteValue = false
+): string | null {
+  const values = symbols.flatMap((symbol) => {
+    const value = metric.values.find((entry) => entry.symbol === symbol)?.value;
+    return Number.isFinite(value) ? [{ symbol, value: value as number }] : [];
+  });
+  if (values.length === 0) return null;
+  return values.reduce((best, entry) => {
+    const bestValue = byAbsoluteValue ? Math.abs(best.value) : best.value;
+    const entryValue = byAbsoluteValue ? Math.abs(entry.value) : entry.value;
+    return entryValue > bestValue ? entry : best;
+  }).symbol;
+}
+
+function splitBriefSentences(text: string): string[] {
+  const parts = text.split(/([.!?]+)\s+/);
+  const sentences: string[] = [];
+  for (let index = 0; index < parts.length; index += 2) {
+    const body = (parts[index] ?? "").trim();
+    if (!body) continue;
+    sentences.push(`${body}${parts[index + 1] ?? ""}`);
+  }
+  return sentences;
+}
+
+function mentionsSymbol(sentence: string, symbol: string): boolean {
+  if (!symbol) return false;
+  const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9])${escaped}(?![A-Za-z0-9])`).test(sentence);
 }
 
 function QuantitativeMetricRow({
@@ -536,7 +739,17 @@ function QualitativeMatrixView({
           <div className="compare-cockpit-matrix-row-v2" role="row" key={row.label}>
             <strong role="rowheader">{row.label}</strong>
             {symbols.map((symbol) => (
-              <span role="cell" data-symbol={symbol} key={symbol}><GlossaryText text={row.values[symbol] ?? "데이터 없음"} /></span>
+              <div className="compare-cockpit-matrix-cell" role="cell" data-symbol={symbol} key={symbol}>
+                {(row.values[symbol]?.length ?? 0) > 0 ? (
+                  <ul className="compare-cockpit-summary-list">
+                    {row.values[symbol].map((value) => (
+                      <li key={value}><GlossaryText text={value} /></li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="compare-cockpit-matrix-empty">데이터 없음</span>
+                )}
+              </div>
             ))}
           </div>
         ))}
@@ -847,25 +1060,10 @@ function buildQualitativeRows(
 ): QualitativeMatrixRow[] {
   if (section.id === "business_model") {
     const items = Object.fromEntries(symbols.map((symbol) => [symbol, findBusinessItem(section.items, symbol)]));
-    const structured = symbols.some((symbol) => (items[symbol]?.segments?.length ?? 0) > 0);
-    if (structured) {
-      const hasPlatform = symbols.some((symbol) => Boolean(items[symbol]?.platform));
-      const rows = [
-        matrixRow("구조", symbols, (symbol) => plainText(items[symbol]?.structure ?? items[symbol]?.summary)),
-        matrixRow("사업 부문", symbols, (symbol) => listText(
-          (items[symbol]?.segments ?? []).map((segment) => `${segment.name} — ${segment.detail}`)
-        )),
-        matrixRow("수익 방식", symbols, (symbol) => listText(items[symbol]?.revenueModel ?? []))
-      ];
-      if (hasPlatform) {
-        rows.push(matrixRow("플랫폼", symbols, (symbol) => plainText(items[symbol]?.platform)));
-      }
-      return rows;
-    }
     return [
-      matrixRow("사업 모델", symbols, (symbol) => plainText(items[symbol]?.summary)),
-      matrixRow("핵심 동력", symbols, (symbol) => plainText(items[symbol]?.details[0])),
-      matrixRow("시장 맥락", symbols, (symbol) => plainText(items[symbol]?.details[1] ?? items[symbol]?.details.at(-1)))
+      matrixRow("사업 모델", symbols, (symbol) => buildBusinessModelHighlights(items[symbol])),
+      matrixRow("주요 사업", symbols, (symbol) => buildBusinessHighlights(items[symbol])),
+      matrixRow("수익 방식", symbols, (symbol) => buildRevenueHighlights(items[symbol]))
     ];
   }
   if (section.id === "risk_profile") {
@@ -873,7 +1071,7 @@ function buildQualitativeRows(
     return categories.map((category, index) => matrixRow(category, symbols, (symbol) => {
       const items = findSymbolItems(section.items, symbol);
       const matched = items.find((item) => normalizeRiskLabel(item.title) === category) ?? items[index];
-      return plainText(matched?.summary);
+      return buildRiskHighlights(matched?.summary);
     }));
   }
   return [];
@@ -882,7 +1080,7 @@ function buildQualitativeRows(
 function matrixRow(
   label: string,
   symbols: string[],
-  valueFor: (symbol: string) => string
+  valueFor: (symbol: string) => string[]
 ): QualitativeMatrixRow {
   return { label, values: Object.fromEntries(symbols.map((symbol) => [symbol, valueFor(symbol)])) };
 }
@@ -1025,6 +1223,25 @@ function metricCaption(metricId: string): string {
   return captions[metricId] ?? "같은 기준으로 비교";
 }
 
+function metricSummary(metric: CompanyCompareMetric, symbols: string[]): string {
+  const values = symbols
+    .map((symbol) => ({
+      symbol,
+      value: metric.values.find((entry) => entry.symbol === symbol)?.value ?? null
+    }))
+    .filter((entry): entry is { symbol: string; value: number } => Number.isFinite(entry.value));
+  if (values.length === 0) return "비교 가능한 데이터 없음";
+  if (values.length === 1) return `${values[0].symbol}만 데이터 있음`;
+  if (metric.id.includes("growth")) {
+    if (values.every((entry) => entry.value < 0)) return "비교 기업 모두 전년 대비 감소";
+    if (values.some((entry) => entry.value < 0) && values.some((entry) => entry.value >= 0)) {
+      return "기업별 증감 방향이 엇갈림";
+    }
+  }
+  const leader = values.reduce((best, entry) => entry.value > best.value ? entry : best);
+  return `${leader.symbol}가 가장 높은 수치`;
+}
+
 function formatSourceCount(
   metrics: CompanyCompareMetric[],
   section?: CompanyCompareQualitativeSection
@@ -1086,11 +1303,6 @@ function normalizeRiskLabel(value: string): string {
 
 function plainText(value: string | null | undefined): string {
   return value?.replace(/\s+/g, " ").trim() || "데이터 없음";
-}
-
-function listText(lines: string[]): string {
-  const cleaned = lines.map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
-  return cleaned.length > 0 ? cleaned.map((line) => `· ${line}`).join("\n") : "데이터 없음";
 }
 
 function companyColor(index: number): string {

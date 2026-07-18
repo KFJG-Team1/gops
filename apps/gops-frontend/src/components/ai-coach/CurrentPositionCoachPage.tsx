@@ -96,10 +96,9 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
         {trade ? <div className={styles.tradeCarousel}>
           <button type="button" className={styles.tradeArrow} aria-label="이전 오늘 거래" disabled={page.trades.length < 2 || tradeIndex === 0} onClick={() => moveTrade(-1)}><ChevronLeft aria-hidden="true" /></button>
           <div key={trade.fillId} className={styles.tradeGrid} role="group" aria-label={`${tradeIndex + 1} / ${page.trades.length}, ${trade.companyName ?? trade.symbol}`} aria-live="polite">
-            <div className={styles.identity}><StockLogo symbol={trade.symbol} companyName={trade.companyName ?? trade.symbol} size="lg" /><div className={styles.identitySummary}><strong>{trade.companyName ?? trade.symbol}</strong><span className={styles.currentPrice}>{money(trade.currentPrice)}</span><span className={`${styles.currentReturn} ${styles[tone(trade.currentReturnPercent) ?? "neutral"]}`}>{percent(trade.currentReturnPercent)}</span></div></div>
+            <div className={styles.identity}><StockLogo symbol={trade.symbol} companyName={trade.companyName ?? trade.symbol} size="lg" /><div className={styles.identitySummary}><strong>{trade.companyName ?? trade.symbol}</strong><span className={styles.ticker}>{trade.symbol}</span><span className={styles.currentPrice}>{money(trade.currentPrice)}</span><span className={`${styles.currentReturn} ${styles[tone(trade.currentReturnPercent) ?? "neutral"]}`}>{percent(trade.currentReturnPercent)}</span></div></div>
             <Metric label="평균 체결가" value={money(trade.averageFillPrice)} />
             <Metric label="체결 수량" value={numberOrMissing(trade.quantity)} />
-            <Metric label="다음 실적" value={trade.earningsAt ? `${formatDate(trade.earningsAt)}${trade.earningsDaysRemaining != null ? ` · D-${trade.earningsDaysRemaining}` : ""}` : "일정 확인 불가"} />
           </div>
           <button type="button" className={styles.tradeArrow} aria-label="다음 오늘 거래" disabled={page.trades.length < 2 || tradeIndex === page.trades.length - 1} onClick={() => moveTrade(1)}><ChevronRight aria-hidden="true" /></button>
         </div> : <p>데이터 연결 대기</p>}

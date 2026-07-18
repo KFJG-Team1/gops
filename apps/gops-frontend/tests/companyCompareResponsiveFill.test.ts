@@ -88,13 +88,68 @@ assert.match(
 );
 assert.match(
   styles,
-  /\.compare-cockpit-v2 \.compare-cockpit-brief p\s*\{[^}]*max-inline-size:\s*1120px;[^}]*font:\s*var\(--type-label-md\);[^}]*letter-spacing:\s*var\(--type-label-md-letter-spacing\);/,
-  "AI evidence summaries use an approved readable type role and a comfortable line length"
+  /\.compare-cockpit-brief-v2-lead\s*\{[^}]*font:\s*var\(--type-title-sm\);[^}]*letter-spacing:\s*var\(--type-title-sm-letter-spacing\);/,
+  "AI report conclusions use the prominent result-title typography role"
 );
-assert.doesNotMatch(
+assert.match(
   styles,
-  /\.compare-cockpit-v2 \.compare-cockpit-brief p\s*\{[^}]*(?:line-break|text-wrap|word-break):/,
-  "AI evidence summaries rely on the browser's default line-breaking behavior"
+  /\.compare-cockpit-brief-v2-eyebrow\s*\{[^}]*font:\s*var\(--type-label-md\);[^}]*letter-spacing:\s*var\(--type-label-md-letter-spacing\);/,
+  "the AI service label uses the readable panel-label typography role"
+);
+assert.match(
+  styles,
+  /\.compare-cockpit-brief-v2-lines li > p\s*\{[^}]*font:\s*var\(--type-label-md\);[^}]*letter-spacing:\s*var\(--type-label-md-letter-spacing\);/,
+  "company summaries use the readable compact-row typography role"
+);
+assert.match(
+  styles,
+  /\.compare-cockpit-metric-card > header > strong\s*\{[^}]*font:\s*var\(--type-title-sm\);/,
+  "metric card titles use the prominent result-title typography role"
+);
+assert.match(
+  styles,
+  /\.compare-cockpit-metric-card-value > b\s*\{[^}]*font:\s*var\(--type-title-sm\);/,
+  "metric values use the prominent result-title typography role"
+);
+assert.match(
+  styles,
+  /\.compare-cockpit-brief-v2-lead-row\s*\{[^}]*grid-template-columns:\s*minmax\(180px, 0\.26fr\) minmax\(0, 1fr\);/,
+  "the AI report label and conclusion share one horizontal row"
+);
+assert.match(
+  styles,
+  /\.compare-cockpit-brief-v2-lines\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit, minmax\(220px, 1fr\)\);/,
+  "company summaries form a horizontal responsive row"
+);
+assert.match(
+  styles,
+  /\.compare-cockpit-metric-cards\s*\{[^}]*grid-template-columns:\s*repeat\(var\(--metric-count\), minmax\(0, 1fr\)\);/,
+  "quantitative metrics render as equal-width cards"
+);
+assert.match(
+  styles,
+  /\.compare-cockpit-metric-card-values\s*\{[^}]*flex:\s*1 1 auto;[^}]*grid-template-rows:\s*repeat\(var\(--company-count\), minmax\(46px, 1fr\)\);[^}]*padding:\s*10px 0 14px;/,
+  "company metric rows distribute the card's available height instead of clustering at the top"
+);
+assert.match(
+  styles,
+  /\.compare-cockpit-metric-card-values\[data-company-count="2"\] \.compare-cockpit-metric-card-value\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;[^}]*grid-template-rows:\s*auto 18px;[^}]*row-gap:\s*16px;[^}]*padding:\s*18px 4px;/,
+  "two-company comparisons use substantial label-value rows with a dedicated thick bar"
+);
+assert.match(
+  styles,
+  /\.compare-cockpit-metric-card-values\[data-company-count="2"\] \.compare-cockpit-metric-card-value > div\s*\{[^}]*grid-column:\s*1 \/ -1;[^}]*grid-row:\s*2;[^}]*height:\s*18px;/,
+  "two-company comparison bars span the row and use the thicker treatment"
+);
+assert.match(
+  styles,
+  /\.compare-cockpit-metric-card\[data-company-count="2"\] > footer\s*\{[^}]*font:\s*var\(--type-label-md\);/,
+  "two-company card summaries use the readable label role"
+);
+assert.match(
+  styles,
+  /@container \(max-width: 620px\) or \(max-height: 360px\)[\s\S]*?\.compare-cockpit-v2 \.compare-cockpit-metric-card-values\s*\{[^}]*flex:\s*0 0 auto;[^}]*grid-template-rows:\s*none;[^}]*padding:\s*0;/,
+  "compact comparison cards retain their dense intrinsic-height metric rows"
 );
 assert.match(
   styles,
@@ -128,5 +183,27 @@ assert.doesNotMatch(
   "company comparison surfaces do not add references to the agent chat when clicked"
 );
 assert.doesNotMatch(source, /비교 전체 참조|ContextualAgentAskButton/, "company comparison no longer exposes reference affordances");
+assert.match(source, /AI 기업 비교 리포트/, "the AI report uses the user-facing Korean service label");
+assert.match(source, /<QuantitativeMetricCards metrics=\{metrics\}/, "quantitative axes use metric cards");
+assert.match(
+  source,
+  /"--company-count":\s*symbols\.length/,
+  "metric cards expose the company count to their vertical row distribution"
+);
+assert.match(
+  source,
+  /className="compare-cockpit-metric-card-values" data-company-count=\{symbols\.length\}/,
+  "metric rows expose their company count for the two-company layout"
+);
+assert.match(
+  source,
+  /buildBriefStructure\(brief, symbols, metrics\)/,
+  "quantitative evidence is available when the narrative cannot be split by company"
+);
+assert.match(
+  source,
+  /function buildMetricBriefStructure[\s\S]*?facts\.join\(" · "\)/,
+  "metric fallback builds one concise summary per company"
+);
 
 console.info("company comparison responsive fill tests passed");
