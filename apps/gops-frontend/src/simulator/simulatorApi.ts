@@ -11,6 +11,14 @@ export type SimulatorSymbolStatus = {
   changePercent?: number | null;
 };
 
+export type SimulatorHeatmapItem = {
+  symbol: string;
+  lastPrice?: number | null;
+  changePercent: number | null;
+  priceSource?: string | null;
+  priceUpdatedAt?: string | null;
+};
+
 export type SimulatorStatus = {
   available: boolean;
   mode: SimulatorMode;
@@ -64,11 +72,28 @@ export function shouldResetMarketDataForSimulatorTransition(
     || (nextMode === "simulation" && previousRunId != null && previousRunId !== nextRunId);
 }
 
-export function shouldOpenHeatmapForSimulatorTransition(
-  previousMode: SimulatorMode,
-  nextMode: SimulatorMode
-): boolean {
-  return previousMode !== "simulation" && nextMode === "simulation";
+export function simulationHeatmapItems<T extends SimulatorHeatmapItem>(
+  items: readonly T[],
+  status: Pick<SimulatorStatus, "mode" | "virtualTime" | "symbols">
+): T[] {
+  if (status.mode !== "simulation" || status.symbols.length === 0) {
+    return [...items];
+  }
+  const updates = new Map(status.symbols.map((item) => [item.symbol.trim().toUpperCase(), item]));
+  return items
+    .filter((item) => updates.has(item.symbol.trim().toUpperCase()))
+    .map((item) => {
+      const update = updates.get(item.symbol.trim().toUpperCase());
+      const price = Number.isFinite(update?.price) ? Number(update?.price) : null;
+      const changePercent = Number.isFinite(update?.changePercent) ? Number(update?.changePercent) : null;
+      return {
+        ...item,
+        lastPrice: price,
+        changePercent,
+        priceSource: price == null ? null : "gops-simulator",
+        priceUpdatedAt: price == null ? null : status.virtualTime
+      };
+    });
 }
 
 export function simulatorPrimaryAction(

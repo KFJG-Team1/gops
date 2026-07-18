@@ -128,7 +128,7 @@ import {
 import type { AgentLayoutProposal } from "./layout/agentLayoutTypes";
 import { fetchMarketHeatmap } from "./market/heatmapApi";
 import {
-  shouldOpenHeatmapForSimulatorTransition,
+  simulationHeatmapItems,
   shouldResetMarketDataForSimulatorTransition,
   simulatorStatusEvent,
   type SimulatorStatus
@@ -506,9 +506,7 @@ export function App() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<ChartRuntimeState>(() => createInitialChartRuntimeState());
   const [chartDataResetRevision, setChartDataResetRevision] = useState(0);
-  const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(() => (
-    normalizeMarketItems(sp500UniverseSeed).map((item) => ({ ...item, changePercent: null }))
-  ));
+  const [treeMapItems, setTreeMapItems] = useState<Sp500UniverseItem[]>(seedTreeMapItems);
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [selectedWildPanelSlotId, setSelectedWildPanelSlotId] = useState<string | null>(null);
   const [chartPriceSelection, setChartPriceSelection] = useState<ChartPriceSelection | null>(null);
@@ -525,6 +523,7 @@ export function App() {
   const alertCommandDraftRef = useRef<{ clarificationId: string; requestId: string } | null>(null);
   const tradeAutomationRequestedSnapshotRef = useRef<ChartTradeSetupSnapshot | null>(null);
   const treeMapLayoutAsOfRef = useRef<string | null>(null);
+  const currentSimulatorModeRef = useRef<SimulatorStatus["mode"]>("live");
   const previousSimulatorModeRef = useRef<SimulatorStatus["mode"]>("live");
   const previousSimulatorRunIdRef = useRef<string | null>(null);
   const viewportSizeRef = useRef<ViewportSize>(viewportSize);
@@ -637,6 +636,7 @@ export function App() {
       if (!status) return;
       const previousMode = previousSimulatorModeRef.current;
       const previousRunId = previousSimulatorRunIdRef.current;
+      currentSimulatorModeRef.current = status.mode;
       previousSimulatorModeRef.current = status.mode;
       previousSimulatorRunIdRef.current = status.runId ?? null;
       if (shouldResetMarketDataForSimulatorTransition(previousMode, status.mode, previousRunId, status.runId)) {
@@ -645,26 +645,18 @@ export function App() {
         setChartRuntime((current) => chartRuntimeReducer(current, { kind: "chart.marketData.reset" }));
         setChartDataResetRevision((current) => current + 1);
       }
-      if (shouldOpenHeatmapForSimulatorTransition(previousMode, status.mode)) {
-        navigateMainView({ mode: "treemap" }, { replace: true });
+      if (status.mode !== "simulation") {
+        if (previousMode === "simulation") {
+          setTreeMapItems(seedTreeMapItems());
+          treeMapLayoutAsOfRef.current = null;
+        }
+        return;
       }
-      if (status.mode !== "simulation" || status.symbols.length === 0) return;
-      const updates = new Map(status.symbols.map((item) => [item.symbol.toUpperCase(), item]));
-      setTreeMapItems((current) => current.map((item) => {
-        const update = updates.get(item.symbol.toUpperCase());
-        if (!update || update.price == null) return item;
-        return {
-          ...item,
-          lastPrice: update.price,
-          changePercent: update.changePercent ?? item.changePercent,
-          priceSource: "gops-simulator",
-          priceUpdatedAt: status.virtualTime
-        };
-      }));
+      setTreeMapItems((current) => simulationHeatmapItems(current, status));
     };
     window.addEventListener(simulatorStatusEvent, applySimulationQuotes);
     return () => window.removeEventListener(simulatorStatusEvent, applySimulationQuotes);
-  }, [navigateMainView]);
+  }, []);
 
   const applyPresetLayout = useCallback((state: TiledPanelState) => {
     setPanelState(state);
@@ -1131,14 +1123,19 @@ export function App() {
     let cancelled = false;
     let timeoutId: number | undefined;
     let controller: AbortController | null = null;
+    const simulationActive = () => currentSimulatorModeRef.current === "simulation";
 
     const loadHeatmap = async () => {
+      if (simulationActive()) {
+        timeoutId = window.setTimeout(loadHeatmap, 60_000);
+        return;
+      }
       controller = new AbortController();
       let nextRefreshSeconds = 60;
       try {
         const payload = await fetchMarketHeatmap(controller.signal);
         nextRefreshSeconds = payload.quoteRefreshSeconds || nextRefreshSeconds;
-        if (!cancelled && payload.items.length > 0) {
+        if (!cancelled && !simulationActive() && payload.items.length > 0) {
           const previousLayoutAsOf = treeMapLayoutAsOfRef.current;
           const shouldUpdateLayout = !previousLayoutAsOf || payload.layoutAsOf !== previousLayoutAsOf;
           setTreeMapItems((current) => mergeTreeMapItems(current, normalizeMarketItems(payload.items), shouldUpdateLayout));
@@ -2114,6 +2111,14 @@ function normalizeMarketItems(items: readonly Sp500UniverseItem[]): Sp500Univers
       sectorLabelKo: item.sectorLabelKo || sectorLabelKo(sector)
     };
   });
+}
+
+function seedTreeMapItems(): Sp500UniverseItem[] {
+  return normalizeMarketItems(sp500UniverseSeed).map((item) => ({
+    ...item,
+    lastPrice: null,
+    changePercent: null
+  }));
 }
 
 function chartDocumentSymbolsForLayout(
