@@ -77,7 +77,7 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
   compare: {
     name: "차트분석",
     spec: [
-      { kind: "compare", gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 3 } },
+      { kind: "compare", symbol: "NVDA", gridRect: { col: 1, row: 1, colSpan: 8, rowSpan: 3 } },
       { kind: "indices", gridRect: { col: 1, row: 4, colSpan: 4, rowSpan: 2 } },
       { kind: "watchlistNews", gridRect: { col: 5, row: 4, colSpan: 4, rowSpan: 2 } }
     ]

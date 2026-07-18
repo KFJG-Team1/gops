@@ -306,10 +306,13 @@ export function PortfolioHoldingsPanel({
   const [allocationMode, setAllocationMode] = useState<AllocationMode>("symbol");
   const [performanceView, setPerformanceView] = useState<PerformanceView>("performance");
   const portfolioSelection = usePortfolioSelectedSymbol();
+  const initialPortfolioSelectionRevisionRef = useRef(portfolioSelection.revision);
   const selectedPortfolioSymbol = portfolioSelection.symbol;
 
   useEffect(() => {
-    if (selectedPortfolioSymbol) setPerformanceView("purchase");
+    if (selectedPortfolioSymbol && portfolioSelection.revision !== initialPortfolioSelectionRevisionRef.current) {
+      setPerformanceView("purchase");
+    }
   }, [portfolioSelection.revision, selectedPortfolioSymbol]);
   const selectedAllocation = dashboard.allocation[allocationMode];
   const statusMessage = loading
@@ -569,11 +572,14 @@ export function PortfolioPerformancePanel() {
   const [performanceView, setPerformanceView] = useState<PerformanceView>("performance");
   const [refreshRevision, setRefreshRevision] = useState(0);
   const portfolioSelection = usePortfolioSelectedSymbol();
+  const initialPortfolioSelectionRevisionRef = useRef(portfolioSelection.revision);
   const selectedPortfolioSymbol = portfolioSelection.symbol;
   const statusMessage = portfolioPanelStatusMessage(loading, error, positions.length, "비교할 보유종목이 없습니다");
 
   useEffect(() => {
-    if (selectedPortfolioSymbol) setPerformanceView("purchase");
+    if (selectedPortfolioSymbol && portfolioSelection.revision !== initialPortfolioSelectionRevisionRef.current) {
+      setPerformanceView("purchase");
+    }
   }, [portfolioSelection.revision, selectedPortfolioSymbol]);
 
   const refreshPanel = () => {
