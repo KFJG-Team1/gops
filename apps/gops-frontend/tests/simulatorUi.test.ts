@@ -8,6 +8,7 @@ import {
   simulatorPrimaryAction,
   simulationAwareNowMs,
   simulatorSpeeds,
+  shouldOpenHeatmapForSimulatorTransition,
   shouldResetMarketDataForSimulatorTransition,
   simulatorStatusPollIntervalMs,
   subscribePortfolioRefresh,
@@ -26,6 +27,9 @@ assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "live"), 
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("live", "live"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation", "run-1", "run-2"), true);
+assert.equal(shouldOpenHeatmapForSimulatorTransition("live", "simulation"), true);
+assert.equal(shouldOpenHeatmapForSimulatorTransition("simulation", "simulation"), false);
+assert.equal(shouldOpenHeatmapForSimulatorTransition("simulation", "live"), false);
 assert.equal(simulatorPrimaryAction({ mode: "live", state: "idle" }), "start");
 assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "ready" }), "resume");
 assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "paused" }), "resume");
@@ -82,6 +86,10 @@ const controlSource = readFileSync(
   fileURLToPath(new URL("../src/simulator/SimulatorControl.tsx", import.meta.url)),
   "utf-8"
 );
+const appSource = readFileSync(
+  fileURLToPath(new URL("../src/App.tsx", import.meta.url)),
+  "utf-8"
+);
 const apiSource = readFileSync(
   fileURLToPath(new URL("../src/simulator/simulatorApi.ts", import.meta.url)),
   "utf-8"
@@ -103,6 +111,8 @@ const companyJournalSource = readFileSync(
   "utf-8"
 );
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
+assert.match(appSource, /shouldOpenHeatmapForSimulatorTransition\(previousMode, status\.mode\)/);
+assert.match(appSource, /navigateMainView\(\{ mode: "treemap" \}, \{ replace: true \}\)/);
 assert.doesNotMatch(controlSource, /onNotification/);
 assert.doesNotMatch(controlSource, /simulator-breaking-toast|simulator-phase-toast/);
 assert.doesNotMatch(controlSource, /setInterval\(refresh,\s*250\)/);

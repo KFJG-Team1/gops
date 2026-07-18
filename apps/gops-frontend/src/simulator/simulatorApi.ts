@@ -64,6 +64,13 @@ export function shouldResetMarketDataForSimulatorTransition(
     || (nextMode === "simulation" && previousRunId != null && previousRunId !== nextRunId);
 }
 
+export function shouldOpenHeatmapForSimulatorTransition(
+  previousMode: SimulatorMode,
+  nextMode: SimulatorMode
+): boolean {
+  return previousMode !== "simulation" && nextMode === "simulation";
+}
+
 export function simulatorPrimaryAction(
   status: Pick<SimulatorStatus, "mode" | "state">
 ): Extract<SimulatorAction, "start" | "pause" | "resume"> {
