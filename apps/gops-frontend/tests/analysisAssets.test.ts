@@ -481,7 +481,7 @@ assert.match(chartFeatureStylesSource, /\.chart-commentary-inline-reference[\s\S
 assert.match(chartFeatureStylesSource, /\.chart-commentary-inline-reference\[aria-pressed="true"\][\s\S]*text-decoration-thickness: 2px/);
 assert.match(chartFeatureStylesSource, /\.chart-commentary-generated\.is-collapsed \.chart-commentary-inline-reference[\s\S]*color: var\(--color-text\)/);
 assert.match(chartFeatureStylesSource, /\.chart-commentary-disclosure[\s\S]*font: var\(--type-caption\)/);
-assert.match(commentarySource, /usePortfolioHoldingsData\(undefined, "kis"\)/);
+assert.match(commentarySource, /usePortfolioHoldingsData\(undefined, "active"\)/);
 assert.match(commentarySource, /<HoldingSummary/);
 assert.match(commentarySource, /aria-label="실계좌 보유 현황"/);
 assert.match(commentarySource, /<th>보유 상태<\/th><th>평균 매입가<\/th><th>보유 수량<\/th>/);
