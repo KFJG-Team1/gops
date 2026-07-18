@@ -3,7 +3,9 @@ import { normalizeSector, sectorLabelKo } from "./sectors";
 
 export type MarketHeatmapPayload = {
   source: string;
+  cacheStatus: "fresh" | "stale" | "seed";
   universe: string;
+  generatedAt: string;
   layoutAsOf: string;
   quoteAsOf: string;
   quoteRefreshSeconds: number;
@@ -71,7 +73,9 @@ function normalizeMarketHeatmapPayload(payload: unknown): MarketHeatmapPayload {
     : [];
   return {
     source: asString(source.source) || "market-heatmap-projection",
+    cacheStatus: normalizeHeatmapCacheStatus(source.cacheStatus),
     universe: asString(source.universe) || "sp500",
+    generatedAt: asString(source.generatedAt) || "",
     layoutAsOf: asString(source.layoutAsOf) || "",
     quoteAsOf: asString(source.quoteAsOf) || "",
     quoteRefreshSeconds: clampSeconds(asNumber(source.quoteRefreshSeconds), 60),
@@ -79,6 +83,10 @@ function normalizeMarketHeatmapPayload(payload: unknown): MarketHeatmapPayload {
     fundamentalsSource: source.fundamentalsSource,
     items
   };
+}
+
+function normalizeHeatmapCacheStatus(value: unknown): MarketHeatmapPayload["cacheStatus"] {
+  return value === "stale" || value === "seed" ? value : "fresh";
 }
 
 function normalizeHeatmapItem(value: unknown): Sp500UniverseItem | null {
