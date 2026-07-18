@@ -49,6 +49,7 @@ import {
 import { publishOntologyReport } from "./ontology/ontologyEvents";
 import { BottomCommandBar } from "./components/BottomCommandBar";
 import { type ChartPanelHandle } from "./components/ChartPanel";
+import { useAiCoachRuntime } from "./components/ai-coach/AiCoachRuntimeProvider";
 import { PanelWorkspace } from "./components/PanelWorkspace";
 import { PlacementPickerOverlay } from "./components/PlacementPickerOverlay";
 import {
@@ -89,7 +90,6 @@ import {
   scaleTiledPanelState,
   serializeTiledPanelState,
   setCompanyInformationSymbol,
-  setPanelContentProps,
   setPrimaryChartView,
   syncPrimaryChartSymbol,
   workspaceBounds,
@@ -485,6 +485,7 @@ function publishLocalAgentDebugSnapshot(
 }
 
 export function App() {
+  const { acceptAnalysisReport } = useAiCoachRuntime();
   const [mainView, setMainView] = useState<MainView>(() => initialMainView());
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => currentViewportSize());
   const responsivePanelLayout = useMemo(
@@ -1849,12 +1850,7 @@ export function App() {
             proposalId: tradeProposal.proposalId
           }
           : null;
-        setPanelState((current) => Object.values(current.contents).reduce(
-          (next, content) => content.kind === "aiCoach"
-            ? setPanelContentProps(next, content.id, { ...content.props, coachReport: report.coachReport ?? null })
-            : next,
-          current
-        ));
+        acceptAnalysisReport(report.coachReport);
         const reportStatus = report.status?.trim().toLowerCase();
         const isCompletedReport = reportStatus === "completed" || reportStatus === "deep_completed";
         const isChartReport = Boolean(isCompletedReport && opensChartCommentary && commentarySource && report.chartExplanation && report.finalAnswer);
@@ -1914,7 +1910,7 @@ export function App() {
 
     void runChartPrompt();
     return "notice";
-  }, [addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, buildPresetLayoutForCurrent, canUseAgent, chartDocumentSymbolsByPanelId, chartPriceSelection, chartRuntime, clearChartSemanticSelections, handlePresetLoadResult, mainView, navigateMainView, openCompanyPage, openSymbolPage, panelState, presetControls, resolvePresetSymbol, selectedRecommendationSymbol, semanticSelection, showAgentNotice, viewportSize]);
+  }, [acceptAnalysisReport, addReportToSelectedWildPanel, agentBusy, agentInput, agentPresetSummaries, agentReferences, applyAgentLayoutProposal, applyPresetLoadProposal, authLoading, buildAgentLayoutContext, buildPresetLayoutForCurrent, canUseAgent, chartDocumentSymbolsByPanelId, chartPriceSelection, chartRuntime, clearChartSemanticSelections, handlePresetLoadResult, mainView, navigateMainView, openCompanyPage, openSymbolPage, panelState, presetControls, resolvePresetSymbol, selectedRecommendationSymbol, semanticSelection, showAgentNotice, viewportSize]);
 
   const closeTradeAutomationDialog = useCallback(() => {
     tradeAutomationRequestedSnapshotRef.current = null;

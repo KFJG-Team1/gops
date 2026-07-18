@@ -1,69 +1,32 @@
 import { ChevronLeft, ChevronRight, CircleAlert } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createAlert, setAlertStatus } from "../alerts/alertApi";
-import { fetchLatestCoachReport } from "../agents/agentAnalysis";
 import { CoachActionCenterPage } from "./ai-coach/CoachActionCenterPage";
 import { CurrentPositionCoachPage } from "./ai-coach/CurrentPositionCoachPage";
 import { HabitCoachPage } from "./ai-coach/HabitCoachPage";
 import { ImprovementCoachPage } from "./ai-coach/ImprovementCoachPage";
-import type { CoachAlertCandidate, CoachReport, ImprovementPlan, PlaybookExperiment, TradingGuardrail, WatchCondition } from "./ai-coach/types";
+import type { CoachAlertCandidate, ImprovementPlan, PlaybookExperiment, TradingGuardrail, WatchCondition } from "./ai-coach/types";
 import styles from "./ai-coach/AiCoachShell.module.css";
-import { usePaperAccount } from "../orders/PaperAccountProvider";
+import { useAiCoachRuntime } from "./ai-coach/AiCoachRuntimeProvider";
 
 const PAGES = ["당일 거래 회고", "장기 습관", "효과·보완 조건", "실행·알람 관리"] as const;
-const DEV_FIXTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_AI_COACH_DEV_FIXTURE === "true";
-
-export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null }) {
-  const { snapshot: paperSnapshot, orders: paperOrders } = usePaperAccount();
-  const [page, setPage] = useState(0);
-  const [fixture, setFixture] = useState<CoachReport | null>(null);
-  const [archivedReport, setArchivedReport] = useState<CoachReport | null>(null);
-  const [archiveState, setArchiveState] = useState<"loading" | "ready" | "unavailable">("loading");
+export function AiInvestmentCoachPanel({ runtimeId }: { runtimeId: string }) {
+  const {
+    report: resolved,
+    archiveState,
+    activatePanel,
+    pageForPanel,
+    setPageForPanel
+  } = useAiCoachRuntime();
+  const page = pageForPanel(runtimeId);
   const [planOverride, setPlanOverride] = useState<ImprovementPlan | null>(null);
   const [focusedAlertCandidateId, setFocusedAlertCandidateId] = useState<string | null>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const seededPortfolioReport = Boolean(
-    paperSnapshot?.account.seed_profile
-    && paperOrders.length
-    && paperOrders.every((order) => Boolean(order.seed_profile))
-  );
 
   useEffect(() => {
-    let active = true;
-    if (seededPortfolioReport || (!report && DEV_FIXTURE_ENABLED)) {
-      import("./ai-coach/devFixture").then(({ AI_COACH_DEV_FIXTURE }) => {
-        if (active) setFixture(AI_COACH_DEV_FIXTURE);
-      });
-    } else {
-      setFixture(null);
-    }
-    return () => { active = false; };
-  }, [report, seededPortfolioReport]);
+    return activatePanel();
+  }, [activatePanel]);
 
-  useEffect(() => {
-    if (report || DEV_FIXTURE_ENABLED || seededPortfolioReport) {
-      setArchivedReport(null);
-      setArchiveState("ready");
-      return;
-    }
-    const controller = new AbortController();
-    setArchiveState("loading");
-    fetchLatestCoachReport(controller.signal)
-      .then((next) => {
-        if (!controller.signal.aborted) {
-          setArchivedReport(next);
-          setArchiveState("ready");
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setArchiveState("unavailable");
-      });
-    return () => controller.abort();
-  }, [report, seededPortfolioReport]);
-
-  const resolved = seededPortfolioReport
-    ? fixture
-    : report ?? fixture ?? archivedReport;
   const plan = planOverride ?? resolved?.page3 ?? null;
   useEffect(() => {
     setPlanOverride(null);
@@ -78,15 +41,15 @@ export function AiInvestmentCoachPanel({ report }: { report?: CoachReport | null
 
   const showPage = (nextPage: number) => {
     setFocusedAlertCandidateId(null);
-    setPage(nextPage);
+    setPageForPanel(runtimeId, nextPage);
   };
   const move = (delta: number) => {
     setFocusedAlertCandidateId(null);
-    setPage((current) => (current + delta + PAGES.length) % PAGES.length);
+    setPageForPanel(runtimeId, (page + delta + PAGES.length) % PAGES.length);
   };
   const openAlertCenter = (condition: WatchCondition) => {
     setFocusedAlertCandidateId(condition.id);
-    setPage(3);
+    setPageForPanel(runtimeId, 3);
   };
   const updateExperiment = (experimentId: PlaybookExperiment["id"], status: "active" | "paused") => {
     if (!plan) return;
