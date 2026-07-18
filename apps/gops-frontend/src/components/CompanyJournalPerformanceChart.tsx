@@ -15,6 +15,7 @@ type CompanyJournalPerformanceChartProps = {
   industry?: string;
   previewEnabled: boolean;
   storedSeries?: CompanyJournalPerformanceSeries[];
+  disableRemoteFetch?: boolean;
 };
 
 const defaultPerformanceChartSize = { width: 760, height: 320 };
@@ -47,7 +48,8 @@ export function CompanyJournalPerformanceChart({
   sector,
   industry,
   previewEnabled,
-  storedSeries = []
+  storedSeries = [],
+  disableRemoteFetch = false
 }: CompanyJournalPerformanceChartProps) {
   const { chartRef, chartWidth, chartHeight } = usePerformanceChartSize();
   const sectorSymbol = companyJournalSectorBenchmarkSymbol(sector, industry);
@@ -67,6 +69,11 @@ export function CompanyJournalPerformanceChart({
     if (storedSeries.length) {
       setSeries(storedSeries);
       setStatus(storedSeries.some((value) => value.tone === "company") ? "ready" : "partial");
+      return undefined;
+    }
+    if (disableRemoteFetch) {
+      setSeries([]);
+      setStatus("partial");
       return undefined;
     }
     const controller = new AbortController();
@@ -98,7 +105,7 @@ export function CompanyJournalPerformanceChart({
       setStatus(!company ? "error" : loaded.length === definitions.length ? "ready" : "partial");
     });
     return () => controller.abort();
-  }, [previewEnabled, sectorSymbol, storedSeries, symbol]);
+  }, [disableRemoteFetch, previewEnabled, sectorSymbol, storedSeries, symbol]);
 
   const normalized = useMemo(() => normalizePerformanceSeries(series), [series]);
   const companySeries = series.find((value) => value.tone === "company");

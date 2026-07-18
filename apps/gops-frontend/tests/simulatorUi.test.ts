@@ -8,12 +8,14 @@ import {
   simulatorPrimaryAction,
   simulationAwareNowMs,
   simulatorSpeeds,
+  shouldOpenHeatmapForSimulatorTransition,
   shouldResetMarketDataForSimulatorTransition,
   simulatorStatusPollIntervalMs,
   subscribePortfolioRefresh,
   type SimulatorStatus
 } from "../src/simulator/simulatorApi";
 import { visiblePaperAccountError } from "../src/orders/paperAccountPresentation";
+import { companyJournalRequestKey } from "../src/components/CompanyJournalPanel";
 
 
 assert.deepEqual(simulatorSpeeds, [1, 5, 20, 60]);
@@ -26,6 +28,9 @@ assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "live"), 
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("live", "live"), false);
 assert.equal(shouldResetMarketDataForSimulatorTransition("simulation", "simulation", "run-1", "run-2"), true);
+assert.equal(shouldOpenHeatmapForSimulatorTransition("live", "simulation"), true);
+assert.equal(shouldOpenHeatmapForSimulatorTransition("simulation", "simulation"), false);
+assert.equal(shouldOpenHeatmapForSimulatorTransition("simulation", "live"), false);
 assert.equal(simulatorPrimaryAction({ mode: "live", state: "idle" }), "start");
 assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "ready" }), "resume");
 assert.equal(simulatorPrimaryAction({ mode: "simulation", state: "paused" }), "resume");
@@ -49,6 +54,15 @@ const replayStatus: SimulatorStatus = {
   symbols: []
 };
 const observedAtMs = Date.parse("2026-07-16T14:00:00.000Z");
+assert.equal(companyJournalRequestKey(replayStatus), "simulation:run-clock:2026-07-15");
+assert.equal(
+  companyJournalRequestKey({ ...replayStatus, virtualTime: "2026-07-15T08:59:59+09:00" }),
+  "simulation:run-clock:2026-07-15"
+);
+assert.equal(
+  companyJournalRequestKey({ ...replayStatus, runId: "run-next" }),
+  "simulation:run-next:2026-07-15"
+);
 assert.equal(
   simulationAwareNowMs(observedAtMs + 2_000, replayStatus, observedAtMs),
   Date.parse("2026-07-14T15:06:50.000Z")
@@ -82,6 +96,10 @@ const controlSource = readFileSync(
   fileURLToPath(new URL("../src/simulator/SimulatorControl.tsx", import.meta.url)),
   "utf-8"
 );
+const appSource = readFileSync(
+  fileURLToPath(new URL("../src/App.tsx", import.meta.url)),
+  "utf-8"
+);
 const apiSource = readFileSync(
   fileURLToPath(new URL("../src/simulator/simulatorApi.ts", import.meta.url)),
   "utf-8"
@@ -102,7 +120,13 @@ const companyJournalSource = readFileSync(
   fileURLToPath(new URL("../src/components/CompanyJournalPanel.tsx", import.meta.url)),
   "utf-8"
 );
+const companyJournalPerformanceSource = readFileSync(
+  fileURLToPath(new URL("../src/components/CompanyJournalPerformanceChart.tsx", import.meta.url)),
+  "utf-8"
+);
 assert.doesNotMatch(controlSource, /onSelectSymbol/);
+assert.match(appSource, /shouldOpenHeatmapForSimulatorTransition\(previousMode, status\.mode\)/);
+assert.match(appSource, /navigateMainView\(\{ mode: "treemap" \}, \{ replace: true \}\)/);
 assert.doesNotMatch(controlSource, /onNotification/);
 assert.doesNotMatch(controlSource, /simulator-breaking-toast|simulator-phase-toast/);
 assert.doesNotMatch(controlSource, /setInterval\(refresh,\s*250\)/);
@@ -127,7 +151,12 @@ assert.match(newsPanelSource, /simulatorMode === "simulation" \? "\/api\/market\
 assert.match(companyJournalSource, /latestSimulatorStatus/);
 assert.match(companyJournalSource, /simulatorStatusEvent/);
 assert.match(companyJournalSource, /simulatorMode === "simulation"/);
-assert.match(companyJournalSource, /setJournalStatus\("simulation_unavailable"\)/);
+assert.doesNotMatch(companyJournalSource, /setJournalStatus\("simulation_unavailable"\)/);
+assert.doesNotMatch(companyJournalSource, /simulatorMode === "simulation"\) \{[\s\S]*?setStoredEvidence\(null\);[\s\S]*?return/);
+assert.match(companyJournalSource, /disableRemoteFetch=\{previewEnabled \|\| simulatorMode === "simulation"\}/);
+assert.match(companyJournalSource, /companyJournalRequestKey/);
+assert.match(companyJournalSource, /disableRemoteFetch=\{simulatorMode === "simulation"\}/);
+assert.match(companyJournalPerformanceSource, /if \(disableRemoteFetch\) \{/);
 assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, chart\.interval\)/);
 assert.match(chartPanelSource, /scheduleChartAnalysisAssetRequest/);
 
