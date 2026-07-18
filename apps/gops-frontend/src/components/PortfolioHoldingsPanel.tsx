@@ -140,7 +140,7 @@ function paperSnapshotToPortfolioPayload(snapshot: PaperAccountSnapshot): Portfo
     source: "paper-shared",
     asOf: latestPriceTimestamp || snapshot.account.seeded_at || snapshot.account.started_at,
     account: {
-      alias: "7섹터 균형형 가상계좌",
+      alias: "10종목 7섹터 균형형 가상계좌",
       market: "overseas",
       currency: snapshot.account.currency,
       cashForeign: snapshot.account.cash_balance,
