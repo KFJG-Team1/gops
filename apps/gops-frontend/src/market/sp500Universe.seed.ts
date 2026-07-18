@@ -39,6 +39,7 @@ export type Sp500UniverseItem = {
   priceUpdatedAt?: string | null;
   volume?: number | null;
   sessionDollarVolume?: number | null;
+  rsi14?: number | null;
   currency?: string | null;
   indexWeight?: number;
   previousClose?: number | null;

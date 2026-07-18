@@ -85,12 +85,11 @@ const DEFAULT_PRESET_DEFINITIONS: Record<DefaultPresetId, DefaultPresetDefinitio
     ]
   },
   regular: {
-    name: "본장추천",
+    name: "추천분석",
     spec: [
       {
         kind: "recommendationsList",
-        gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 },
-        props: { initialSessionMode: "regular" }
+        gridRect: { col: 1, row: 1, colSpan: 5, rowSpan: 6 }
       },
       { kind: "indexCommentary", gridRect: { col: 6, row: 1, colSpan: 3, rowSpan: 1 } },
       { kind: "themeRadar", gridRect: { col: 6, row: 2, colSpan: 3, rowSpan: 2 } },
@@ -722,7 +721,6 @@ const DEFAULT_PRESET_LEGACY_ALIASES: Partial<Record<DefaultPresetId, readonly st
   market: ["추천 종목", "오늘의 추천 종목", "시장분석"],
   stock: ["기업 분석", "종목분석"],
   compare: ["차트 분석", "비교분석"],
-  regular: ["본장 추천", "정규장 추천"],
   asset: ["자산현황"]
 };
 

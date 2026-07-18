@@ -6,13 +6,13 @@ import {
   buildTiledAgentLayoutContext
 } from "../src/layout/tiledAgentLayout";
 import type { PanelGridRect, TiledPanelState } from "../src/layout/panelLayout";
+import { restoreTiledPanelStateSnapshot } from "../src/layout/panelLayout";
 
 const viewport = { width: 1440, height: 900 };
 const popularStocksCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
   .panelCatalog
   .find((entry) => entry.panelType === "popularStocks");
-assert.deepEqual(popularStocksCatalogEntry?.minSpan, { colSpan: 1, rowSpan: 2 });
-assert.deepEqual(popularStocksCatalogEntry?.defaultSpan, { colSpan: 1, rowSpan: 2 });
+assert.equal(popularStocksCatalogEntry, undefined);
 const quickOrderCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
   .panelCatalog
   .find((entry) => entry.panelType === "quickOrder");
@@ -40,6 +40,42 @@ const original = stateWithRects([
   { col: 1, row: 1, colSpan: 4, rowSpan: 3 },
   { col: 5, row: 1, colSpan: 2, rowSpan: 2 }
 ]);
+
+const legacyPopularCommand = applyTiledAgentLayoutProposalWithResult(
+  { slots: [], contents: {}, nextInstance: 1 },
+  proposal([{ type: "layout.panel.add", payload: { panelType: "popularStocks", panelId: "legacy-popular" } }]),
+  viewport
+).state;
+const migratedAgentContent = legacyPopularCommand.contents[legacyPopularCommand.slots[0]?.contentId ?? ""];
+assert.equal(migratedAgentContent?.kind, "recommendationsList");
+assert.equal(migratedAgentContent?.props?.initialPopular, true);
+
+const restoredPopularOnly = restoreTiledPanelStateSnapshot({
+  version: 1,
+  nextInstance: 2,
+  contents: {
+    popular: { id: "popular", kind: "popular", title: "인기종목", instanceIndex: 1 }
+  },
+  slots: [{ id: "popular-slot", contentId: "popular", gridRect: { col: 1, row: 1, colSpan: 2, rowSpan: 2 } }]
+}, viewport);
+assert.equal(restoredPopularOnly?.contents.popular?.kind, "recommendationsList");
+assert.equal(restoredPopularOnly?.contents.popular?.props?.initialPopular, true);
+assert.deepEqual(restoredPopularOnly?.slots[0]?.gridRect, { col: 1, row: 1, colSpan: 2, rowSpan: 2 });
+
+const restoredWithRecommendation = restoreTiledPanelStateSnapshot({
+  version: 1,
+  nextInstance: 3,
+  contents: {
+    recommendations: { id: "recommendations", kind: "recommendations", title: "추천", instanceIndex: 1 },
+    popular: { id: "popular", kind: "popular", title: "인기종목", instanceIndex: 2 }
+  },
+  slots: [
+    { id: "recommendations-slot", contentId: "recommendations", gridRect: { col: 1, row: 1, colSpan: 2, rowSpan: 2 } },
+    { id: "popular-slot", contentId: "popular", gridRect: { col: 3, row: 1, colSpan: 2, rowSpan: 2 } }
+  ]
+}, viewport);
+assert.deepEqual(restoredWithRecommendation?.slots.map((slot) => slot.id), ["recommendations-slot"]);
+assert.equal(restoredWithRecommendation?.contents.popular, undefined);
 
 const resizeProposal = proposal([
   {

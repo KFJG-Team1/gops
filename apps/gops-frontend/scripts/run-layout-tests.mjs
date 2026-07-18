@@ -40,6 +40,10 @@ const testCases = [
     outfile: new URL("../.tmp/recommendation-api-test.mjs", import.meta.url)
   },
   {
+    entry: new URL("../tests/stockDiscoveryPanel.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/stock-discovery-panel-test.mjs", import.meta.url)
+  },
+  {
     entry: new URL("../tests/companyJournalFinancialAggregation.test.ts", import.meta.url),
     outfile: new URL("../.tmp/company-journal-financial-aggregation-test.mjs", import.meta.url)
   },

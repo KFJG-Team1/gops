@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fetchStockRecommendations } from "../src/recommendations/recommendationApi";
+import { fetchStockRecommendations, suggestScoreProfile } from "../src/recommendations/recommendationApi";
 
 const item = {
   symbol: "JPM",
@@ -10,6 +10,35 @@ const item = {
   reasons: [],
   riskWarnings: ["raw warning must not be rendered"],
   metricsSnapshot: { algorithmVersion: "deterministic-evidence-v3" },
+  explanation: {
+    version: "recommendation-explanation.v1",
+    locale: "ko-KR",
+    decisionLabel: "매수 추천",
+    primary: {
+      source: "deterministic",
+      status: "ready",
+      listSummary: "JPM · 은행 사업 특성과 시장 흐름 확인 · 계획 진입 검토",
+      headline: "JPM의 기업 특성과 시장 흐름이 함께 드러난 후보입니다.",
+      body: "은행 사업의 금리 민감도를 확인합니다. 시장 흐름이 강했습니다. 계획 범위 안에서만 진입을 검토합니다. 신용 위험도 별도로 확인합니다."
+    },
+    deterministic: {
+      summary: "",
+      evidence: [],
+      risks: [],
+      dataQuality: { evidenceReliability: 78, confidenceMeaning: "evidence_reliability_not_success_probability", missingFactors: [], stale: false, sentence: "" }
+    },
+    provenance: {
+      algorithmVersion: "deterministic-evidence-v3",
+      ruleSetVersion: "deterministic-evidence-v3.1",
+      evidenceSnapshotId: "7",
+      inputDigest: "abc",
+      companyContextStatus: "ready",
+      companyContextDigest: "company-digest",
+      companyProfileAccession: "jpm-10k",
+      usedCompanyRefs: ["tenK.businessModel"],
+      usedEvidenceRefs: ["market_strength"]
+    }
+  },
   decision: {
     version: "recommendation-decision.v1",
     action: "buy",
@@ -56,6 +85,8 @@ assert.deepEqual(normalized.items[0].keyEvidence[0].metrics, [
 assert.deepEqual(normalized.items[0].cautions, [
   { code: "chase_limit", label: "추격 진입 기준", severity: "warning", sentence: "돌파 기준과 상한을 비교했습니다." }
 ]);
+assert.equal(normalized.items[0].explanation?.primary.listSummary, item.explanation.primary.listSummary);
+assert.deepEqual(normalized.items[0].explanation?.provenance.usedCompanyRefs, ["tenK.businessModel"]);
 
 responsePayload = { status: "ready", items: [{ ...item, cautions: undefined }] };
 const compatible = await fetchStockRecommendations();
@@ -68,5 +99,50 @@ responsePayload = {
 const mismatched = await fetchStockRecommendations();
 assert.equal(mismatched.items[0].action, "watch");
 assert.deepEqual(mismatched.items[0].cautions, []);
+
+responsePayload = {
+  status: "ready",
+  suggestion: {
+    schemaVersion: "recommendation-score-suggestion.v1",
+    query: "뉴스와 거래량",
+    name: "뉴스 거래량 로직",
+    rationale: "최신 뉴스와 거래 참여를 함께 반영했습니다.",
+    confidence: 0.82,
+    intent: {
+      matchedKeywords: ["뉴스", "거래량"],
+      documents: [{ id: "news-catalyst", title: "뉴스 촉매", reason: "촉매를 반영합니다.", matchedKeywords: ["뉴스"] }]
+    },
+    profile: {
+      type: "custom",
+      id: null,
+      name: "뉴스 거래량 로직",
+      revision: 0,
+      schemaVersion: "recommendation-score-profile.v1",
+      blockWeights: { trendStrength: 20, participationConfirmation: 25, priceStructure: 15, catalystQuality: 20, executionQuality: 10, qualityStability: 10 },
+      factorWeights: { trendStrength: { currentSessionRelativeStrength: 100 } },
+      portfolioWeight: 25,
+      portfolioFactorWeights: { sectorDiversification: 30, correlationBenefit: 30, marginalVariance: 25, liquidityCashCompatibility: 15 }
+    },
+    evidence: {
+      summary: ["최신 snapshot 1을 사용했습니다."],
+      news: [{ ref: "news:MSFT:1", symbol: "MSFT", headline: "Cloud guidance raised" }]
+    },
+    provenance: {
+      source: "llm",
+      model: "gpt-test",
+      promptVersion: "recommendation-score-profile-rag.ko.v1",
+      generatedAt: "2026-07-18T00:00:00Z",
+      evidenceSnapshotId: 1,
+      evidenceAsOf: "2026-07-18T00:00:00Z",
+      retrievalDigest: "digest",
+      evidenceRefs: ["evidence-snapshot:1"]
+    }
+  }
+};
+const suggested = await suggestScoreProfile("뉴스와 거래량");
+assert.equal(suggested.provenance.source, "llm");
+assert.equal(suggested.profile.type, "custom");
+assert.deepEqual(suggested.intent.matchedKeywords, ["뉴스", "거래량"]);
+assert.equal(suggested.evidence.news[0].symbol, "MSFT");
 
 console.info("recommendation API normalization tests passed");

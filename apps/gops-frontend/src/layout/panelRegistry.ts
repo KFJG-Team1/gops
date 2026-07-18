@@ -165,16 +165,6 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     insertable: true
   },
   {
-    kind: "popular",
-    title: "인기종목",
-    agentPanelType: "popularStocks",
-    minSpan: { colSpan: 1, rowSpan: 1 },
-    readableMinSpan: { colSpan: 1, rowSpan: 2 },
-    minSizePx: { width: 150, height: 200 },
-    defaultSpan: { colSpan: 1, rowSpan: 2 },
-    defaultLayoutWeight: 50
-  },
-  {
     kind: "recommendations",
     title: "추천",
     agentPanelType: "stockRecommendations",
@@ -470,6 +460,11 @@ export function panelRegistryEntry(kind: PanelContentKind): PanelRegistryEntry {
 export function panelKindForAgentType(panelType: AgentLayoutPanelType | string | undefined): PanelContentKind | null {
   if (!panelType) {
     return null;
+  }
+  // Backward-compatible Agent command: the former popular panel is now the
+  // unified recommendation explorer with its popular filter enabled.
+  if (panelType === "popularStocks") {
+    return "recommendationsList";
   }
   return panelRegistry.find((entry) => entry.agentPanelType === panelType)?.kind ?? null;
 }

@@ -24,9 +24,9 @@ import type { PanelContentInstance, PanelSlot } from "../layout/panelLayout";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { OntologyPanel } from "../ontology/OntologyPanel";
 import {
-  StockRecommendationsPanel,
   type StockRecommendationSelection
 } from "../recommendations/StockRecommendationsPanel";
+import { StockDiscoveryPanel } from "../recommendations/StockDiscoveryPanel";
 import { StockRecommendationExplainPanel } from "../recommendations/StockRecommendationExplainPanel";
 import { ChartPanel, type ChartHeaderSnapshot, type ChartPanelHandle } from "./ChartPanel";
 import { ChartToolbarSelect, type ChartToolbarSelectOption } from "./ChartToolbarSelect";
@@ -42,7 +42,6 @@ import {
 import { IndexCommentaryPanel } from "./IndexCommentaryPanel";
 import { IndexWidgetPanel } from "./IndexWidgetPanel";
 import { OrderFlowPanel } from "./OrderFlowPanel";
-import { PopularStocksPanel } from "./PopularStocksPanel";
 import {
   PortfolioDividendPanel,
   PortfolioDiversificationPanel,
@@ -400,37 +399,30 @@ export function PanelContentRenderer({
     );
   }
 
-  if (content.kind === "popular") {
-    return <PopularStocksPanel items={marketItems} onSelectSymbol={onSelectSymbol} />;
-  }
-
   if (content.kind === "recommendations") {
     return (
-      <StockRecommendationsPanel
+      <StockDiscoveryPanel
         activeSymbol={symbol.toUpperCase()}
         sourcePanelId={content.id}
-        selectedSymbol={selectedRecommendationSymbol}
-        selectedRecommendation={selectedRecommendation}
+        marketItems={marketItems}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onSelectReference={onSelectRecommendationReference}
-        initialSessionMode={recommendationSessionMode(content.props?.initialSessionMode)}
+        initialPopular={content.props?.initialPopular === true}
       />
     );
   }
 
   if (content.kind === "recommendationsList") {
     return (
-      <StockRecommendationsPanel
+      <StockDiscoveryPanel
         activeSymbol={symbol.toUpperCase()}
         sourcePanelId={content.id}
-        selectedSymbol={selectedRecommendationSymbol}
-        selectedRecommendation={selectedRecommendation}
+        marketItems={marketItems}
         selectedAgentReferenceKeys={selectedAgentReferenceKeys}
         emphasizedAgentReferenceKeys={emphasizedAgentReferenceKeys}
         onSelectReference={onSelectRecommendationReference}
-        initialSessionMode={recommendationSessionMode(content.props?.initialSessionMode)}
-        variant="list"
+        initialPopular={content.props?.initialPopular === true}
       />
     );
   }
@@ -809,10 +801,6 @@ export function PanelContentRenderer({
       )}
     </div>
   );
-}
-
-function recommendationSessionMode(value: unknown): "pre" | "regular" | undefined {
-  return value === "pre" || value === "regular" ? value : undefined;
 }
 
 function normalizeChartType(value: string | undefined): ChartType {

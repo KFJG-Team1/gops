@@ -2,8 +2,61 @@ import { normalizeSector, normalizeSectorList, sectorLabelKo } from "../market/s
 
 export type RiskLevel = "conservative" | "balanced" | "aggressive";
 export type RecommendationStyle = "momentum" | "balanced" | "stable";
-export type RecommendationSessionMode = "pre" | "regular";
 export type RecommendationStatus = "profile_required" | "market_closed" | "data_not_ready" | "loading" | "empty" | "ready" | "stale" | "error" | "completed";
+
+export type ScoreProfileType = "preset" | "custom";
+export type ScoreProfile = {
+  type: ScoreProfileType;
+  id?: number | null;
+  name: string;
+  presetStyle?: RecommendationStyle;
+  revision: number;
+  schemaVersion: "recommendation-score-profile.v1";
+  digest?: string;
+  blockWeights: Record<string, number>;
+  factorWeights: Record<string, Record<string, number>>;
+  portfolioWeight: number;
+  portfolioFactorWeights: Record<string, number>;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type ScoreProfilesPayload = {
+  schemaVersion: "recommendation-score-profile.v1";
+  maxCustomProfiles: number;
+  presets: ScoreProfile[];
+  customProfiles: ScoreProfile[];
+  active: ScoreProfile;
+};
+
+export type ScoreProfileSuggestion = {
+  schemaVersion: "recommendation-score-suggestion.v1";
+  query: string;
+  name: string;
+  rationale: string;
+  confidence: number;
+  intent: {
+    matchedKeywords: string[];
+    documents: Array<{ id: string; title: string; reason: string; matchedKeywords: string[] }>;
+  };
+  profile: ScoreProfile;
+  evidence: {
+    summary: string[];
+    news: Array<{ ref?: string; symbol?: string; headline?: string; summary?: string; sentiment?: string; publishedAt?: string }>;
+  };
+  provenance: {
+    source: "llm" | "deterministic";
+    model?: string;
+    promptVersion: string;
+    generatedAt: string;
+    evidenceSnapshotId?: number | string;
+    evidenceAsOf?: string;
+    newsAsOf?: string;
+    retrievalDigest: string;
+    evidenceRefs: string[];
+    fallbackReason?: string;
+  };
+};
 
 export type InvestmentProfile = {
   riskLevel: RiskLevel;
@@ -13,6 +66,8 @@ export type InvestmentProfile = {
   preferredSectors: string[];
   excludedSectors: string[];
   excludedSymbols: string[];
+  profileRevision?: number;
+  activeScoreProfile?: ScoreProfile;
   updatedAt?: string;
 };
 
@@ -85,6 +140,7 @@ export type RecommendationExplanation = {
   primary: {
     source: "llm" | "deterministic";
     status: "ready" | "fallback";
+    listSummary?: string;
     headline: string;
     body: string;
     model?: string | null;
@@ -109,6 +165,11 @@ export type RecommendationExplanation = {
     ruleSetVersion: string;
     evidenceSnapshotId: string;
     inputDigest: string;
+    companyContextStatus?: "ready" | "partial" | string;
+    companyContextDigest?: string;
+    companyProfileAccession?: string;
+    usedCompanyRefs?: string[];
+    usedEvidenceRefs?: string[];
   };
 };
 
@@ -117,15 +178,13 @@ export type StockRecommendationItem = {
   action: RecommendationAction;
   rank: number;
   score: number;
+  canonicalScore?: number;
   confidence: number;
   baseAlphaScore?: number;
   extendedBaseAlphaScore?: number;
   styleSignalScore?: number;
-  preferenceFitScore?: number;
-  preferenceConfidence?: number;
-  personalizationDelta?: number;
   portfolioFitScore?: number;
-  personalScore?: number;
+  customRankScore?: number;
   fundamentalScore?: number;
   fundamentalWeight?: number;
   fundamentalStatus?: string;
@@ -201,20 +260,72 @@ export async function saveInvestmentProfile(profile: InvestmentProfile): Promise
   return normalized;
 }
 
-export async function fetchStockRecommendations(sessionMode: RecommendationSessionMode = "regular", signal?: AbortSignal): Promise<StockRecommendationPayload> {
-  const params = new URLSearchParams({ sessionMode });
-  return normalizeRecommendationPayload(await apiJson(`/api/recommendations/stocks/latest?${params.toString()}`, { signal }));
+export async function fetchScoreProfiles(signal?: AbortSignal): Promise<ScoreProfilesPayload> {
+  return normalizeScoreProfilesPayload(await apiJson("/api/recommendations/score-profiles", { signal }));
+}
+
+export async function createScoreProfile(profile: Omit<ScoreProfile, "type" | "id" | "revision" | "schemaVersion">): Promise<ScoreProfile> {
+  const payload = asRecord(await apiJson("/api/recommendations/score-profiles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(scoreProfileWriteBody(profile))
+  }));
+  const normalized = normalizeScoreProfile(payload.profile);
+  if (!normalized) throw new RecommendationApiError(500, "점수 프로필 응답을 읽지 못했습니다.");
+  return normalized;
+}
+
+export async function updateScoreProfile(profile: ScoreProfile): Promise<ScoreProfile> {
+  if (!profile.id) throw new RecommendationApiError(422, "수정할 점수 프로필이 없습니다.");
+  const payload = asRecord(await apiJson(`/api/recommendations/score-profiles/${profile.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(scoreProfileWriteBody(profile))
+  }));
+  const normalized = normalizeScoreProfile(payload.profile);
+  if (!normalized) throw new RecommendationApiError(500, "점수 프로필 응답을 읽지 못했습니다.");
+  return normalized;
+}
+
+export async function deleteScoreProfile(profileId: number): Promise<void> {
+  await apiJson(`/api/recommendations/score-profiles/${profileId}`, { method: "DELETE" });
+}
+
+export async function activateScoreProfile(profile: ScoreProfile): Promise<InvestmentProfile> {
+  const payload = asRecord(await apiJson("/api/recommendations/score-profiles/active", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile.type === "custom"
+      ? { type: "custom", profileId: profile.id }
+      : { type: "preset", presetStyle: profile.presetStyle })
+  }));
+  const normalized = normalizeProfile(payload.profile);
+  if (!normalized) throw new RecommendationApiError(500, "활성 점수 프로필 응답을 읽지 못했습니다.");
+  return normalized;
+}
+
+export async function suggestScoreProfile(query: string, signal?: AbortSignal): Promise<ScoreProfileSuggestion> {
+  const payload = asRecord(await apiJson("/api/recommendations/score-profiles/suggestions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+    signal
+  }));
+  return normalizeScoreProfileSuggestion(payload.suggestion);
+}
+
+export async function fetchStockRecommendations(signal?: AbortSignal): Promise<StockRecommendationPayload> {
+  return normalizeRecommendationPayload(await apiJson("/api/recommendations/stocks/latest", { signal }));
 }
 
 export async function refreshStockRecommendations(
   activeSymbol?: string,
-  sessionMode: RecommendationSessionMode = "regular",
   signal?: AbortSignal
 ): Promise<StockRecommendationPayload> {
   return normalizeRecommendationPayload(await apiJson("/api/recommendations/stocks/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ activeSymbol, sessionMode }),
+    body: JSON.stringify({ activeSymbol }),
     signal
   }));
 }
@@ -268,15 +379,13 @@ function normalizeRecommendationItem(value: unknown): StockRecommendationItem | 
     action: decision?.action ?? "watch",
     rank: asNumber(source.rank) ?? 0,
     score: asNumber(source.score) ?? 0,
+    canonicalScore: asNumber(source.canonicalScore) ?? asNumber(metricsSnapshot.canonicalRankScore),
     confidence: asNumber(source.confidence) ?? 0,
     baseAlphaScore: asNumber(source.baseAlphaScore) ?? asNumber(metricsSnapshot.baseAlphaScore),
     extendedBaseAlphaScore: asNumber(source.extendedBaseAlphaScore) ?? asNumber(metricsSnapshot.extendedBaseAlphaScore),
     styleSignalScore: asNumber(source.styleSignalScore) ?? asNumber(metricsSnapshot.styleSignalScore),
-    preferenceFitScore: asNumber(source.preferenceFitScore) ?? asNumber(metricsSnapshot.preferenceFitScore),
-    preferenceConfidence: asNumber(source.preferenceConfidence) ?? asNumber(metricsSnapshot.preferenceConfidence),
-    personalizationDelta: asNumber(source.personalizationDelta) ?? asNumber(metricsSnapshot.personalizationDelta),
     portfolioFitScore: asNumber(source.portfolioFitScore) ?? asNumber(metricsSnapshot.portfolioFitScore),
-    personalScore: asNumber(source.personalScore) ?? asNumber(metricsSnapshot.personalScore),
+    customRankScore: asNumber(source.customRankScore) ?? asNumber(metricsSnapshot.customRankScore),
     fundamentalScore: asNumber(source.fundamentalScore) ?? asNumber(metricsSnapshot.fundamentalScore),
     fundamentalWeight: asNumber(source.fundamentalWeight) ?? asNumber(metricsSnapshot.fundamentalWeight),
     fundamentalStatus: asString(source.fundamentalStatus) ?? asString(metricsSnapshot.fundamentalStatus),
@@ -493,7 +602,120 @@ function normalizeProfile(value: unknown): InvestmentProfile | null {
     preferredSectors: normalizeSectorList(stringArray(source.preferredSectors ?? source.preferred_sectors)),
     excludedSectors: normalizeSectorList(stringArray(source.excludedSectors ?? source.excluded_sectors)),
     excludedSymbols: stringArray(source.excludedSymbols ?? source.excluded_symbols).map((item) => item.toUpperCase()),
+    profileRevision: asNumber(source.profileRevision ?? source.profile_revision),
+    activeScoreProfile: normalizeScoreProfile(source.activeScoreProfile ?? source.active_score_profile),
     updatedAt: asString(source.updatedAt ?? source.updated_at)
+  };
+}
+
+function normalizeScoreProfilesPayload(value: unknown): ScoreProfilesPayload {
+  const source = asRecord(value);
+  const presets = Array.isArray(source.presets) ? source.presets.map(normalizeScoreProfile).filter(isScoreProfile) : [];
+  const customProfiles = Array.isArray(source.customProfiles) ? source.customProfiles.map(normalizeScoreProfile).filter(isScoreProfile) : [];
+  const active = normalizeScoreProfile(source.active) ?? presets.find((item) => item.presetStyle === "balanced");
+  if (!active) throw new RecommendationApiError(500, "점수 프로필 목록을 읽지 못했습니다.");
+  return {
+    schemaVersion: "recommendation-score-profile.v1",
+    maxCustomProfiles: asNumber(source.maxCustomProfiles) ?? 20,
+    presets,
+    customProfiles,
+    active
+  };
+}
+
+function isScoreProfile(value: ScoreProfile | undefined): value is ScoreProfile {
+  return Boolean(value);
+}
+
+function normalizeScoreProfile(value: unknown): ScoreProfile | undefined {
+  const source = asRecord(value);
+  const name = asString(source.name);
+  const type = source.type === "custom" ? "custom" : source.type === "preset" ? "preset" : undefined;
+  if (!name || !type) return undefined;
+  const factorSource = asRecord(source.factorWeights);
+  const factorWeights = Object.fromEntries(Object.entries(factorSource).map(([key, row]) => [key, numberRecord(row)]));
+  return {
+    type,
+    id: asNumber(source.id),
+    name,
+    presetStyle: asString(source.presetStyle) as RecommendationStyle | undefined,
+    revision: asNumber(source.revision) ?? 1,
+    schemaVersion: "recommendation-score-profile.v1",
+    digest: asString(source.digest),
+    blockWeights: numberRecord(source.blockWeights),
+    factorWeights,
+    portfolioWeight: asNumber(source.portfolioWeight) ?? 0,
+    portfolioFactorWeights: numberRecord(source.portfolioFactorWeights),
+    createdAt: asString(source.createdAt),
+    updatedAt: asString(source.updatedAt)
+  };
+}
+
+function normalizeScoreProfileSuggestion(value: unknown): ScoreProfileSuggestion {
+  const source = asRecord(value);
+  const intent = asRecord(source.intent);
+  const evidence = asRecord(source.evidence);
+  const provenance = asRecord(source.provenance);
+  const profile = normalizeScoreProfile(source.profile);
+  const name = asString(source.name);
+  const rationale = asString(source.rationale);
+  const retrievalDigest = asString(provenance.retrievalDigest);
+  if (source.schemaVersion !== "recommendation-score-suggestion.v1" || !profile || !name || !rationale || !retrievalDigest) {
+    throw new RecommendationApiError(500, "추천 로직 AI 제안 응답을 읽지 못했습니다.");
+  }
+  return {
+    schemaVersion: "recommendation-score-suggestion.v1",
+    query: asString(source.query) || "",
+    name,
+    rationale,
+    confidence: asNumber(source.confidence) ?? 0,
+    intent: {
+      matchedKeywords: stringArray(intent.matchedKeywords),
+      documents: Array.isArray(intent.documents) ? intent.documents.flatMap((value) => {
+        const row = asRecord(value);
+        const id = asString(row.id);
+        const title = asString(row.title);
+        const reason = asString(row.reason);
+        return id && title && reason ? [{ id, title, reason, matchedKeywords: stringArray(row.matchedKeywords) }] : [];
+      }) : []
+    },
+    profile,
+    evidence: {
+      summary: stringArray(evidence.summary),
+      news: Array.isArray(evidence.news) ? evidence.news.map((value) => {
+        const row = asRecord(value);
+        return {
+          ref: asString(row.ref),
+          symbol: asString(row.symbol),
+          headline: asString(row.headline),
+          summary: asString(row.summary),
+          sentiment: asString(row.sentiment),
+          publishedAt: asString(row.publishedAt)
+        };
+      }) : []
+    },
+    provenance: {
+      source: provenance.source === "llm" ? "llm" : "deterministic",
+      model: asString(provenance.model),
+      promptVersion: asString(provenance.promptVersion) || "",
+      generatedAt: asString(provenance.generatedAt) || "",
+      evidenceSnapshotId: asNumber(provenance.evidenceSnapshotId) ?? asString(provenance.evidenceSnapshotId),
+      evidenceAsOf: asString(provenance.evidenceAsOf),
+      newsAsOf: asString(provenance.newsAsOf),
+      retrievalDigest,
+      evidenceRefs: stringArray(provenance.evidenceRefs),
+      fallbackReason: asString(provenance.fallbackReason)
+    }
+  };
+}
+
+function scoreProfileWriteBody(profile: Pick<ScoreProfile, "name" | "blockWeights" | "factorWeights" | "portfolioWeight" | "portfolioFactorWeights">) {
+  return {
+    name: profile.name,
+    blockWeights: profile.blockWeights,
+    factorWeights: profile.factorWeights,
+    portfolioWeight: profile.portfolioWeight,
+    portfolioFactorWeights: profile.portfolioFactorWeights
   };
 }
 
@@ -558,6 +780,7 @@ function normalizeExplanation(value: unknown): RecommendationExplanation | undef
     primary: {
       source: primary.source === "llm" ? "llm" : "deterministic",
       status: primary.status === "ready" ? "ready" : "fallback",
+      listSummary: asString(primary.listSummary),
       headline: String(primary.headline), body: asString(primary.body) || "",
       model: asString(primary.model), promptVersion: asString(primary.promptVersion), generatedAt: asString(primary.generatedAt)
     },
@@ -577,7 +800,12 @@ function normalizeExplanation(value: unknown): RecommendationExplanation | undef
       algorithmVersion: asString(provenance.algorithmVersion) || "",
       ruleSetVersion: asString(provenance.ruleSetVersion) || "",
       evidenceSnapshotId: asString(provenance.evidenceSnapshotId) || "",
-      inputDigest: asString(provenance.inputDigest) || ""
+      inputDigest: asString(provenance.inputDigest) || "",
+      companyContextStatus: asString(provenance.companyContextStatus),
+      companyContextDigest: asString(provenance.companyContextDigest),
+      companyProfileAccession: asString(provenance.companyProfileAccession),
+      usedCompanyRefs: stringArray(provenance.usedCompanyRefs),
+      usedEvidenceRefs: stringArray(provenance.usedEvidenceRefs)
     }
   };
 }

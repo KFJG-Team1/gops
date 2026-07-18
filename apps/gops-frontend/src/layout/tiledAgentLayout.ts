@@ -37,7 +37,6 @@ const kindToPanelType: Record<PanelContentKind, AgentLayoutPanelType> = {
   companyStability: "companyStability",
   indices: "marketIndices",
   indexCommentary: "indexCommentary",
-  popular: "popularStocks",
   recommendations: "stockRecommendations",
   recommendationsList: "stockRecommendations",
   recommendationExplain: "stockRecommendationExplain",
@@ -653,7 +652,10 @@ function readPanelSymbol(payload: Record<string, unknown>): string | null {
 }
 
 function readPanelProps(payload: Record<string, unknown>): Record<string, unknown> | undefined {
-  return isRecord(payload.props) ? payload.props : undefined;
+  const props = isRecord(payload.props) ? payload.props : undefined;
+  return readString(payload.panelType) === "popularStocks"
+    ? { ...(props ?? {}), initialPopular: true }
+    : props;
 }
 
 function readPendingPlacementPick(proposal: AgentLayoutProposal): PendingPlacementPick | undefined {

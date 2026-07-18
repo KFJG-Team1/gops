@@ -27,7 +27,6 @@ export type PanelContentKind =
   | "watchlistNewsList"
   | "indices"
   | "indexCommentary"
-  | "popular"
   | "recommendations"
   | "recommendationsList"
   | "recommendationExplain"
@@ -1374,13 +1373,23 @@ export function restoreTiledPanelStateSnapshot(
   if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.slots) || !isRecord(value.contents)) {
     return null;
   }
+  const rawContentEntries = Object.entries(value.contents);
+  const hasRecommendationPanel = rawContentEntries.some(([, raw]) => isRecord(raw)
+    && (raw.kind === "recommendations" || raw.kind === "recommendationsList"));
+  let migratedPopularPanel = false;
+  const ignoredContentIds = new Set<string>();
   const contents: Record<PanelContentId, PanelContentInstance> = {};
-  for (const [contentId, rawContent] of Object.entries(value.contents)) {
+  for (const [contentId, rawContent] of rawContentEntries) {
     if (!isRecord(rawContent)) {
       return null;
     }
     const rawKind = readString(rawContent.kind);
-    const kind = readPanelContentKind(rawContent.kind);
+    if (rawKind === "popular" && (hasRecommendationPanel || migratedPopularPanel)) {
+      ignoredContentIds.add(contentId);
+      continue;
+    }
+    const kind = rawKind === "popular" ? "recommendationsList" : readPanelContentKind(rawContent.kind);
+    if (rawKind === "popular") migratedPopularPanel = true;
     const instanceIndex = typeof rawContent.instanceIndex === "number" && Number.isFinite(rawContent.instanceIndex)
       ? rawContent.instanceIndex
       : 0;
@@ -1390,16 +1399,19 @@ export function restoreTiledPanelStateSnapshot(
     const restoredProps = isRecord(rawContent.props)
       ? panelPropsForStorage(kind, rawContent.props)
       : undefined;
+    const migratedProps = rawKind === "popular"
+      ? { ...(restoredProps ?? {}), initialPopular: true }
+      : restoredProps;
     contents[contentId] = {
       id: contentId,
       kind,
-      title: rawKind === "indices1x1" || rawKind === "indices2x2"
+      title: rawKind === "indices1x1" || rawKind === "indices2x2" || rawKind === "popular"
         ? panelContentTitle(kind)
         : readString(rawContent.title) ?? panelContentTitle(kind),
       instanceIndex,
       ...(kind === "chart" ? { chartDocumentId: readString(rawContent.chartDocumentId) ?? `${contentId}-document` } : {}),
       ...(typeof rawContent.layoutWeight === "number" ? { layoutWeight: rawContent.layoutWeight } : {}),
-      ...(restoredProps && Object.keys(restoredProps).length ? { props: restoredProps } : {})
+      ...(migratedProps && Object.keys(migratedProps).length ? { props: migratedProps } : {})
     };
   }
 
@@ -1411,6 +1423,9 @@ export function restoreTiledPanelStateSnapshot(
     }
     const id = readString(rawSlot.id);
     const contentId = readString(rawSlot.contentId);
+    if (contentId && ignoredContentIds.has(contentId)) {
+      continue;
+    }
     const content = contentId ? contents[contentId] : null;
     const gridRect = readGridRect(rawSlot.gridRect);
     if (!id || !content || !gridRect || !gridRectMeetsMinSpan(gridRect, content.kind)) {
