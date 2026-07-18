@@ -4,7 +4,8 @@ import { build } from "esbuild";
 
 const testCases = [
   { entry: new URL("../tests/simulatorUi.test.ts", import.meta.url), outfile: new URL("../.tmp/simulator-ui-test.mjs", import.meta.url) },
-  { entry: new URL("../tests/quickOrder.test.ts", import.meta.url), outfile: new URL("../.tmp/quick-order-test.mjs", import.meta.url) }
+  { entry: new URL("../tests/quickOrder.test.ts", import.meta.url), outfile: new URL("../.tmp/quick-order-test.mjs", import.meta.url) },
+  { entry: new URL("../tests/newsKeywordSimulator.test.ts", import.meta.url), outfile: new URL("../.tmp/news-keyword-simulator-test.mjs", import.meta.url) }
 ];
 await mkdir(new URL("../.tmp/", import.meta.url), { recursive: true });
 
