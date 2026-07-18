@@ -834,7 +834,17 @@ function PortfolioMultiPageHeader({ title, subtitle, aside }: { title: string; s
 
 function PortfolioMultiSummaryView({ dashboard, refreshing, onRefresh }: { dashboard: PortfolioDashboard; refreshing: boolean; onRefresh: () => void }) {
   const allocationItems = buildPortfolioAssetMetrics(dashboard);
-  const ringRadii = [42, 28, 14];
+  const stock = allocationItems.find((item) => item.key === "stock");
+  const cash = allocationItems.find((item) => item.key === "cash");
+  const dividend = allocationItems.find((item) => item.key === "dividend");
+  const assetWeightTotal = Math.max(0, (stock?.weight ?? 0) + (cash?.weight ?? 0));
+  const stockShare = assetWeightTotal > 0 ? ((stock?.weight ?? 0) / assetWeightTotal) * 100 : 100;
+  const cashShare = assetWeightTotal > 0 ? ((cash?.weight ?? 0) / assetWeightTotal) * 100 : 0;
+  const assetGridStyle = {
+    "--portfolio-stock-share": `${stockShare}%`,
+    "--portfolio-cash-share": `${cashShare}%`,
+    gridTemplateColumns: `${stockShare}fr ${cashShare}fr`
+  } as CSSProperties;
   return (
     <article className="portfolio-multi-page portfolio-multi-summary-page">
       <button className="portfolio-multi-refresh" type="button" aria-label="포트폴리오 새로고침" onClick={() => void onRefresh()} disabled={refreshing}>
@@ -849,41 +859,55 @@ function PortfolioMultiSummaryView({ dashboard, refreshing, onRefresh }: { dashb
           </span>
         </div>
       </div>
-      <div className="portfolio-multi-asset-visual" aria-label="포트폴리오 자산 구성">
-        <div className="portfolio-multi-asset-orbits">
-          <svg viewBox="0 0 100 100" role="img" aria-label="주식, 현금, 배당 비중 활동 링">
-            {allocationItems.map((item, index) => {
-              const progress = Math.min(100, Math.max(0, item.progress));
-              const radius = ringRadii[index] ?? 18;
-              return (
-                <g key={item.key} className={`portfolio-multi-watch-ring is-${item.key}`}>
-                  <circle className="track" cx="50" cy="50" r={radius} pathLength="100" style={{ stroke: item.color }} />
-                  <circle
-                    className="progress"
-                    cx="50"
-                    cy="50"
-                    r={radius}
-                    pathLength="100"
-                    style={{ stroke: item.color, strokeDasharray: `${progress} 100` }}
-                    transform="rotate(-90 50 50)"
-                  />
-                </g>
-              );
-            })}
-          </svg>
+      <div className="portfolio-multi-composition">
+        <div className="portfolio-multi-composition-heading">
+          <span>포트폴리오 구성</span>
+          <strong>현재 보유자산 기준</strong>
         </div>
-        <div className="portfolio-multi-asset-list">
-        {allocationItems.map((item) => (
-          <div
-            key={item.key}
-            className={`portfolio-multi-asset-row is-${item.key}`}
-          >
-            <i style={{ background: item.color }} aria-hidden="true" />
-            <span>{item.label}</span>
-            <strong>{formatCompactMoney(item.value, "USD")}/{formatPercentPlain(item.weight)}</strong>
+        <div
+          className="portfolio-multi-composition-bar"
+          role="img"
+          aria-label={`주식 ${formatPercentPlain(stockShare)}와 현금 ${formatPercentPlain(cashShare)}가 자산 100퍼센트를 구성하며, 오른쪽에는 별도 예상 연 배당금 ${formatPanelMoney(dividend?.value, "USD")}을 표시합니다.`}
+        >
+          <div className="portfolio-multi-composition-assets" style={assetGridStyle} aria-hidden="true">
+            <span className="portfolio-multi-composition-segment is-stock" />
+            <span className="portfolio-multi-composition-segment is-cash" />
           </div>
-        ))}
+          <span className="portfolio-multi-composition-dividend" aria-hidden="true" />
         </div>
+
+        <div className="portfolio-multi-composition-boundary" aria-hidden="true">
+          <span>자산 100%</span>
+          <span>배당금</span>
+        </div>
+
+        <div className="portfolio-multi-composition-legend">
+          <div className="portfolio-multi-composition-legend-item is-stock">
+            <i aria-hidden="true" />
+            <div>
+              <span>주식 · {formatPercentPlain(stockShare)}</span>
+              <strong>{formatPanelMoney(stock?.value, "USD")}</strong>
+            </div>
+          </div>
+          <div className="portfolio-multi-composition-legend-item is-cash">
+            <i aria-hidden="true" />
+            <div>
+              <span>현금 · {formatPercentPlain(cashShare)}</span>
+              <strong>{formatPanelMoney(cash?.value, "USD")}</strong>
+            </div>
+          </div>
+          <div className="portfolio-multi-composition-legend-item is-dividend">
+            <i aria-hidden="true" />
+            <div>
+              <span>연간 예상 배당금</span>
+              <strong>{formatPanelMoney(dividend?.value, "USD")}</strong>
+              <em>자산 비중 아님 · 배당률 {formatRatioPercent(dashboard.dividendYield)}</em>
+            </div>
+          </div>
+        </div>
+        <p className="portfolio-multi-composition-note">
+          배당금은 자산 구성에 포함되지 않는 별도의 연간 예상 수익입니다.
+        </p>
       </div>
     </article>
   );

@@ -20374,6 +20374,206 @@ textarea:focus,
 
 }
 
+/* Dual portfolio summary: stock + cash own the 100% allocation track.
+   Annual dividend is a separate income metric beyond that boundary. */
+.portfolio-multi-summary-page {
+  --portfolio-composition-stock: var(--coinbase-primary);
+  --portfolio-composition-cash: var(--color-down);
+  --portfolio-composition-dividend: var(--color-up);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--panel-gap);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 6px;
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero > div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero > div > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero > div > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--portfolio-multi-green);
+  white-space: nowrap;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero > div > span > small {
+  color: var(--portfolio-multi-body);
+  font: var(--type-caption);
+}
+
+.portfolio-multi-composition {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(112px, 1fr) auto;
+  align-content: stretch;
+  gap: var(--panel-gap);
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-composition-equation {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--portfolio-multi-body);
+  font: var(--type-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-multi-composition-bar,
+.portfolio-multi-composition-labels {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(116px, 18%);
+}
+
+.portfolio-multi-composition-bar {
+  min-height: 0;
+  overflow: hidden;
+  background: var(--coinbase-canvas);
+}
+
+.portfolio-multi-composition-assets {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.portfolio-multi-composition-segment,
+.portfolio-multi-composition-dividend {
+  display: block;
+  min-width: 0;
+  background-color: color-mix(in srgb, var(--portfolio-segment-color) 10%, var(--coinbase-canvas));
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--portfolio-segment-color) 92%, transparent) 0 3px,
+    transparent 3px 9px
+  );
+}
+
+.portfolio-multi-composition-segment.is-stock {
+  --portfolio-segment-color: var(--portfolio-composition-stock);
+}
+
+.portfolio-multi-composition-segment.is-cash {
+  --portfolio-segment-color: var(--portfolio-composition-cash);
+  border-left: 1px solid var(--coinbase-canvas);
+}
+
+.portfolio-multi-composition-dividend {
+  --portfolio-segment-color: var(--portfolio-composition-dividend);
+  border-left: 1px solid var(--coinbase-hairline-strong);
+}
+
+.portfolio-multi-composition-labels {
+  border-top: 1px solid var(--coinbase-hairline-strong);
+}
+
+.portfolio-multi-composition-asset-labels {
+  display: grid;
+  min-width: 0;
+}
+
+.portfolio-multi-composition-copy,
+.portfolio-multi-composition-dividend-label {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 4px;
+  padding: 10px 10px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-multi-composition-copy {
+  border-top: 2px solid var(--portfolio-composition-stock);
+}
+
+.portfolio-multi-composition-copy.is-stock {
+  grid-column: 1;
+}
+
+.portfolio-multi-composition-copy.is-cash {
+  grid-column: 2;
+  justify-items: end;
+  border-top-color: var(--portfolio-composition-cash);
+  text-align: right;
+}
+
+.portfolio-multi-composition-copy span,
+.portfolio-multi-composition-dividend-label span,
+.portfolio-multi-composition-dividend-label em {
+  color: var(--portfolio-multi-body);
+  font: var(--type-caption);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.portfolio-multi-composition-copy strong,
+.portfolio-multi-composition-dividend-label strong {
+  color: var(--portfolio-multi-ink);
+  font: var(--type-label-md);
+  white-space: nowrap;
+}
+
+.portfolio-multi-composition-dividend-label {
+  border-top: 2px solid var(--portfolio-composition-dividend);
+  border-left: 1px solid var(--coinbase-hairline-strong);
+}
+
+@container workspace-panel (max-width: 430px) {
+  .portfolio-multi-summary-page .portfolio-multi-summary-hero > div {
+    display: grid;
+    justify-content: stretch;
+    gap: 4px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-summary-hero > div > span {
+    flex-wrap: wrap;
+  }
+
+  .portfolio-multi-composition {
+    grid-template-rows: auto minmax(96px, 1fr) auto;
+    gap: 8px;
+  }
+
+  .portfolio-multi-composition-bar,
+  .portfolio-multi-composition-labels {
+    grid-template-columns: minmax(0, 1fr) 104px;
+  }
+
+  .portfolio-multi-composition-copy,
+  .portfolio-multi-composition-dividend-label {
+    padding-inline: 6px;
+  }
+
+  .portfolio-multi-composition-copy strong,
+  .portfolio-multi-composition-dividend-label strong {
+    font: var(--type-caption);
+  }
+}
+
 /* Portfolio summary: one quiet surface, navigated only with the side arrows. */
 .portfolio-multi-panel,
 .portfolio-holdings-split-panel.portfolio-dashboard-panel,
@@ -30420,4 +30620,529 @@ textarea:focus,
     grid-column: span 1;
   }
 
+}
+
+/* Dual portfolio 2x3 baseline and growth-safe responsive contract.
+   Allocation geometry follows the data while labels use protected reading zones. */
+.portfolio-multi-summary-page {
+  --portfolio-dividend-column: clamp(132px, 20%, 176px);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--panel-gap);
+  overflow: hidden;
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 6px;
+  padding: var(--panel-padding) 52px var(--panel-padding) var(--panel-padding);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero > em {
+  overflow: hidden;
+  color: var(--portfolio-multi-body);
+  font: var(--type-caption);
+  font-style: normal;
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--type-caption-text-transform);
+  white-space: nowrap;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero > div {
+  display: grid;
+  min-width: 0;
+  justify-content: stretch;
+  gap: 6px;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero > div > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--portfolio-multi-ink);
+  font: var(--type-display-md);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--type-display-md-letter-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--type-display-md-text-transform);
+  white-space: nowrap;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero > div > span {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 7px;
+  overflow: hidden;
+  color: var(--portfolio-multi-green);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-summary-hero > div > span > small {
+  flex: 0 0 auto;
+  color: var(--portfolio-multi-body);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(132px, 1fr) auto;
+  align-content: stretch;
+  gap: var(--panel-gap);
+  overflow: hidden;
+  padding: var(--panel-padding);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-equation {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--portfolio-multi-body);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--type-caption-text-transform);
+  white-space: nowrap;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-bar,
+.portfolio-multi-summary-page .portfolio-multi-composition-labels {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) var(--portfolio-dividend-column);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-bar {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-labels {
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-asset-labels {
+  position: relative;
+  display: block;
+  min-width: 0;
+  min-height: 74px;
+  overflow: hidden;
+  border-top: 0;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-asset-labels::before,
+.portfolio-multi-summary-page .portfolio-multi-composition-asset-labels::after {
+  position: absolute;
+  top: 0;
+  height: 2px;
+  content: "";
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-asset-labels::before {
+  left: 0;
+  width: var(--portfolio-stock-share);
+  background: var(--portfolio-composition-stock);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-asset-labels::after {
+  right: 0;
+  width: var(--portfolio-cash-share);
+  background: var(--portfolio-composition-cash);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-copy {
+  position: absolute;
+  top: 11px;
+  display: grid;
+  width: max-content;
+  max-width: calc(50% - 14px);
+  align-content: start;
+  gap: 4px;
+  overflow: hidden;
+  border-top: 0;
+  padding: 0;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-copy.is-stock {
+  left: 10px;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-copy.is-cash {
+  right: 10px;
+  justify-items: end;
+  text-align: right;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-copy span,
+.portfolio-multi-summary-page .portfolio-multi-composition-copy strong,
+.portfolio-multi-summary-page .portfolio-multi-composition-dividend-label span,
+.portfolio-multi-summary-page .portfolio-multi-composition-dividend-label strong,
+.portfolio-multi-summary-page .portfolio-multi-composition-dividend-label em {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-copy span,
+.portfolio-multi-summary-page .portfolio-multi-composition-dividend-label span,
+.portfolio-multi-summary-page .portfolio-multi-composition-dividend-label em {
+  color: var(--portfolio-multi-body);
+  font: var(--type-caption);
+  font-style: normal;
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-copy strong,
+.portfolio-multi-summary-page .portfolio-multi-composition-dividend-label strong {
+  color: var(--portfolio-multi-ink);
+  font: var(--type-label-md);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-dividend-label {
+  display: grid;
+  min-width: 0;
+  min-height: 74px;
+  align-content: start;
+  gap: 4px;
+  overflow: hidden;
+  border-top: 2px solid var(--portfolio-composition-dividend);
+  border-left: 1px solid var(--coinbase-hairline-strong);
+  padding: 10px 10px 0 12px;
+}
+
+@container workspace-panel (max-width: 430px) {
+  .portfolio-multi-summary-page {
+    --portfolio-dividend-column: 112px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-summary-hero {
+    padding-right: 44px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition {
+    grid-template-rows: auto minmax(104px, 1fr) auto;
+    gap: 8px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-copy {
+    max-width: calc(50% - 8px);
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-copy.is-stock {
+    left: 6px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-copy.is-cash {
+    right: 6px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-copy strong,
+  .portfolio-multi-summary-page .portfolio-multi-composition-dividend-label strong {
+    font: var(--type-caption);
+    letter-spacing: var(--type-caption-letter-spacing);
+    text-transform: var(--type-caption-text-transform);
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-dividend-label {
+    padding-inline: 7px 5px;
+  }
+}
+
+@container workspace-panel (max-height: 480px) {
+  .portfolio-multi-summary-page .portfolio-multi-summary-hero {
+    gap: 3px;
+    padding-block: 4px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition {
+    grid-template-rows: auto minmax(80px, 1fr) auto;
+    gap: 6px;
+    padding-block: 4px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-asset-labels,
+  .portfolio-multi-summary-page .portfolio-multi-composition-dividend-label {
+    min-height: 64px;
+  }
+}
+
+/* Approved dual-portfolio summary: stock + cash end at the 100% boundary.
+   Dividend remains visually connected, but is labeled as a separate income metric. */
+.portfolio-multi-summary-page {
+  --portfolio-dividend-column: clamp(88px, 14%, 120px);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition {
+  grid-template-rows: auto 48px auto auto minmax(auto, 1fr);
+  align-content: stretch;
+  gap: 12px;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--portfolio-multi-body);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-heading > span,
+.portfolio-multi-summary-page .portfolio-multi-composition-heading > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-heading > span {
+  flex: 1 1 auto;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-heading > strong {
+  flex: 0 1 auto;
+  color: var(--portfolio-multi-ink);
+  font-weight: 500;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-bar,
+.portfolio-multi-summary-page .portfolio-multi-composition-boundary {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) var(--portfolio-dividend-column);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-bar {
+  gap: 3px;
+  overflow: hidden;
+  border-radius: var(--app-glass-radius);
+  background: var(--coinbase-canvas);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-assets {
+  gap: 3px;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-segment,
+.portfolio-multi-summary-page .portfolio-multi-composition-dividend {
+  background-color: var(--portfolio-segment-color);
+  background-image: none;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-dividend {
+  border-left: 2px solid var(--coinbase-canvas);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-boundary {
+  align-items: stretch;
+  margin-top: -4px;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-boundary > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--portfolio-multi-body);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--type-caption-text-transform);
+  white-space: nowrap;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-boundary > span:first-child {
+  border-right: 1px solid var(--coinbase-hairline-strong);
+  padding-right: 10px;
+  text-align: right;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-boundary > span:last-child {
+  padding-left: 10px;
+  text-align: left;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 20px;
+  margin-top: 8px;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item {
+  --portfolio-legend-color: var(--portfolio-multi-body);
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item.is-stock {
+  --portfolio-legend-color: var(--portfolio-composition-stock);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item.is-cash {
+  --portfolio-legend-color: var(--portfolio-composition-cash);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item.is-dividend {
+  --portfolio-legend-color: var(--portfolio-composition-dividend);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item > i {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--portfolio-legend-color);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item span,
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item strong,
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item span,
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item em {
+  color: var(--portfolio-multi-body);
+  font-style: normal;
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item span {
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item em {
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-legend-item strong {
+  color: var(--portfolio-multi-ink);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
+}
+
+.portfolio-multi-summary-page .portfolio-multi-composition-note {
+  width: 100%;
+  align-self: end;
+  box-sizing: border-box;
+  margin: 0;
+  border-top: 1px solid var(--coinbase-hairline-strong);
+  padding-top: 10px;
+  color: var(--portfolio-multi-body);
+  font: var(--type-caption);
+  letter-spacing: var(--type-caption-letter-spacing);
+  text-transform: var(--type-caption-text-transform);
+}
+
+@container workspace-panel (max-width: 430px) {
+  .portfolio-multi-summary-page {
+    --portfolio-dividend-column: 88px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition {
+    grid-template-rows: auto 44px auto auto minmax(auto, 1fr);
+    gap: 8px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    margin-top: 4px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-legend-item.is-dividend {
+    grid-column: 1 / -1;
+  }
+}
+
+@container workspace-panel (max-width: 340px) {
+  .portfolio-multi-summary-page .portfolio-multi-composition-heading {
+    gap: 8px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-boundary > span:first-child {
+    padding-right: 7px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-boundary > span:last-child {
+    padding-left: 7px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-legend {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-legend-item.is-dividend {
+    grid-column: auto;
+  }
+}
+
+@container workspace-panel (max-height: 480px) {
+  .portfolio-multi-summary-page .portfolio-multi-composition {
+    grid-template-rows: auto 40px auto auto minmax(auto, 1fr);
+    gap: 6px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-note {
+    padding-top: 6px;
+  }
+}
+
+@container workspace-panel (max-width: 430px) and (max-height: 480px) {
+  .portfolio-multi-summary-page .portfolio-multi-composition {
+    grid-template-rows: auto 36px auto auto minmax(auto, 1fr);
+    gap: 4px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-legend {
+    gap: 6px 12px;
+    margin-top: 2px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-legend-item > div {
+    gap: 2px;
+  }
+
+  .portfolio-multi-summary-page .portfolio-multi-composition-note {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
