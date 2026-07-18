@@ -87,6 +87,8 @@ unsubscribeRefresh();
 requestPortfolioRefresh();
 assert.equal(refreshCalls, 1);
 assert.equal(visiblePaperAccountError("simulation_data_unavailable"), undefined);
+assert.equal(visiblePaperAccountError("409: simulation_data_unavailable"), undefined);
+assert.equal(visiblePaperAccountError("simulation_quote_not_ready"), undefined);
 assert.equal(visiblePaperAccountError(undefined, "가상계좌를 불러오지 못했습니다."), "가상계좌를 불러오지 못했습니다.");
 
 const simulatorHeatmap = simulationHeatmapItems([
@@ -318,10 +320,18 @@ const paperAccountProviderSource = readFileSync(
   fileURLToPath(new URL("../src/orders/PaperAccountProvider.tsx", import.meta.url)),
   "utf-8"
 );
+const chartTradeHistoryProviderSource = readFileSync(
+  fileURLToPath(new URL("../src/orders/ChartTradeHistoryProvider.tsx", import.meta.url)),
+  "utf-8"
+);
 assert.match(portfolioHoldingsSource, /portfolioStores/);
 assert.match(portfolioHoldingsSource, /paperSnapshotToPortfolioPayload\(paperAccount\.snapshot\)/);
 assert.match(paperAccountProviderSource, /subscribePortfolioRefresh\(\(\) =>/);
 assert.match(paperAccountProviderSource, /recordSubmittedOrder[^]*open_orders:/);
+assert.match(paperAccountProviderSource, /\.onclose\s*=\s*reconnect/);
+assert.match(paperAccountProviderSource, /reconnect/);
+assert.doesNotMatch(chartTradeHistoryProviderSource, /\/api\/account\/holdings/);
+assert.doesNotMatch(chartTradeHistoryProviderSource, /simulationRefreshIntervalMs/);
 assert.match(apiSource, /function requestPortfolioRefresh/);
 assert.doesNotMatch(portfolioHoldingsSource, /buildDemoPortfolioPayload|DEMO_PORTFOLIO_ENABLED/);
 

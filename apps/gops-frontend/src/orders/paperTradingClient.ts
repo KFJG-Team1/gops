@@ -123,5 +123,7 @@ export function paperAccountWebSocketUrl(): string {
 }
 
 function errorMessage(body: any, status: number): string {
-  return typeof body?.detail === "string" ? body.detail : `가상투자 API 오류 ${status}`;
+  if (typeof body?.detail === "string") return body.detail;
+  if (typeof body?.detail?.code === "string") return body.detail.code;
+  return `가상투자 API 오류 ${status}`;
 }

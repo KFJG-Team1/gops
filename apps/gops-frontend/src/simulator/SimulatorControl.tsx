@@ -104,7 +104,6 @@ export function SimulatorControl() {
     try {
       applyStatus(await request());
       reschedulePollRef.current();
-      requestPortfolioRefresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : fallback);
     } finally {

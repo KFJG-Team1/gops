@@ -8,6 +8,7 @@ import {
 } from "./paperTradingClient";
 import type { OrderSnapshot } from "./orderClient";
 import { subscribePortfolioRefresh } from "../simulator/simulatorApi";
+import { isTransientPaperAccountError } from "./paperAccountPresentation";
 
 type PaperAccountContextValue = {
   snapshot?: PaperAccountSnapshot;
@@ -38,6 +39,8 @@ export function PaperAccountProvider({ children }: { children: ReactNode }) {
   const canLoad = !authLoading && (!authEnabled || Boolean(user));
   const requestRevisionRef = useRef(0);
   const orderRequestRevisionRef = useRef(0);
+  const refreshPromiseRef = useRef<Promise<void> | null>(null);
+  const refreshOrdersPromiseRef = useRef<Promise<void> | null>(null);
   const tradeHistoryRevisionKeyRef = useRef("");
   const [state, setState] = useState<PaperAccountState>({
     accountKey: "",
@@ -86,6 +89,10 @@ export function PaperAccountProvider({ children }: { children: ReactNode }) {
 
   const refreshOrders = useCallback(async () => {
     if (!canLoad) return;
+    if (refreshOrdersPromiseRef.current) {
+      await refreshOrdersPromiseRef.current;
+      return;
+    }
     const requestedAccountKey = accountKey;
     const requestRevision = ++orderRequestRevisionRef.current;
     setOrderState((current) => ({
@@ -94,28 +101,40 @@ export function PaperAccountProvider({ children }: { children: ReactNode }) {
       ordersLoading: current.accountKey !== requestedAccountKey || !current.orders.length,
       ordersError: undefined
     }));
+    const request = (async () => {
+      try {
+        const orders = await fetchPaperOrders();
+        if (orderRequestRevisionRef.current !== requestRevision) return;
+        setOrderState({
+          accountKey: requestedAccountKey,
+          orders,
+          ordersLoading: false,
+          ordersError: undefined
+        });
+      } catch (caught) {
+        if (orderRequestRevisionRef.current !== requestRevision) return;
+        setOrderState((current) => ({
+          accountKey: requestedAccountKey,
+          orders: current.accountKey === requestedAccountKey ? current.orders : [],
+          ordersLoading: false,
+          ordersError: caught instanceof Error ? caught.message : "가상계좌 거래내역을 불러오지 못했습니다."
+        }));
+      }
+    })();
+    refreshOrdersPromiseRef.current = request;
     try {
-      const orders = await fetchPaperOrders();
-      if (orderRequestRevisionRef.current !== requestRevision) return;
-      setOrderState({
-        accountKey: requestedAccountKey,
-        orders,
-        ordersLoading: false,
-        ordersError: undefined
-      });
-    } catch (caught) {
-      if (orderRequestRevisionRef.current !== requestRevision) return;
-      setOrderState((current) => ({
-        accountKey: requestedAccountKey,
-        orders: current.accountKey === requestedAccountKey ? current.orders : [],
-        ordersLoading: false,
-        ordersError: caught instanceof Error ? caught.message : "가상계좌 거래내역을 불러오지 못했습니다."
-      }));
+      await request;
+    } finally {
+      if (refreshOrdersPromiseRef.current === request) refreshOrdersPromiseRef.current = null;
     }
   }, [accountKey, canLoad]);
 
   const refresh = useCallback(async () => {
     if (!canLoad) return;
+    if (refreshPromiseRef.current) {
+      await refreshPromiseRef.current;
+      return;
+    }
     const requestedAccountKey = accountKey;
     const requestRevision = ++requestRevisionRef.current;
     setState((current) => ({
@@ -124,25 +143,36 @@ export function PaperAccountProvider({ children }: { children: ReactNode }) {
       loading: current.accountKey !== requestedAccountKey || !current.snapshot,
       error: undefined
     }));
+    const request = (async () => {
+      try {
+        const snapshot = await fetchPaperAccount();
+        if (requestRevisionRef.current !== requestRevision) return;
+        tradeHistoryRevisionKeyRef.current = paperTradeHistoryRevisionKey(snapshot);
+        setState({ accountKey: requestedAccountKey, snapshot, loading: false, error: undefined });
+      } catch (caught) {
+        if (requestRevisionRef.current !== requestRevision) return;
+        const message = caught instanceof Error ? caught.message : "가상계좌를 불러오지 못했습니다.";
+        setState((current) => ({
+          accountKey: requestedAccountKey,
+          snapshot: current.accountKey === requestedAccountKey ? current.snapshot : undefined,
+          loading: false,
+          error: isTransientPaperAccountError(message) ? undefined : message
+        }));
+      }
+    })();
+    refreshPromiseRef.current = request;
     try {
-      const snapshot = await fetchPaperAccount();
-      if (requestRevisionRef.current !== requestRevision) return;
-      tradeHistoryRevisionKeyRef.current = paperTradeHistoryRevisionKey(snapshot);
-      setState({ accountKey: requestedAccountKey, snapshot, loading: false, error: undefined });
-    } catch (caught) {
-      if (requestRevisionRef.current !== requestRevision) return;
-      setState((current) => ({
-        accountKey: requestedAccountKey,
-        snapshot: current.accountKey === requestedAccountKey ? current.snapshot : undefined,
-        loading: false,
-        error: caught instanceof Error ? caught.message : "가상계좌를 불러오지 못했습니다."
-      }));
+      await request;
+    } finally {
+      if (refreshPromiseRef.current === request) refreshPromiseRef.current = null;
     }
   }, [accountKey, canLoad]);
 
   useEffect(() => {
     requestRevisionRef.current += 1;
     orderRequestRevisionRef.current += 1;
+    refreshPromiseRef.current = null;
+    refreshOrdersPromiseRef.current = null;
     tradeHistoryRevisionKeyRef.current = "";
     setLatestSubmittedOrderId(undefined);
     if (!canLoad) {
@@ -153,35 +183,59 @@ export function PaperAccountProvider({ children }: { children: ReactNode }) {
     let active = true;
     void refresh();
     void refreshOrders();
-    const socket = new WebSocket(paperAccountWebSocketUrl());
-    socket.onmessage = (event) => {
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
+    let reconnectAttempt = 0;
+    const reconnect = () => {
+      if (!active || reconnectTimer !== undefined) return;
+      const delay = Math.min(10_000, 500 * (2 ** reconnectAttempt));
+      reconnectAttempt += 1;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = undefined;
+        connect();
+      }, delay);
+    };
+    const connect = () => {
       if (!active) return;
-      try {
-        const payload = JSON.parse(event.data) as { type?: string; account?: PaperAccountSnapshot; detail?: string };
-        if (payload.account) {
-          const nextHistoryRevisionKey = paperTradeHistoryRevisionKey(payload.account);
-          const historyChanged = nextHistoryRevisionKey !== tradeHistoryRevisionKeyRef.current;
-          tradeHistoryRevisionKeyRef.current = nextHistoryRevisionKey;
-          requestRevisionRef.current += 1;
-          setState({ accountKey, snapshot: payload.account, loading: false, error: undefined });
-          if (historyChanged) void refreshOrders();
-        } else if (payload.type === "error") {
-          setState((current) => ({ ...current, error: payload.detail || "가상계좌 실시간 연결 오류" }));
+      const nextSocket = new WebSocket(paperAccountWebSocketUrl());
+      socket = nextSocket;
+      nextSocket.onmessage = (event) => {
+        if (!active || socket !== nextSocket) return;
+        try {
+          const payload = JSON.parse(event.data) as {
+            type?: string;
+            account?: PaperAccountSnapshot;
+            detail?: string | { code?: string };
+          };
+          if (payload.account) {
+            reconnectAttempt = 0;
+            const nextHistoryRevisionKey = paperTradeHistoryRevisionKey(payload.account);
+            const historyChanged = nextHistoryRevisionKey !== tradeHistoryRevisionKeyRef.current;
+            tradeHistoryRevisionKeyRef.current = nextHistoryRevisionKey;
+            requestRevisionRef.current += 1;
+            setState({ accountKey, snapshot: payload.account, loading: false, error: undefined });
+            if (historyChanged) void refreshOrders();
+          } else if (payload.type === "error") {
+            const message = socketErrorMessage(payload.detail);
+            setState((current) => ({
+              ...current,
+              error: isTransientPaperAccountError(message) ? undefined : message
+            }));
+          }
+        } catch {
+          setState((current) => ({ ...current, error: "가상계좌 실시간 응답을 읽지 못했습니다." }));
         }
-      } catch {
-        setState((current) => ({ ...current, error: "가상계좌 실시간 응답을 읽지 못했습니다." }));
-      }
+      };
+      nextSocket.onerror = () => undefined;
+      nextSocket.onclose = reconnect;
     };
-    socket.onerror = () => {
-      if (active) {
-        setState((current) => ({ ...current, error: "가상계좌 실시간 연결을 확인하고 있습니다." }));
-      }
-    };
+    connect();
     return () => {
       active = false;
       requestRevisionRef.current += 1;
       orderRequestRevisionRef.current += 1;
-      socket.close();
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      socket?.close();
     };
   }, [accountKey, canLoad, refresh, refreshOrders]);
 
@@ -222,6 +276,14 @@ export function PaperAccountProvider({ children }: { children: ReactNode }) {
   ]);
 
   return <PaperAccountContext.Provider value={value}>{children}</PaperAccountContext.Provider>;
+}
+
+function socketErrorMessage(detail: string | { code?: string } | undefined): string {
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  if (detail && typeof detail === "object" && typeof detail.code === "string" && detail.code.trim()) {
+    return detail.code.trim();
+  }
+  return "가상계좌 실시간 연결 오류";
 }
 
 function paperTradeHistoryRevisionKey(snapshot: PaperAccountSnapshot): string {
