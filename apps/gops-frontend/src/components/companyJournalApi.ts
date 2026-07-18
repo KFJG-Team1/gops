@@ -43,6 +43,9 @@ export type CompanyJournalReport = {
   sourceReceipt: Record<string, unknown>;
   missingData: string[];
   validationStatus: string;
+  sourceMode?: "historical_reconstruction" | string;
+  sourceCutoff?: string;
+  simulation?: boolean;
 };
 
 export type CompanyJournalResponse = {
@@ -63,6 +66,9 @@ export type CompanyJournalEvidenceResponse = {
     candles: import("../chart/types").CandleDto[];
   }>;
   missingData: string[];
+  simulation?: boolean;
+  sourceMode?: "historical_reconstruction" | string;
+  cutoff?: string;
 };
 
 export async function fetchCompanyJournal(symbol: string, signal?: AbortSignal): Promise<CompanyJournalResponse> {

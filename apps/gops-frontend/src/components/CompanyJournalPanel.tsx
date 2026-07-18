@@ -38,7 +38,7 @@ import {
 } from "./companyJournalReading";
 
 type CompanyJournalView = Extract<CompanyPanelView, "profitability" | "stability" | "valuation"> | "earnings";
-type CompanyJournalStatus = "loading" | "ready" | "pending" | "error" | "simulation_unavailable";
+type CompanyJournalStatus = "loading" | "ready" | "pending" | "error";
 type JournalEvidenceTarget =
   | "market-latest"
   | "earnings-latest"
@@ -100,6 +100,20 @@ const emptyEvidence: CompanyJournalEvidence = {
   financialPeriodMode: "quarterly"
 };
 
+export function companyJournalRequestKey(status: SimulatorStatus | null): string {
+  if (status?.mode !== "simulation") return "live";
+  const timestamp = Date.parse(status.virtualTime);
+  const simulationDate = Number.isFinite(timestamp)
+    ? new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Seoul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(new Date(timestamp))
+    : status.virtualTime;
+  return `simulation:${status.runId ?? status.datasetId}:${simulationDate}`;
+}
+
 const companyJournalPreviewValuationPrices: ValuationPricePoint[] = [
   { timestamp: "2021-03-31T00:00:00Z", close: 122.15 },
   { timestamp: "2021-06-30T00:00:00Z", close: 136.96 },
@@ -145,24 +159,22 @@ export function CompanyJournalPanel({
 }: CompanyJournalPanelProps) {
   const normalizedSymbol = symbol.trim().toUpperCase();
   const previewEnabled = companyJournalPreviewEnabled();
-  const [simulatorMode, setSimulatorMode] = useState(() => latestSimulatorStatus()?.mode ?? "live");
+  const [simulatorStatus, setSimulatorStatus] = useState<SimulatorStatus | null>(() => latestSimulatorStatus());
+  const simulatorMode = simulatorStatus?.mode ?? "live";
+  const journalRequestKey = companyJournalRequestKey(simulatorStatus);
   const resolvedItem = useMemo(
-    () => simulatorMode === "simulation" && !previewEnabled
-      ? undefined
-      : previewEnabled ? buildCompanyJournalPreviewItem(item, normalizedSymbol) : item,
+    () => previewEnabled
+      ? buildCompanyJournalPreviewItem(item, normalizedSymbol)
+      : simulatorMode === "simulation"
+        ? simulationSafeCompanyJournalItem(item)
+        : item,
     [item, normalizedSymbol, previewEnabled, simulatorMode]
   );
   const [storedEvidence, setStoredEvidence] = useState<CompanyJournalEvidenceResponse | null>(null);
-  const effectiveItem = useMemo<Sp500UniverseItem | undefined>(() => storedEvidence && resolvedItem ? {
-    ...resolvedItem,
-    financialSeries: storedEvidence.financialSeries.length > 0
-      ? storedEvidence.financialSeries
-      : resolvedItem.financialSeries,
-    earningsSeries: storedEvidence.earningsSeries.length > 0
-      ? storedEvidence.earningsSeries
-      : resolvedItem.earningsSeries,
-    fundamentalsAsOf: storedEvidence.sourceAsOf ?? resolvedItem?.fundamentalsAsOf
-  } : resolvedItem, [resolvedItem, storedEvidence]);
+  const effectiveItem = useMemo<Sp500UniverseItem | undefined>(
+    () => mergeCompanyJournalEvidence(resolvedItem, storedEvidence, simulatorMode === "simulation"),
+    [resolvedItem, simulatorMode, storedEvidence]
+  );
   const storedPerformanceSeries = useMemo<CompanyJournalPerformanceSeries[]>(() => {
     const sectorSymbol = companyJournalSectorBenchmarkSymbol(effectiveItem?.sector, effectiveItem?.industry);
     return (storedEvidence?.performanceSeries ?? []).map((series) => ({
@@ -203,22 +215,22 @@ export function CompanyJournalPanel({
   useEffect(() => {
     const handleStatus = (event: Event) => {
       const status = (event as CustomEvent<SimulatorStatus>).detail;
-      setSimulatorMode(status?.mode ?? "live");
+      setSimulatorStatus(status ?? null);
     };
     window.addEventListener(simulatorStatusEvent, handleStatus);
     return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
   }, []);
   useEffect(() => {
+    if (previewEnabled) return;
+    setJournalReport(null);
+    setStoredEvidence(null);
+    setEvidenceBySymbol({});
+    setJournalStatus("loading");
+  }, [journalRequestKey, normalizedSymbol, previewEnabled]);
+  useEffect(() => {
     if (previewEnabled) {
       setJournalReport(null);
       setJournalStatus("ready");
-      return;
-    }
-    if (simulatorMode === "simulation") {
-      setJournalReport(null);
-      setStoredEvidence(null);
-      setEvidenceBySymbol({});
-      setJournalStatus("simulation_unavailable");
       return;
     }
     const controller = new AbortController();
@@ -245,13 +257,9 @@ export function CompanyJournalPanel({
       controller.abort();
       if (pollTimer !== undefined) window.clearTimeout(pollTimer);
     };
-  }, [journalRefresh, normalizedSymbol, previewEnabled, simulatorMode]);
+  }, [journalRefresh, journalRequestKey, normalizedSymbol, previewEnabled]);
   useEffect(() => {
     if (previewEnabled) {
-      setStoredEvidence(null);
-      return undefined;
-    }
-    if (simulatorMode === "simulation") {
       setStoredEvidence(null);
       return undefined;
     }
@@ -264,7 +272,7 @@ export function CompanyJournalPanel({
         if (!controller.signal.aborted) setStoredEvidence(null);
       });
     return () => controller.abort();
-  }, [normalizedSymbol, previewEnabled, resolvedItem?.industry, resolvedItem?.sector, simulatorMode]);
+  }, [journalRequestKey, normalizedSymbol, previewEnabled, resolvedItem?.industry, resolvedItem?.sector]);
   const deterministicOverview = useMemo(
     () => buildJournalOverview(effectiveItem, evidence),
     [effectiveItem, evidence]
@@ -460,21 +468,17 @@ export function CompanyJournalPanel({
           data-evidence-targets={activeEvidenceTargets.join(" ")}
           role="tabpanel"
         >
-          {journalStatus === "simulation_unavailable" ? (
-            <div className="company-journal-performance-empty">
-              시뮬레이터 가상시각 기준 기업저널 데이터가 준비되지 않았습니다.
-            </div>
-          ) : activeView === "earnings" ? (
+          {activeView === "earnings" ? (
             <div className="company-journal-earnings-evidence">
               <CompanySummaryPanel
                 symbol={normalizedSymbol}
                 item={effectiveItem}
-                items={items}
+                items={simulatorMode === "simulation" ? [] : items}
                 view="valuation"
                 valuationContent="earnings"
                 valuationPriceSeries={previewEnabled ? companyJournalPreviewValuationPrices : storedValuationPrices}
                 onEvidenceChange={onEvidenceChange}
-                disableRemoteFetch={previewEnabled}
+                disableRemoteFetch={previewEnabled || simulatorMode === "simulation"}
                 journalPresentation
                 focusedFinancialMetric={focusedFinancialMetric}
                 focusedFinancialYear={focusedFinancialYear}
@@ -492,19 +496,20 @@ export function CompanyJournalPanel({
                 industry={effectiveItem?.industry}
                 previewEnabled={previewEnabled}
                 storedSeries={storedPerformanceSeries}
+                disableRemoteFetch={simulatorMode === "simulation"}
               />
             </div>
           ) : (
             <CompanySummaryPanel
               symbol={normalizedSymbol}
               item={effectiveItem}
-              items={items}
+              items={simulatorMode === "simulation" ? [] : items}
               view={activeView}
               valuationContent={activeView === "valuation" ? "valuation" : "combined"}
               stabilityContent={activeView === "stability" ? "stability-dashboard" : "stability"}
               valuationPriceSeries={previewEnabled ? companyJournalPreviewValuationPrices : storedValuationPrices}
               onEvidenceChange={onEvidenceChange}
-              disableRemoteFetch={previewEnabled}
+              disableRemoteFetch={previewEnabled || simulatorMode === "simulation"}
               journalPresentation
               focusedValuationMetric={activeView === "valuation" ? focusedValuationMetric : null}
               focusedStabilityMetric={activeView === "stability" ? focusedStabilityMetric : null}
@@ -533,6 +538,99 @@ export function CompanyJournalPanel({
       </div>
     </section>
   );
+}
+
+export function simulationSafeCompanyJournalItem(item?: Sp500UniverseItem): Sp500UniverseItem | undefined {
+  if (!item) return undefined;
+  return {
+    ...item,
+    marketCap: 0,
+    layoutPrice: null,
+    layoutMarketCap: null,
+    layoutMarketCapSource: null,
+    layoutPriceSource: null,
+    layoutPriceUpdatedAt: null,
+    sharesOutstanding: null,
+    fundamentalsSource: null,
+    fundamentalsAsOf: null,
+    fiscalPeriod: null,
+    periodEndDate: null,
+    filedAt: null,
+    revenue: null,
+    operatingIncome: null,
+    netIncome: null,
+    eps: null,
+    totalAssets: null,
+    totalLiabilities: null,
+    totalEquity: null,
+    operatingCashFlow: null,
+    freeCashFlow: null,
+    ebitda: null,
+    earningsSeries: [],
+    financialSeries: [],
+    lastPrice: null,
+    priceSource: null,
+    priceUpdatedAt: null,
+    volume: null,
+    sessionDollarVolume: null,
+    rsi14: null,
+    previousClose: null,
+    changePercent: null
+  };
+}
+
+function mergeCompanyJournalEvidence(
+  item: Sp500UniverseItem | undefined,
+  evidence: CompanyJournalEvidenceResponse | null,
+  simulation: boolean
+): Sp500UniverseItem | undefined {
+  if (!item || !evidence) return item;
+  if (!simulation) {
+    return {
+      ...item,
+      financialSeries: evidence.financialSeries.length > 0 ? evidence.financialSeries : item.financialSeries,
+      earningsSeries: evidence.earningsSeries.length > 0 ? evidence.earningsSeries : item.earningsSeries,
+      fundamentalsAsOf: evidence.sourceAsOf ?? item.fundamentalsAsOf
+    };
+  }
+  const latestFinancial = evidence.financialSeries.at(-1);
+  const companyCandles = evidence.performanceSeries.find((series) => series.symbol === item.symbol)?.candles ?? [];
+  const latestCandle = companyCandles.at(-1);
+  const previousCandle = companyCandles.at(-2);
+  const price = latestCandle?.close ?? null;
+  const shares = latestFinancial?.sharesOutstanding ?? null;
+  const changePercent = price != null && previousCandle?.close
+    ? ((price / previousCandle.close) - 1) * 100
+    : null;
+  return {
+    ...item,
+    marketCap: price != null && shares != null ? price * shares : 0,
+    layoutPrice: price,
+    layoutMarketCap: price != null && shares != null ? price * shares : null,
+    sharesOutstanding: shares,
+    fundamentalsSource: "simulation-point-in-time",
+    fundamentalsAsOf: evidence.sourceAsOf,
+    fiscalPeriod: latestFinancial?.period ?? null,
+    periodEndDate: latestFinancial?.periodEndDate ?? null,
+    filedAt: latestFinancial?.filedAt ?? null,
+    revenue: latestFinancial?.revenue ?? null,
+    operatingIncome: latestFinancial?.operatingIncome ?? null,
+    netIncome: latestFinancial?.netIncome ?? null,
+    eps: latestFinancial?.eps ?? null,
+    totalAssets: latestFinancial?.totalAssets ?? null,
+    totalLiabilities: latestFinancial?.totalLiabilities ?? null,
+    totalEquity: latestFinancial?.totalEquity ?? null,
+    operatingCashFlow: latestFinancial?.operatingCashFlow ?? null,
+    freeCashFlow: latestFinancial?.freeCashFlow ?? null,
+    financialSeries: evidence.financialSeries,
+    earningsSeries: evidence.earningsSeries,
+    lastPrice: price,
+    priceSource: "simulation-point-in-time",
+    priceUpdatedAt: latestCandle?.timestamp ?? null,
+    volume: latestCandle?.volume ?? null,
+    previousClose: previousCandle?.close ?? null,
+    changePercent
+  };
 }
 
 function JournalInsightSection({
@@ -761,9 +859,7 @@ export function buildJournalInsights({
   }
 
   if (!report) {
-    const waiting = status === "simulation_unavailable"
-      ? "시뮬레이터 가상시각 이후의 기업저널 근거는 표시하지 않습니다."
-      : status === "error"
+    const waiting = status === "error"
       ? "저장된 기업저널을 불러오지 못했습니다. 연결을 확인하는 동안 기존 차트와 뉴스는 계속 볼 수 있습니다."
       : "검증된 기업저널 문장을 준비하고 있습니다. 기존 차트는 먼저 확인할 수 있습니다.";
     const tab = previewTabInsight(activeView, narrative);
@@ -981,18 +1077,16 @@ function buildStoredJournalOverview(
 ): { headline: string; metrics: JournalMetric[] } {
   if (!report) {
     return {
-      headline: status === "simulation_unavailable"
-        ? "선택한 가상시각에는 아직 기업저널 자료가 없습니다."
-        : fallbackHeadline,
+      headline: fallbackHeadline,
       metrics: [
         metric("최근 움직임", "자료 부족", "확인 가능한 가격 기준", "neutral"),
         metric("시장 대비", "자료 부족", "같은 기간 비교", "neutral"),
         metric("재무 안정성", "자료 부족", "확인 가능한 재무 기준", "neutral"),
         metric(
           "분석 상태",
-          status === "simulation_unavailable" ? "시점 자료 없음" : status === "error" ? "자료 부족" : "계산 중",
-          status === "simulation_unavailable" ? "미래 자료 제외" : "확인된 근거만 표시",
-          status === "simulation_unavailable" || status === "error" ? "caution" : "neutral"
+          status === "error" ? "자료 부족" : "계산 중",
+          "확인된 근거만 표시",
+          status === "error" ? "caution" : "neutral"
         )
       ]
     };
@@ -1032,20 +1126,14 @@ export function buildStoredJournalNarrative(
   status: CompanyJournalStatus
 ): JournalNarrative {
   if (!report) {
-    const unavailable = status === "simulation_unavailable"
-      ? "시뮬레이터 가상시각에 사용할 수 있는 기업저널이 없습니다."
-      : status === "error"
+    const unavailable = status === "error"
       ? "기업저널 저장소 연결을 확인해야 합니다."
       : "검증된 기업저널 문장을 준비하고 있습니다.";
     return {
       headline: unavailable,
-      observation: status === "simulation_unavailable"
-        ? "해당 가상시각 이후에 생성되거나 수집된 보고서·재무 근거를 숨겼습니다."
-        : "차트와 뉴스는 기존 데이터 원천에서 표시되며, AI 문장은 검증된 결과가 저장된 뒤 나타납니다.",
+      observation: "차트와 뉴스는 기존 데이터 원천에서 표시되며, AI 문장은 검증된 결과가 저장된 뒤 나타납니다.",
       companyMeaning: "준비되지 않은 숫자나 원인을 임의로 채우지 않습니다.",
-      nextCheck: status === "simulation_unavailable"
-        ? "point-in-time 기업저널이 연결된 뒤 이 시점의 근거를 확인할 수 있습니다."
-        : "잠시 뒤 다시 확인하면 최신 검증 결과가 자동으로 표시됩니다.",
+      nextCheck: "잠시 뒤 다시 확인하면 최신 검증 결과가 자동으로 표시됩니다.",
       counterpoint: "현재 상태는 기업에 대한 부정적 평가가 아니라 분석 결과가 아직 준비되지 않았다는 뜻입니다."
     };
   }
