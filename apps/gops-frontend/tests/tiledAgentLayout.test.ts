@@ -22,7 +22,7 @@ const paperCatalog = buildTiledAgentLayoutContext({ slots: [], contents: {}, nex
 assert.equal(paperCatalog.find((entry) => entry.panelType === "paperQuickOrder")?.title, "가상 빠른 주문");
 assert.equal(paperCatalog.find((entry) => entry.panelType === "paperOrderTicket")?.title, "가상 주문");
 assert.deepEqual(paperCatalog.find((entry) => entry.panelType === "paperAccount")?.minSpan, { colSpan: 2, rowSpan: 2 });
-assert.deepEqual(paperCatalog.find((entry) => entry.panelType === "paperAccount")?.defaultSpan, { colSpan: 4, rowSpan: 3 });
+assert.deepEqual(paperCatalog.find((entry) => entry.panelType === "paperAccount")?.defaultSpan, { colSpan: 2, rowSpan: 2 });
 const patternListCatalogEntry = buildTiledAgentLayoutContext({ slots: [], contents: {}, nextInstance: 1 }, viewport)
   .panelCatalog
   .find((entry) => entry.panelType === "chartPatternList");

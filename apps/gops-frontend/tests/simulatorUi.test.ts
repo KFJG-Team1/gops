@@ -15,7 +15,7 @@ import {
 } from "../src/simulator/simulatorApi";
 
 
-assert.deepEqual(simulatorSpeeds, [1, 5, 20, 60, 300]);
+assert.deepEqual(simulatorSpeeds, [1, 5, 20, 60]);
 assert.equal(formatSimulatorVirtualTime("2026-07-14T15:00:00Z"), "07/15 00:00:00");
 assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "simulation", state: "running" }), 1_000);
 assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "live", state: "idle" }), 30_000);
@@ -64,7 +64,7 @@ assert.equal(
   simulationAwareNowMs(observedAtMs + 10_000, {
     ...replayStatus,
     virtualTime: "2026-07-15T14:59:58.000Z",
-    effectiveSpeed: 300
+    effectiveSpeed: 60
   }, observedAtMs),
   Date.parse(replayStatus.endTime)
 );

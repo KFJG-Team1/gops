@@ -447,7 +447,7 @@ export const panelRegistry: readonly PanelRegistryEntry[] = [
     minSpan: { colSpan: 2, rowSpan: 2 },
     readableMinSpan: { colSpan: 2, rowSpan: 2 },
     minSizePx: { width: 320, height: 220 },
-    defaultSpan: { colSpan: 4, rowSpan: 3 },
+    defaultSpan: { colSpan: 2, rowSpan: 2 },
     defaultLayoutWeight: 55,
     insertable: true
   }

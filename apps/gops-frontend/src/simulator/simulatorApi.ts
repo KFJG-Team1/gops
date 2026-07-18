@@ -1,9 +1,9 @@
 export type SimulatorMode = "live" | "simulation";
 export type SimulatorState = "idle" | "ready" | "running" | "paused" | "completed";
-export type SimulatorSpeed = 1 | 5 | 20 | 60 | 300;
+export type SimulatorSpeed = 1 | 5 | 20 | 60;
 export type SimulatorAction = "start" | "pause" | "resume" | "restart";
 
-export const simulatorSpeeds: readonly SimulatorSpeed[] = [1, 5, 20, 60, 300];
+export const simulatorSpeeds: readonly SimulatorSpeed[] = [1, 5, 20, 60];
 
 export type SimulatorSymbolStatus = {
   symbol: string;
