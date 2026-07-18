@@ -224,7 +224,10 @@ assert.match(companyJournalSource, /disableRemoteFetch=\{simulatorMode === "simu
 assert.match(companyJournalPerformanceSource, /if \(disableRemoteFetch\) \{/);
 assert.match(marketIndicesHookSource, /window\.addEventListener\(simulatorStatusEvent, handleSimulatorStatus\)/);
 assert.match(marketIndicesHookSource, /activeRequestRef\.current\?\.abort\(\)/);
+assert.match(marketIndicesHookSource, /requestSequenceRef/);
 assert.match(marketIndicesHookSource, /TRANSITION_RETRY_MS/);
+assert.match(marketIndicesHookSource, /const visibleError = payload === null \? error : undefined/);
+assert.match(marketIndicesHookSource, /payload !== null && error \? error/);
 assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, requestedInterval\)/);
 assert.match(chartPanelSource, /fetchChartCommentaryAsset\(requestedSymbol, requestedInterval\)/);
 assert.match(chartPanelSource, /scheduleChartAnalysisAssetRequest/);
