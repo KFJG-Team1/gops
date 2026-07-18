@@ -96,14 +96,52 @@ function normalizeHeatmapItem(value: unknown): Sp500UniverseItem | null {
     return null;
   }
   const sector = normalizeSector(asString(item.sector));
+  const currentMarketCap = asNumber(item.marketCap);
+  const layoutMarketCap = asNumber(item.layoutMarketCap);
+  const useCurrentMarketCap = currentMarketCap !== undefined && currentMarketCap > 1;
+  const useLayoutMarketCap = !useCurrentMarketCap && layoutMarketCap !== undefined;
+  const marketCap = useCurrentMarketCap
+    ? currentMarketCap
+    : layoutMarketCap ?? currentMarketCap ?? 1;
+  const marketCapSource = useLayoutMarketCap
+    ? asString(item.layoutMarketCapSource)
+    : asString(item.marketCapSource);
   return {
     symbol,
     companyName: asString(item.companyName) || symbol,
     sector,
     sectorLabelKo: asString(item.sectorLabelKo) || sectorLabelKo(sector),
     industry: asString(item.industry) || "Unclassified",
-    marketCap: asNumber(item.marketCap) ?? 1,
-    layoutMarketCap: asNumber(item.layoutMarketCap),
+    cik: asString(item.cik),
+    exchange: asString(item.exchange),
+    market: asString(item.market),
+    country: asString(item.country),
+    listingDate: asString(item.listingDate) || asString(item.listing_date),
+    marketCap,
+    marketCapSource,
+    layoutPrice: asNumber(item.layoutPrice),
+    layoutMarketCap,
+    layoutMarketCapSource: asString(item.layoutMarketCapSource),
+    layoutPriceSource: asString(item.layoutPriceSource),
+    layoutPriceUpdatedAt: asString(item.layoutPriceUpdatedAt),
+    sharesOutstanding: asNumber(item.sharesOutstanding),
+    fundamentalsSource: asString(item.fundamentalsSource),
+    fundamentalsAsOf: asString(item.fundamentalsAsOf),
+    fiscalPeriod: asString(item.fiscalPeriod),
+    periodEndDate: asString(item.periodEndDate),
+    filedAt: asString(item.filedAt),
+    revenue: asNumber(item.revenue),
+    operatingIncome: asNumber(item.operatingIncome),
+    netIncome: asNumber(item.netIncome),
+    eps: asNumber(item.eps),
+    totalAssets: asNumber(item.totalAssets),
+    totalLiabilities: asNumber(item.totalLiabilities),
+    totalEquity: asNumber(item.totalEquity),
+    operatingCashFlow: asNumber(item.operatingCashFlow),
+    freeCashFlow: asNumber(item.freeCashFlow),
+    ebitda: asNumber(item.ebitda),
+    earningsSeries: normalizeEarningsSeries(item.earningsSeries),
+    financialSeries: normalizeFinancialSeries(item.financialSeries),
     lastPrice: asNumber(item.lastPrice),
     previousClose: asNumber(item.previousClose),
     volume: asNumber(item.volume),

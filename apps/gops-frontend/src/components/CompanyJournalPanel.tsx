@@ -12,6 +12,7 @@ import type { GlossaryEntry } from "../glossary/stockGlossary";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 import {
+  CompanyJournalAnalystOpinionPanel,
   CompanySummaryPanel,
   type CompanyJournalEvidence,
   type CompanyPanelView,
@@ -27,6 +28,7 @@ import {
   fetchCompanyJournal,
   fetchCompanyJournalEvidence,
   type CompanyJournalAnalystAction,
+  type CompanyJournalAnalystSummary,
   type CompanyJournalEvidenceResponse,
   type CompanyJournalReport
 } from "./companyJournalApi";
@@ -114,6 +116,80 @@ export function companyJournalRequestKey(status: SimulatorStatus | null): string
   return `simulation:${status.runId ?? status.datasetId}:${simulationDate}`;
 }
 
+function buildEvidenceBackedJournalItem(
+  symbol: string,
+  identity: Sp500UniverseItem | undefined,
+  evidence: CompanyJournalEvidenceResponse
+): Sp500UniverseItem {
+  const companyCandles = evidence.performanceSeries.find((series) => series.symbol === symbol)?.candles ?? [];
+  const latestCandle = companyCandles.at(-1);
+  const latestFinancial = [...evidence.financialSeries]
+    .reverse()
+    .find((point) => Number.isFinite(point.sharesOutstanding ?? NaN));
+  const identityPrice = Number.isFinite(identity?.lastPrice ?? NaN) ? identity!.lastPrice : null;
+  const lastPrice = identityPrice ?? (Number.isFinite(latestCandle?.close ?? NaN) ? latestCandle!.close : null);
+  const previousClose = identityPrice == null
+    ? (companyCandles.length > 1 ? companyCandles.at(-2)?.close : null)
+    : latestCandle?.close;
+  const sharesOutstanding = latestFinancial?.sharesOutstanding ?? null;
+  const marketCap = Number.isFinite(lastPrice ?? NaN) && Number.isFinite(sharesOutstanding ?? NaN)
+    ? (lastPrice as number) * (sharesOutstanding as number)
+    : 0;
+  return {
+    symbol,
+    companyName: identity?.companyName || symbol,
+    sector: identity?.sector || "Unclassified",
+    sectorLabelKo: identity?.sectorLabelKo,
+    industry: identity?.industry || "Unclassified",
+    cik: identity?.cik,
+    exchange: identity?.exchange,
+    market: identity?.market,
+    country: identity?.country,
+    listingDate: identity?.listingDate,
+    marketCap,
+    marketCapSource: marketCap > 0 ? "company-journal-evidence" : null,
+    sharesOutstanding,
+    fundamentalsSource: "company-journal-evidence",
+    fundamentalsAsOf: evidence.sourceAsOf,
+    financialSeries: evidence.financialSeries,
+    earningsSeries: evidence.earningsSeries,
+    lastPrice,
+    layoutPrice: lastPrice,
+    priceSource: lastPrice == null ? null : "company-journal-evidence",
+    priceUpdatedAt: latestCandle?.timestamp ?? evidence.sourceAsOf,
+    changePercent: companyJournalEvidencePriceChange(lastPrice, previousClose)
+  };
+}
+
+export function companyJournalEvidencePriceChange(
+  currentPrice: number | null | undefined,
+  previousClose: number | null | undefined
+): number | null {
+  if (!Number.isFinite(currentPrice ?? NaN) || !Number.isFinite(previousClose ?? NaN) || previousClose === 0) {
+    return null;
+  }
+  const percent = ((currentPrice as number) / (previousClose as number) - 1) * 100;
+  return Math.round(percent * 1_000_000) / 1_000_000;
+}
+
+export function companyJournalAnalystActionsForDisplay(
+  summary: CompanyJournalAnalystSummary | null | undefined
+): readonly CompanyJournalAnalystAction[] {
+  if (!summary?.statement.trim()) return [];
+  return [{
+    firm: "",
+    action: "summary",
+    fromGrade: "",
+    toGrade: "",
+    priorPriceTarget: null,
+    priceTarget: null,
+    actionAt: summary.sourceAsOf ?? summary.collectedAt ?? "",
+    source: summary.source,
+    statement: summary.statement,
+    tone: summary.tone
+  }];
+}
+
 const companyJournalPreviewValuationPrices: ValuationPricePoint[] = [
   { timestamp: "2021-03-31T00:00:00Z", close: 122.15 },
   { timestamp: "2021-06-30T00:00:00Z", close: 136.96 },
@@ -171,10 +247,14 @@ export function CompanyJournalPanel({
     [item, normalizedSymbol, previewEnabled, simulatorMode]
   );
   const [storedEvidence, setStoredEvidence] = useState<CompanyJournalEvidenceResponse | null>(null);
-  const effectiveItem = useMemo<Sp500UniverseItem | undefined>(
-    () => mergeCompanyJournalEvidence(resolvedItem, storedEvidence, simulatorMode === "simulation"),
-    [resolvedItem, simulatorMode, storedEvidence]
-  );
+  const effectiveItem = useMemo<Sp500UniverseItem | undefined>(() => {
+    if (!storedEvidence) return resolvedItem;
+    const baseItem = resolvedItem ?? buildEvidenceBackedJournalItem(normalizedSymbol, undefined, storedEvidence);
+    return mergeCompanyJournalEvidence(baseItem, storedEvidence, simulatorMode === "simulation");
+  }, [normalizedSymbol, resolvedItem, simulatorMode, storedEvidence]);
+  const displayedAnalystActions = previewEnabled
+    ? companyJournalPreviewAnalystActions
+    : companyJournalAnalystActionsForDisplay(storedEvidence?.analystSummary);
   const storedPerformanceSeries = useMemo<CompanyJournalPerformanceSeries[]>(() => {
     const sectorSymbol = companyJournalSectorBenchmarkSymbol(effectiveItem?.sector, effectiveItem?.industry);
     return (storedEvidence?.performanceSeries ?? []).map((series) => ({
@@ -265,7 +345,10 @@ export function CompanyJournalPanel({
     }
     const controller = new AbortController();
     setStoredEvidence(null);
-    const sectorSymbol = companyJournalSectorBenchmarkSymbol(resolvedItem?.sector, resolvedItem?.industry);
+    const sectorSymbol = companyJournalSectorBenchmarkSymbol(
+      resolvedItem?.sector ?? item?.sector,
+      resolvedItem?.industry ?? item?.industry
+    );
     void fetchCompanyJournalEvidence(normalizedSymbol, ["SPY", sectorSymbol], controller.signal)
       .then(setStoredEvidence)
       .catch(() => {
@@ -470,6 +553,18 @@ export function CompanyJournalPanel({
         >
           {activeView === "earnings" ? (
             <div className="company-journal-earnings-evidence">
+              <CompanyJournalAnalystOpinionPanel
+                analystActions={displayedAnalystActions}
+                companyName={effectiveItem?.companyName || normalizedSymbol}
+              />
+              <CompanyJournalPerformanceChart
+                symbol={normalizedSymbol}
+                sector={effectiveItem?.sector}
+                industry={effectiveItem?.industry}
+                previewEnabled={previewEnabled}
+                storedSeries={storedPerformanceSeries}
+                disableRemoteFetch={simulatorMode === "simulation"}
+              />
               <CompanySummaryPanel
                 symbol={normalizedSymbol}
                 item={effectiveItem}
@@ -486,17 +581,8 @@ export function CompanyJournalPanel({
                 financialPeriodMode={financialPeriodMode}
                 onFinancialPeriodModeChange={setFinancialPeriodMode}
                 onFinancialSelectionChange={clearMetricFocus}
-                analystActions={previewEnabled
-                  ? companyJournalPreviewAnalystActions
-                  : journalReport?.serverMetrics.analystOutlook?.recentActions}
-              />
-              <CompanyJournalPerformanceChart
-                symbol={normalizedSymbol}
-                sector={effectiveItem?.sector}
-                industry={effectiveItem?.industry}
-                previewEnabled={previewEnabled}
-                storedSeries={storedPerformanceSeries}
-                disableRemoteFetch={simulatorMode === "simulation"}
+                analystActions={displayedAnalystActions}
+                showAnalystOpinion={false}
               />
             </div>
           ) : (
@@ -1033,7 +1119,7 @@ function consumerJournalInsight(
 }
 
 function isOperationalJournalCopy(value: string): boolean {
-  return /\bnull\b|[a-z]+_[a-z_]+|복구|입력되는지|제공되는지|확인해\s*주세요|데이터\s*(?:연결|복구|입력)|계산되지\s*않|확인할\s*구간|먼저\s*확인할|판단할\s*수\s*없|OpenAI|Bedrock|ClickHouse|Redis|저장소|모델명/iu.test(value);
+  return /\bnull\b|[a-z]+_[a-z_]+|복구|입력되는지|제공되는지|확인해\s*주세요|데이터\s*(?:연결|복구|입력)|계산되지\s*않|확인할\s*구간|먼저\s*확인할|판단할\s*수\s*없|확인 가능한 근거만|시점에 확인|시점까지 공개된|OpenAI|Bedrock|ClickHouse|Redis|저장소|모델명/iu.test(value);
 }
 
 function journalViewLabel(view: CompanyJournalView) {
@@ -1171,8 +1257,7 @@ function buildJournalOverview(item: Sp500UniverseItem | undefined, evidence: Com
   const marginDelta = percentagePointDelta(previousMargin, latestMargin);
   const debtRatio = ratio(financial.latest?.totalLiabilities, financial.latest?.totalEquity);
   const epsSurprise = surprisePercent(earnings?.estimatedEps, earnings?.actualEps);
-  const companyName = item?.companyName || item?.symbol || "이 기업";
-  const headline = overviewHeadline(companyName, revenueGrowth, marginDelta, epsSurprise);
+  const headline = companyComment(item, revenueGrowth, marginDelta, epsSurprise);
   return {
     headline,
     metrics: [
@@ -1392,20 +1477,23 @@ function toneForDebtRatio(value: number | null): JournalMetric["tone"] {
   return "positive";
 }
 
-function overviewHeadline(companyName: string, revenueGrowth: number | null, marginDelta: number | null, epsSurprise: number | null) {
+function companyComment(item: Sp500UniverseItem | undefined, revenueGrowth: number | null, marginDelta: number | null, epsSurprise: number | null) {
+  const companyName = item?.companyName || item?.symbol || "이 기업";
   const subject = koreanSubject(companyName);
-  if (revenueGrowth != null && revenueGrowth > 0 && marginDelta != null && marginDelta > 0) {
-    return `${subject} 매출 성장과 이익률 개선이 함께 나타나 현재 성장의 질이 양호합니다.`;
-  }
-  if (revenueGrowth != null && revenueGrowth > 0 && marginDelta != null && marginDelta < 0) {
-    return `${subject} 매출은 늘었지만 이익률이 낮아져 현재 성장의 질은 약해진 상태입니다.`;
-  }
-  if (epsSurprise != null && Math.abs(epsSurprise) >= 5) {
-    return epsSurprise > 0
-      ? `${subject} 최근 EPS가 시장 예상치를 웃돌아 실적 모멘텀이 개선된 상태입니다.`
-      : `${subject} 최근 EPS가 시장 예상치를 밑돌아 실적 기대가 낮아진 상태입니다.`;
-  }
-  return `${subject} 최근 재무 지표의 방향이 엇갈려 성장성과 안정성을 선별적으로 판단해야 하는 상태입니다.`;
+  const category = `${item?.sector || ""} ${item?.industry || ""}`.toLowerCase();
+  const businessLens = /semiconductor|software|technology|interactive media/.test(category)
+    ? "핵심 제품·클라우드·AI 수요가 실적과 현금흐름으로 이어지는지"
+    : /bank|financial|insurance|capital market/.test(category)
+      ? "금리 환경과 신용비용이 이익과 자본여력에 어떤 영향을 주는지"
+      : /retail|restaurant|consumer|automobile|apparel/.test(category)
+        ? "실제 수요와 가격·재고 변화가 매출과 마진으로 이어지는지"
+        : "핵심 사업의 수요가 매출·이익·현금흐름으로 이어지는지";
+  const evidence = revenueGrowth != null && marginDelta != null
+    ? `최근 매출은 ${formatChange(revenueGrowth)}, 순이익률은 ${formatDeltaSentence(marginDelta)}`
+    : epsSurprise != null
+      ? `최근 EPS는 시장 예상 대비 ${formatChange(epsSurprise)}`
+      : "최근 비교 가능한 실적 근거가 제한적";
+  return `${subject} ${businessLens}를 중심으로 봐야 하는 기업입니다. ${evidence}로 확인됩니다.`;
 }
 
 function koreanSubject(value: string): string {

@@ -42,6 +42,15 @@ export function formatCompanyJournalAnalystOpinion(
   action: CompanyJournalAnalystAction,
   companyName: string
 ): CompanyJournalAnalystOpinion | null {
+  const storedStatement = action.statement?.trim();
+  if (storedStatement) {
+    return {
+      actionAt: action.actionAt,
+      dateLabel: formatActionDate(action.actionAt),
+      message: storedStatement,
+      tone: action.tone ?? "neutral"
+    };
+  }
   const firm = action.firm.trim();
   const company = companyName.trim();
   const fromGrade = action.fromGrade.trim();

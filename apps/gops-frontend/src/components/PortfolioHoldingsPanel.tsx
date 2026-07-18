@@ -1373,12 +1373,12 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
                   {latestPortfolioValue != null ? `${formatPanelMoney(latestPortfolioValue, "USD")} · ` : ""}{formatSignedPercentPlain(portfolioPeriodReturn)}
                 </strong>
               </span>
-              {latestNetPrincipal != null && (
-                <span title="가상계좌 시작 원금입니다. 매수·매도에는 변하지 않고 계좌 초기화 시 갱신됩니다.">
-                  <i className="principal" />투자 원금
-                  <strong className="neutral">{formatPanelMoney(latestNetPrincipal, "USD")}</strong>
-                </span>
-              )}
+              <span title="가상계좌 시작 원금입니다. 매수·매도에는 변하지 않고 계좌 초기화 시 갱신됩니다.">
+                <i className="principal" />투자 원금
+                <strong className="neutral">
+                  {latestNetPrincipal != null ? formatPanelMoney(latestNetPrincipal, "USD") : "확인 중"}
+                </strong>
+              </span>
               <span>
                 <i className="benchmark" />S&amp;P 500
                 <strong className={directionClass(benchmarkPeriodReturn)}>{formatSignedPercentPlain(benchmarkPeriodReturn)}</strong>

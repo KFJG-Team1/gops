@@ -45,6 +45,7 @@ type CompanySummaryPanelProps = {
   onFinancialPeriodModeChange?: (mode: FinancialPeriodMode) => void;
   onFinancialSelectionChange?: () => void;
   analystActions?: readonly CompanyJournalAnalystAction[];
+  showAnalystOpinion?: boolean;
 };
 
 export type CompanyPanelView = "valuation" | "profitability" | "stability";
@@ -198,7 +199,7 @@ function JournalChartAnnotation({
   );
 }
 
-export function CompanySummaryPanel({ symbol, item, items = [], view, onEvidenceChange, disableRemoteFetch = false, valuationContent = "combined", valuationPriceSeries = emptyValuationPriceSeries, stabilityContent = "stability", journalPresentation = false, focusedValuationMetric = null, focusedStabilityMetric = null, focusedFinancialMetric = null, focusedFinancialYear = null, comparisonFinancialYear = null, financialPeriodMode: controlledFinancialPeriodMode, onFinancialPeriodModeChange, onFinancialSelectionChange, analystActions = emptyAnalystActions }: CompanySummaryPanelProps) {
+export function CompanySummaryPanel({ symbol, item, items = [], view, onEvidenceChange, disableRemoteFetch = false, valuationContent = "combined", valuationPriceSeries = emptyValuationPriceSeries, stabilityContent = "stability", journalPresentation = false, focusedValuationMetric = null, focusedStabilityMetric = null, focusedFinancialMetric = null, focusedFinancialYear = null, comparisonFinancialYear = null, financialPeriodMode: controlledFinancialPeriodMode, onFinancialPeriodModeChange, onFinancialSelectionChange, analystActions = emptyAnalystActions, showAnalystOpinion = true }: CompanySummaryPanelProps) {
   const [earningsMetric, setEarningsMetric] = useState<EarningsMetric>("eps");
   const [internalFinancialPeriodMode, setInternalFinancialPeriodMode] = useState<FinancialPeriodMode>(journalPresentation ? "annual" : "quarterly");
   const financialPeriodMode = controlledFinancialPeriodMode ?? internalFinancialPeriodMode;
@@ -365,6 +366,7 @@ export function CompanySummaryPanel({ symbol, item, items = [], view, onEvidence
       focusedFinancialYear={focusedFinancialYear}
       comparisonFinancialYear={comparisonFinancialYear}
       analystActions={analystActions}
+      showAnalystOpinion={showAnalystOpinion}
       companyName={companyName}
     />
   );
@@ -775,7 +777,7 @@ function InvestmentReturnPlot({ points, ratios, selectedPeriod, comparisonPeriod
   );
 }
 
-function FinancialStaticChartCard({ title, children, legend, className = "" }: { title: string; children: ReactNode; legend?: ReactNode; className?: string }) {
+function FinancialStaticChartCard({ title, children, legend, className = "" }: { title: ReactNode; children: ReactNode; legend?: ReactNode; className?: string }) {
   return <section className={`company-financial-static-card ${className}`.trim()}><strong>{title}</strong>{children}{legend}</section>;
 }
 
@@ -1178,6 +1180,7 @@ function ValuationPagedPanel({
   focusedFinancialYear = null,
   comparisonFinancialYear = null,
   analystActions = emptyAnalystActions,
+  showAnalystOpinion = true,
   companyName
 }: {
   symbol: string;
@@ -1199,6 +1202,7 @@ function ValuationPagedPanel({
   focusedFinancialYear?: number | null;
   comparisonFinancialYear?: number | null;
   analystActions?: readonly CompanyJournalAnalystAction[];
+  showAnalystOpinion?: boolean;
   companyName: string;
 }) {
   const renderablePoints = financialSeries.filter(isRenderablePerSharePoint);
@@ -1242,6 +1246,7 @@ function ValuationPagedPanel({
             series={series}
             comparison={comparison}
             analystActions={analystActions}
+            showAnalystOpinion={showAnalystOpinion}
             companyName={companyName}
           />
           {showValuation && <PerShareIndicatorsChart points={points} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={focusedFinancialMetric} />}
@@ -1319,7 +1324,7 @@ function HistoricalValuationChart({
     : null;
   return (
     <FinancialStaticChartCard
-      title="가치배수 추이"
+      title={<GlossaryText text="가치배수 추이" />}
       className={historicalFocus ? "has-focused-valuation-metric" : ""}
       legend={(
         <div className="company-profitability-legend company-historical-valuation-legend" aria-label="가치지표 범례">
@@ -1482,18 +1487,10 @@ function CompanyAnalysisPageNav({ label, onAdvance }: { label: string; onAdvance
   );
 }
 
-function EarningsPanel({
-  metric,
-  onMetricChange,
-  series,
-  comparison,
+export function CompanyJournalAnalystOpinionPanel({
   analystActions,
   companyName
 }: {
-  metric: EarningsMetric;
-  onMetricChange: (metric: EarningsMetric) => void;
-  series: EarningsChartPoint[];
-  comparison: ReturnType<typeof buildComparison>;
   analystActions: readonly CompanyJournalAnalystAction[];
   companyName: string;
 }) {
@@ -1501,15 +1498,34 @@ function EarningsPanel({
     .map((action) => formatCompanyJournalAnalystOpinion(action, companyName))
     .find((opinion): opinion is CompanyJournalAnalystOpinion => opinion != null) ?? null;
   return (
+    <section className="company-journal-analyst-opinion" aria-label="투자사 의견" aria-live="polite">
+      <h3>투자사 의견</h3>
+      <p>{analystOpinion?.message ?? "확인된 투자사 의견이 없습니다."}</p>
+    </section>
+  );
+}
+
+function EarningsPanel({
+  metric,
+  onMetricChange,
+  series,
+  comparison,
+  analystActions,
+  showAnalystOpinion,
+  companyName
+}: {
+  metric: EarningsMetric;
+  onMetricChange: (metric: EarningsMetric) => void;
+  series: EarningsChartPoint[];
+  comparison: ReturnType<typeof buildComparison>;
+  analystActions: readonly CompanyJournalAnalystAction[];
+  showAnalystOpinion: boolean;
+  companyName: string;
+}) {
+  return (
     <section className="company-earnings-panel" aria-label="실적 내역">
       <div className="company-earnings-panel-header">
-        <aside className={`company-earnings-analyst-opinion is-${analystOpinion?.tone ?? "neutral"}`} aria-label="투자사 의견" aria-live="polite">
-          <div>
-            <strong>투자사 의견</strong>
-            {analystOpinion?.dateLabel && <time dateTime={analystOpinion.actionAt}>{analystOpinion.dateLabel}</time>}
-          </div>
-          <p>{analystOpinion?.message ?? "확인된 투자사 의견이 없습니다."}</p>
-        </aside>
+        {showAnalystOpinion && <CompanyJournalAnalystOpinionPanel analystActions={analystActions} companyName={companyName} />}
         <div className="company-earnings-heading">
           <h3>실적 내역</h3>
           <div className="company-earnings-tabs" role="tablist" aria-label="실적 지표">
@@ -1541,8 +1557,8 @@ function ValuationMetricsPanel({ metrics, focusedMetric }: { metrics: ValuationM
   return (
     <section className="company-valuation-panel" aria-label="가치평가">
       <div className="company-section-heading">
-        <h3>현재 가치배수</h3>
-        <span>PER · PBR · PSR · FCF Yield</span>
+        <h3><GlossaryText text="현재 가치배수" /></h3>
+        <span><GlossaryText text="PER · PBR · PSR · FCF Yield" /></span>
       </div>
       <dl className="company-valuation-metric-list">
         {metrics.map((metric) => (

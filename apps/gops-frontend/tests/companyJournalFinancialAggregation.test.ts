@@ -8,7 +8,11 @@ import {
   mergeCompanyJournalValuationPrices,
   totalLiabilitiesFor
 } from "../src/components/CompanyJournalSummaryPanel";
-import { financialYearsForContext, nearestFinancialYear } from "../src/components/CompanyJournalPanel";
+import {
+  companyJournalEvidencePriceChange,
+  financialYearsForContext,
+  nearestFinancialYear
+} from "../src/components/CompanyJournalPanel";
 import { buildCompanyJournalDiagnosis } from "../src/components/companyJournalDiagnosis";
 import { buildCompanyJournalReading } from "../src/components/companyJournalReading";
 import {
@@ -17,6 +21,10 @@ import {
   performanceVolumeBarGeometry
 } from "../src/components/CompanyJournalPerformanceChart";
 import { allGlossaryEntries } from "../src/glossary/stockGlossary";
+
+assert.equal(companyJournalEvidencePriceChange(110, 100), 10);
+assert.equal(companyJournalEvidencePriceChange(110, 0), null, "zero previous close must not create infinity");
+assert.equal(companyJournalEvidencePriceChange(null, 100), null, "missing point-in-time price must remain missing");
 
 const annual = aggregateQuarterlySeriesToAnnual([
   {
@@ -145,6 +153,25 @@ assert.deepEqual(
     dateLabel: "2026년 7월 15일",
     message: "JP모건은 Overweight 의견을 유지하면서 목표주가를 180달러에서 200달러로 높였습니다.",
     tone: "neutral"
+  }
+);
+assert.deepEqual(
+  formatCompanyJournalAnalystOpinion({
+    ...analystActionBase,
+    firm: "",
+    action: "summary",
+    fromGrade: "",
+    toGrade: "",
+    priorPriceTarget: null,
+    priceTarget: null,
+    statement: "최근 투자사 의견을 조합한 요약문입니다.",
+    tone: "positive"
+  }, "마이크론"),
+  {
+    actionAt: "2026-07-15 12:00:00.000",
+    dateLabel: "2026년 7월 15일",
+    message: "최근 투자사 의견을 조합한 요약문입니다.",
+    tone: "positive"
   }
 );
 assert.equal(
@@ -284,7 +311,7 @@ assert.doesNotMatch(
   earningsReading.map((section) => `${section.summary} ${section.detail}`).join(" "),
   /OpenAI|Bedrock|ClickHouse|저장소|소스 누락|데이터 복구/i
 );
-for (const glossaryId of ["current_ratio", "interest_coverage", "net_debt", "bps", "sps", "cps", "operating_margin", "net_margin", "roe", "fcf_margin"]) {
+for (const glossaryId of ["current_ratio", "interest_coverage", "net_debt", "bps", "sps", "cps", "operating_margin", "net_margin", "roe", "fcf_margin", "valuation_multiple"]) {
   assert.ok(allGlossaryEntries.some((item) => item.id === glossaryId), `${glossaryId} glossary entry must exist`);
 }
 
@@ -297,6 +324,16 @@ assert.match(styles, /\.company-journal-evidence \{[\s\S]*?overflow-y: auto/);
 assert.match(styles, /\.company-journal-evidence \.company-valuation-dashboard,[\s\S]*?overflow: visible/);
 assert.match(styles, /\.company-journal-performance \{[\s\S]*?padding: 15px 0 4px/);
 assert.match(styles, /\.company-journal-performance svg text\.axis-value \{[\s\S]*?text-anchor: start/);
+assert.match(
+  styles,
+  /\.company-journal-evidence \.company-journal-earnings-evidence \.company-single-fundamental-section,[\s\S]*?\.company-journal-evidence \.company-journal-earnings-evidence \.company-valuation-dashboard \{[\s\S]*?padding-inline: 0/,
+  "company journal earnings sections must share the performance chart's left edge"
+);
+assert.match(
+  styles,
+  /\.company-journal-evidence \.company-stability-dashboard-grid \.company-financial-chart-card \{[\s\S]*?height: auto;[\s\S]*?min-height: 0/,
+  "company journal stability tables must follow the rendered chart without reserved card space"
+);
 assert.match(styles, /::-webkit-scrollbar-thumb[\s\S]*?background-clip: padding-box/);
 assert.match(styles, /\.workspace-panel-frame \.company-journal-panel :is\([\s\S]*?\.company-journal-evidence[\s\S]*?scrollbar-width: thin !important/);
 assert.match(styles, /::-webkit-scrollbar[\s\S]*?display: block !important/);
@@ -325,13 +362,22 @@ assert.match(journalSummarySource, /focus\?\.periods\.includes/);
 assert.match(journalSummarySource, /comparisonPeriod/);
 assert.match(journalSummarySource, /onFinancialSelectionChange\?\.\(\)/);
 assert.match(journalSummarySource, /focusedMetric === "fcf-yield"/);
+assert.match(journalSummarySource, /title=\{<GlossaryText text="가치배수 추이" \/>\}/);
+assert.match(journalSummarySource, /<h3><GlossaryText text="현재 가치배수" \/><\/h3>/);
+assert.match(journalSummarySource, /<GlossaryText text="PER · PBR · PSR · FCF Yield" \/>/);
 assert.match(journalSummarySource, /company-stability-money-dot/);
 assert.match(journalSummarySource, /formatUsdCompactTable\(point\.revenue\)/);
 assert.match(journalSummarySource, /formatUsdCompactTable\(point\.netIncome\)/);
 assert.match(journalSummarySource, /rowMarkers: \[focusedMetric as FinancialTableRow\["marker"\]\]/);
 assert.match(journalSummarySource, /focusedMetric === "current-ratio"[\s\S]*?focusedMetric === "interest-coverage"[\s\S]*?focusedMetric === "financial-cost-burden"/);
 assert.match(journalSummarySource, /const estimateX = x;\s*const actualX = x;/);
-assert.match(journalSummarySource, /company-earnings-analyst-opinion/);
+assert.match(journalSummarySource, /company-journal-analyst-opinion/);
+assert.match(journalSummarySource, /export function CompanyJournalAnalystOpinionPanel/);
+assert.match(journalSummarySource, /showAnalystOpinion && <CompanyJournalAnalystOpinionPanel/);
+assert.doesNotMatch(journalSummarySource, /<time dateTime=\{analystOpinion\.actionAt\}/);
+assert.match(styles, /\.company-journal-analyst-opinion \{[^}]*padding: 15px 0 4px/);
+assert.match(styles, /\.company-journal-analyst-opinion p \{[^}]*font-size: clamp\(18px, 1\.45cqw, 22px\)/);
+assert.doesNotMatch(styles, /\.company-journal-analyst-opinion \{[^}]*background:/);
 assert.doesNotMatch(journalSummarySource, /comparisonGap/);
 assert.match(
   journalSummarySource,

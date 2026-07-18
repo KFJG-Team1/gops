@@ -7,6 +7,16 @@ export type CompanyJournalAnalystAction = {
   priceTarget: number | null;
   actionAt: string;
   source: string;
+  statement?: string;
+  tone?: "positive" | "negative" | "neutral";
+};
+
+export type CompanyJournalAnalystSummary = {
+  statement: string;
+  tone: "positive" | "negative" | "neutral";
+  sourceAsOf: string | null;
+  collectedAt: string | null;
+  source: string;
 };
 
 export type CompanyJournalReport = {
@@ -28,17 +38,6 @@ export type CompanyJournalReport = {
     benchmarkReturnPercent?: number | null;
     relativeReturnPercentagePoints?: number | null;
     financial?: Record<string, number | null>;
-    analystOutlook?: {
-      source?: "yahoo-finance";
-      recentWindowDays?: number;
-      upgradeCount?: number;
-      downgradeCount?: number;
-      recentActions?: CompanyJournalAnalystAction[];
-      latestConsensus?: Record<string, unknown> | null;
-      previousConsensus?: Record<string, unknown> | null;
-      consensusMeanTargetChangePercent?: number | null;
-      summary?: string;
-    };
   };
   sourceReceipt: Record<string, unknown>;
   missingData: string[];
@@ -59,17 +58,38 @@ export type CompanyJournalEvidenceResponse = {
   contractVersion: string;
   symbol: string;
   sourceAsOf: string | null;
+  cutoff?: string | null;
   financialSeries: import("../market/sp500Universe.seed").CompanyFinancialSeriesPoint[];
   earningsSeries: import("../market/sp500Universe.seed").CompanyEarningsSeriesPoint[];
   performanceSeries: Array<{
     symbol: string;
     candles: import("../chart/types").CandleDto[];
   }>;
+  analystSummary: CompanyJournalAnalystSummary | null;
   missingData: string[];
   simulation?: boolean;
   sourceMode?: "historical_reconstruction" | string;
-  cutoff?: string;
 };
+
+function analystSummaryText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function normalizeCompanyJournalAnalystSummary(value: unknown): CompanyJournalAnalystSummary | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const statement = analystSummaryText(row.statement);
+  if (!statement) return null;
+  const rawTone = analystSummaryText(row.tone);
+  const tone = rawTone === "positive" || rawTone === "negative" ? rawTone : "neutral";
+  return {
+    statement,
+    tone,
+    sourceAsOf: analystSummaryText(row.sourceAsOf ?? row.source_as_of) || null,
+    collectedAt: analystSummaryText(row.collectedAt ?? row.collected_at) || null,
+    source: analystSummaryText(row.source) || "yahoo-finance"
+  };
+}
 
 export async function fetchCompanyJournal(symbol: string, signal?: AbortSignal): Promise<CompanyJournalResponse> {
   const response = await fetch(`/api/company-journal/${encodeURIComponent(symbol)}`, {
@@ -100,5 +120,8 @@ export async function fetchCompanyJournalEvidence(
   if (!response.ok || !payload || !Array.isArray(payload.financialSeries) || !Array.isArray(payload.earningsSeries)) {
     throw new Error(`기업저널 근거 응답 오류 ${response.status}`);
   }
-  return payload as CompanyJournalEvidenceResponse;
+  return {
+    ...payload,
+    analystSummary: normalizeCompanyJournalAnalystSummary(payload.analystSummary ?? payload.analyst_summary)
+  } as CompanyJournalEvidenceResponse;
 }

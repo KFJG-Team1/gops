@@ -48,6 +48,14 @@ const testCases = [
     outfile: new URL("../.tmp/company-journal-financial-aggregation-test.mjs", import.meta.url)
   },
   {
+    entry: new URL("../tests/companyJournalEvidenceApi.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/company-journal-evidence-api-test.mjs", import.meta.url)
+  },
+  {
+    entry: new URL("../tests/companyAnalysisNavigation.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/company-analysis-navigation-test.mjs", import.meta.url)
+  },
+  {
     entry: new URL("../tests/companyCompareResponsiveFill.test.ts", import.meta.url),
     outfile: new URL("../.tmp/company-compare-responsive-fill-test.mjs", import.meta.url)
   },
@@ -58,6 +66,16 @@ const testCases = [
   {
     entry: new URL("../tests/newsKeywordPanel.test.ts", import.meta.url),
     outfile: new URL("../.tmp/news-keyword-panel-test.mjs", import.meta.url)
+  },
+  {
+    entry: new URL("../tests/companyInfoCard.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/company-info-card-test.mjs", import.meta.url),
+    define: {
+      "import.meta.env": JSON.stringify({
+        DEV: false,
+        VITE_COMPANY_ANALYSIS_DEV_FIXTURE: "false"
+      })
+    }
   }
 ];
 await mkdir(new URL("../.tmp/", import.meta.url), { recursive: true });
@@ -71,7 +89,8 @@ try {
       platform: "node",
       format: "esm",
       sourcemap: false,
-      logLevel: "silent"
+      logLevel: "silent",
+      ...(testCase.define ? { define: testCase.define } : {})
     });
 
     await import(`${pathToFileURL(fileURLToPath(testCase.outfile)).href}?t=${Date.now()}-${index}`);

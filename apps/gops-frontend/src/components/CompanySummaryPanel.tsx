@@ -34,6 +34,15 @@ type CompanySummaryPanelProps = {
   insightContext?: CompanyInsightContext | null;
 };
 
+type CompanyInfoRow = {
+  label: string;
+  value: string;
+  tone?: "up" | "down" | "neutral";
+  marketMetric?: CompanyInfoMarketMetricKey;
+};
+
+type CompanyInfoMarketMetricKey = "price" | "change" | "market-cap";
+
 export type CompanyPanelView = "info" | "current" | "growth" | "valuation" | "profitability" | "stability";
 
 const emptyValuationPriceFixture: ValuationPricePoint[] = [];
@@ -171,9 +180,12 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
   const [failedCompanyLogoBackdropUrl, setFailedCompanyLogoBackdropUrl] = useState<string | null>(null);
   const price = item?.lastPrice ?? item?.layoutPrice ?? null;
   const marketCap = item?.marketCap ?? item?.layoutMarketCap ?? null;
+  const sharesOutstanding = item?.sharesOutstanding
+    ?? (Number.isFinite(marketCap ?? NaN) && Number.isFinite(price ?? NaN) && (price as number) > 0
+      ? (marketCap as number) / (price as number)
+      : null);
   const changePercent = item?.changePercent ?? null;
   const changeTone = changePercent == null ? "neutral" : changePercent > 0 ? "up" : changePercent < 0 ? "down" : "neutral";
-  const dataAsOf = item?.fundamentalsAsOf ?? item?.periodEndDate ?? item?.filedAt ?? item?.priceUpdatedAt ?? item?.layoutPriceUpdatedAt ?? null;
   const comparison = buildComparison(normalizedSymbol, item, items);
   const baseFinancialSeries = useMemo(
     () => buildFinancialSeries(financialSeries?.length ? financialSeries : item?.financialSeries, item),
@@ -285,19 +297,15 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
     });
   }, [earningsSeries, financialPeriodMode, onEvidenceChange, profitabilitySeries, selectedFinancialPeriod]);
 
-  const infoRows: ReadonlyArray<readonly [string, string, ("up" | "down" | "neutral")?]> = [
-    ["현재가", formatUsd(price)],
-    ["등락률", formatPercent(changePercent), changeTone],
-    ["시가총액", formatUsdCompact(marketCap)],
-    ["발행주식수", formatShares(item?.sharesOutstanding ?? null)],
-    ["거래소", formatExchange(item?.exchange)],
-    ["상장일", formatDate(item?.listingDate)],
-    ["섹터", item?.sector || "확인 중"],
-    ["산업", item?.industry || "확인 중"],
-    ["CIK", item?.cik || "확인 중"],
-    ["시장", formatMarket(item?.market, item?.country)],
-    ["기업정보 원천", formatCompanySource(item)],
-    ["데이터 기준", formatDate(dataAsOf)]
+  const infoRows: readonly CompanyInfoRow[] = [
+    { label: "현재가", value: formatCompanyInfoPrice(price), marketMetric: "price" },
+    { label: "등락률", value: formatCompanyInfoChange(changePercent), tone: changeTone, marketMetric: "change" },
+    { label: "시가총액", value: formatCompanyInfoMarketCap(marketCap), marketMetric: "market-cap" },
+    { label: "발행주식수", value: formatShares(sharesOutstanding) },
+    { label: "거래소", value: "SIP" },
+    { label: "섹터", value: item?.sector || "확인 중" },
+    { label: "산업", value: item?.industry || "확인 중" },
+    { label: "시장", value: formatMarket(item?.market, item?.country) }
   ];
 
   const infoSection = (
@@ -336,12 +344,24 @@ export function CompanySummaryPanel({ symbol, item, items = [], view = "all", on
       </strong>
       <div className="company-info-sheet">
         <dl className="company-info-grid">
-          {infoRows.map(([label, value, tone]) => (
-            <div key={label} className="company-info-cell">
-              <dt><GlossaryText text={label} /></dt>
-              <dd className={tone ? `company-summary-value ${tone}` : "company-summary-value"}>{value}</dd>
-            </div>
-          ))}
+          {infoRows.map(({ label, value, tone, marketMetric }) => {
+            const missing = marketMetric !== undefined && value === companyInfoMissingValue;
+            return (
+              <div
+                key={label}
+                className={`company-info-cell${marketMetric ? " company-info-market-metric" : ""}${missing ? " is-missing" : ""}`}
+                data-company-info-metric={marketMetric}
+              >
+                <dt><GlossaryText text={label} /></dt>
+                <dd
+                  className={tone ? `company-summary-value ${tone}` : "company-summary-value"}
+                  aria-label={missing ? "확인 중" : undefined}
+                >
+                  {value}
+                </dd>
+              </div>
+            );
+          })}
         </dl>
       </div>
     </section>
@@ -2514,14 +2534,39 @@ function formatAnnualPeriod(point: FinancialChartPoint): string {
   return year ? `${year}년` : point.period;
 }
 
-function formatUsd(value: number | null | undefined): string {
-  if (!Number.isFinite(value ?? NaN)) {
-    return "확인 중";
+export const companyInfoMissingValue = "—";
+
+export function formatCompanyInfoPrice(value: number | null | undefined): string {
+  if (!isPositiveFinite(value)) {
+    return companyInfoMissingValue;
   }
-  return `${new Intl.NumberFormat("ko-KR", {
-    minimumFractionDigits: value && value >= 100 ? 2 : 2,
+  return `US$${new Intl.NumberFormat("ko-KR", {
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(value as number)}달러`;
+  }).format(value)}`;
+}
+
+export function formatCompanyInfoChange(value: number | null | undefined): string {
+  if (!Number.isFinite(value ?? NaN)) {
+    return companyInfoMissingValue;
+  }
+  const numeric = value as number;
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${new Intl.NumberFormat("ko-KR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(numeric)}%`;
+}
+
+export function formatCompanyInfoMarketCap(value: number | null | undefined): string {
+  if (!isPositiveFinite(value) || value <= 1) {
+    return companyInfoMissingValue;
+  }
+  return `US$${formatKoreanCompact(value)}`;
+}
+
+function isPositiveFinite(value: number | null | undefined): value is number {
+  return Number.isFinite(value ?? NaN) && (value as number) > 0;
 }
 
 function formatUsdCompact(value: number | null | undefined): string {
@@ -2621,21 +2666,6 @@ function formatDate(value: string | null | undefined): string {
   }).format(parsed);
 }
 
-function formatExchange(value: string | null | undefined): string {
-  if (!value) {
-    return "확인 중";
-  }
-  const normalized = value.trim().toUpperCase();
-  const labels: Record<string, string> = {
-    NASDAQ: "나스닥",
-    NYSE: "뉴욕증권거래소",
-    AMEX: "NYSE 아메리칸",
-    ARCA: "NYSE 아카",
-    BATS: "Cboe BZX"
-  };
-  return labels[normalized] ?? value;
-}
-
 function formatMarket(market: string | null | undefined, country: string | null | undefined): string {
   const value = market || country;
   if (!value) {
@@ -2646,20 +2676,6 @@ function formatMarket(market: string | null | undefined, country: string | null 
     return "미국";
   }
   return value;
-}
-
-function formatCompanySource(item: Sp500UniverseItem | undefined): string {
-  const source = item?.fundamentalsSource?.toLowerCase() ?? "";
-  if (source.includes("sec")) {
-    return "SEC 공시";
-  }
-  if (hasFundamentalShares(item)) {
-    return "재무 데이터";
-  }
-  if (item?.marketCapSource === "seed" || item?.layoutMarketCapSource === "seed") {
-    return "기준 유니버스";
-  }
-  return "확인 중";
 }
 
 function hasFundamentalShares(item: Sp500UniverseItem | undefined): boolean {

@@ -4827,7 +4827,14 @@ assert.doesNotMatch(panelLayoutSource, /insertPanelAtBoundary|canInsertPanelAtBo
 assert.match(panelLayoutSource, /detectResizablePanelBoundaries/);
 assert.match(panelLayoutSource, /resizeFreeformBoundary/);
 assert.match(panelLayoutSource, /normalizeFreeformRectsToGridLayout/);
-assert.match(panelLayoutSource, /const inheritsSymbol = item\.kind === "chart" \|\| item\.kind === "company" \|\| item\.kind === "compare" \|\| item\.kind === "companyCompare";/);
+assert.match(
+  panelLayoutSource,
+  /const inheritsSymbol = item\.kind === "chart"[\s\S]*?\|\| item\.kind === "compare"[\s\S]*?\|\| item\.kind === "companyCompare"[\s\S]*?\|\| companyInformationPanelKinds\.has\(item\.kind\);/
+);
+assert.match(
+  panelLayoutSource,
+  /const companyInformationPanelKinds = new Set<PanelContentKind>\(\[[\s\S]*?"company"[\s\S]*?"companyJournal"/
+);
 const panelWorkspaceSource = readFileSync(fileURLToPath(new URL("../src/components/PanelWorkspace.tsx", import.meta.url)), "utf-8");
 assert.doesNotMatch(panelWorkspaceSource, /panel-boundary-add|panel-add-menu|insertPanelAtBoundary|canInsertPanelAtBoundary|beginPanelSwap|hitTestSwappableSlot|boundaryAddMenuPosition/);
 assert.match(panelWorkspaceSource, /content\.kind === "priceCondition"/);
@@ -4996,8 +5003,8 @@ const restoredChartAnalysisLayout = buildPresetLayout(
 );
 assert.ok(restoredChartAnalysisLayout);
 const restoredChartAnalysisCompareContent = restoredChartAnalysisLayout.contents[restoredChartAnalysisLayout.slots[0].contentId];
-assert.equal(restoredChartAnalysisCompareContent?.props?.baseSymbol, "NVDA");
-assert.deepEqual(restoredChartAnalysisCompareContent?.props?.symbols, ["NVDA"]);
+assert.equal(restoredChartAnalysisCompareContent?.props?.baseSymbol, "AMD");
+assert.deepEqual(restoredChartAnalysisCompareContent?.props?.symbols, ["AMD"]);
 const regularRecommendationPreset = DEFAULT_PRESETS.find((preset) => preset.id === "regular");
 assert.ok(regularRecommendationPreset);
 const regularRecommendationLayout = buildPresetLayout(regularRecommendationPreset, { width: 1280, height: 720 });

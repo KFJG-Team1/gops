@@ -394,6 +394,13 @@ export const extraGlossary: GlossaryEntry[] = [
     category: "fundamental"
   },
   {
+    id: "valuation_multiple",
+    term: "가치배수",
+    aliases: ["가치배수", "가치 배수", "valuation multiple"],
+    description: "이익·순자산·매출·현금흐름과 비교해 현재 주가나 기업가치가 어느 수준인지 보여주는 지표 묶음입니다.",
+    category: "fundamental"
+  },
+  {
     id: "roa",
     term: "ROA",
     aliases: ["ROA", "총자산이익률", "return on assets"],
