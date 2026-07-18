@@ -22,7 +22,7 @@ const initialStatus: SimulatorStatus = {
   available: false,
   mode: "live",
   state: "idle",
-  datasetId: "sp500-top20-20260715-kst-v1",
+  datasetId: "sp500-top20-plus-amd-mu-20260715-kst-v2",
   runId: null,
   virtualTime: "2026-07-15T00:00:00+09:00",
   startTime: "2026-07-15T00:00:00+09:00",
