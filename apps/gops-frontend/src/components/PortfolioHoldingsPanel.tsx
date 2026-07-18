@@ -1,14 +1,14 @@
 import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
 import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
+import { usePaperAccount } from "../orders/PaperAccountProvider";
+import type { PaperAccountSnapshot } from "../orders/paperTradingClient";
 import { PortfolioHoldingsApiError, parsePortfolioHoldingsApiResponse, validPortfolioCash, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
 import {
-  buildDevPortfolioPerformanceFixture,
   fetchPortfolioPerformance,
   type PortfolioPerformanceRange,
   type PortfolioPerformanceResponse
 } from "./portfolioPerformanceApi";
-import { subscribePortfolioRefresh } from "../simulator/simulatorApi";
 import { LogoDevAttribution, StockLogo } from "./StockLogo";
 
 type SortMode = "custom" | "value" | "return";
@@ -83,11 +83,7 @@ const purchaseCompareColors = [
   "var(--color-down)",
   "var(--color-signal)"
 ];
-const DEMO_PORTFOLIO_ENABLED =
-  import.meta.env.DEV ||
-  (typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname));
-const activePortfolioRefreshIntervalMs = DEMO_PORTFOLIO_ENABLED ? 1_000 : REFRESH_INTERVAL_MS;
-const DEV_PERFORMANCE_FIXTURE_ENABLED = import.meta.env.DEV;
+const activePortfolioRefreshIntervalMs = 1_000;
 const portfolioPerformanceRanges: readonly { value: PortfolioPerformanceRange; label: string }[] = [
   { value: "1W", label: "1주" },
   { value: "1M", label: "1개월" },
@@ -101,6 +97,61 @@ const portfolioMultiViews = [
   { id: "flow", title: "투자" },
   { id: "diversification", title: "분산투자" }
 ] as const;
+
+function paperSnapshotToPortfolioPayload(snapshot: PaperAccountSnapshot): PortfolioHoldingsResponse {
+  const positions: PortfolioPosition[] = snapshot.positions.map((position) => ({
+    symbol: position.symbol,
+    name: position.name || position.symbol,
+    market: position.market || "overseas",
+    exchange: position.exchange || "US",
+    currency: position.currency || "USD",
+    sector: position.sector,
+    industry: position.industry,
+    quantity: position.qty,
+    availableQuantity: position.available_qty,
+    averagePrice: position.average_price,
+    currentPrice: position.current_price,
+    marketValueForeign: position.market_value,
+    unrealizedPnlForeign: position.unrealized_pnl,
+    unrealizedPnlRate: position.unrealized_pnl_rate,
+    dayPnlForeign: position.day_pnl,
+    dayPnlRate: position.day_pnl_rate,
+    peRatio: position.pe_ratio,
+    epsTtm: position.eps_ttm,
+    low52: position.low_52,
+    high52: position.high_52,
+    marketStatsAsOf: position.market_stats_as_of,
+    stats52wSource: position.stats_52w_source,
+    fundamentalsSource: position.fundamentals_source,
+    fundamentalsAsOf: position.fundamentals_as_of,
+    dividendYield: position.dividend_yield,
+    dividendPerShare: position.dividend_per_share,
+    annualDividend: position.annual_dividend,
+    nextDividendDate: position.next_dividend_date,
+    dividendSource: position.dividend_source
+  }));
+  const latestPriceTimestamp = positions.length
+    ? snapshot.positions.map((position) => position.price_timestamp || "").sort().at(-1)
+    : undefined;
+  const costBasis = snapshot.positions.reduce((total, position) => total + position.cost_basis, 0);
+  return {
+    status: positions.length ? "ok" : "empty",
+    source: "paper-shared",
+    asOf: latestPriceTimestamp || snapshot.account.seeded_at || snapshot.account.started_at,
+    account: {
+      alias: "7섹터 균형형 가상계좌",
+      market: "overseas",
+      currency: snapshot.account.currency,
+      cashForeign: snapshot.account.cash_balance,
+      stockValueForeign: snapshot.account.market_value,
+      totalValueForeign: snapshot.account.equity,
+      unrealizedPnlForeign: snapshot.account.unrealized_pnl,
+      unrealizedPnlRate: costBasis > 0 ? snapshot.account.unrealized_pnl / costBasis * 100 : 0
+    },
+    positions,
+    limitations: snapshot.account.seed_profile ? [`${snapshot.account.seed_profile} seeded portfolio`] : []
+  };
+}
 
 type PortfolioHoldingsDataState = {
   payload: PortfolioHoldingsResponse | null;
@@ -181,23 +232,13 @@ function loadPortfolioHoldingsStore(source: PortfolioHoldingsSource, showRefresh
       setPortfolioStoreState(source, { payload: nextPayload, loading: false, refreshing: false, error: undefined, errorStatus: undefined });
     })
     .catch((caught) => {
-      if (DEMO_PORTFOLIO_ENABLED && source === "active") {
-        setPortfolioStoreState(source, {
-          payload: buildDemoPortfolioPayload(),
-          loading: false,
-          refreshing: false,
-          error: undefined,
-          errorStatus: undefined
-        });
-      } else {
-        setPortfolioStoreState(source, {
-          payload: source === "kis" ? null : store.state.payload,
-          loading: false,
-          refreshing: false,
-          error: caught instanceof Error ? caught.message : "보유종목을 불러오지 못했습니다.",
-          errorStatus: caught instanceof PortfolioHoldingsApiError ? caught.status : undefined
-        });
-      }
+      setPortfolioStoreState(source, {
+        payload: source === "kis" ? null : store.state.payload,
+        loading: false,
+        refreshing: false,
+        error: caught instanceof Error ? caught.message : "보유종목을 불러오지 못했습니다.",
+        errorStatus: caught instanceof PortfolioHoldingsApiError ? caught.status : undefined
+      });
     })
     .finally(() => {
       store.inflight = null;
@@ -207,10 +248,6 @@ function loadPortfolioHoldingsStore(source: PortfolioHoldingsSource, showRefresh
       }
     });
   return store.inflight;
-}
-
-function refreshPortfolioHoldingsStore(source: PortfolioHoldingsSource): void {
-  void loadPortfolioHoldingsStore(source, true);
 }
 
 function subscribePortfolioHoldingsStore(source: PortfolioHoldingsSource, listener: () => void): () => void {
@@ -239,29 +276,46 @@ export function usePortfolioHoldingsData(
   onPortfolioSymbolsChange?: (symbols: readonly string[]) => void,
   source: PortfolioHoldingsSource = "active"
 ) {
+  const paperAccount = usePaperAccount();
   const [state, setState] = useState<PortfolioHoldingsDataState>(() => portfolioStore(source).state);
 
   useEffect(() => {
+    if (source === "active") return undefined;
     const store = portfolioStore(source);
     setState(store.state);
     return subscribePortfolioHoldingsStore(source, () => setState(portfolioStore(source).state));
   }, [source]);
 
-  useEffect(() => {
-    return subscribePortfolioRefresh(() => refreshPortfolioHoldingsStore(source));
-  }, [source]);
+  const activePayload = useMemo(
+    () => source === "active" && paperAccount.snapshot
+      ? paperSnapshotToPortfolioPayload(paperAccount.snapshot)
+      : null,
+    [paperAccount.snapshot, source]
+  );
+  const visibleState: PortfolioHoldingsDataState = source === "active"
+    ? {
+        payload: activePayload,
+        loading: paperAccount.loading,
+        refreshing: paperAccount.loading && activePayload != null,
+        error: paperAccount.error,
+        errorStatus: undefined
+      }
+    : state;
 
   useEffect(() => {
-    if (state.payload) {
-      onPortfolioSymbolsChange?.(state.payload.positions.map((position) => position.symbol));
+    if (visibleState.payload) {
+      onPortfolioSymbolsChange?.(visibleState.payload.positions.map((position) => position.symbol));
     }
-  }, [onPortfolioSymbolsChange, state.payload]);
+  }, [onPortfolioSymbolsChange, visibleState.payload]);
 
-  const positions = useMemo(() => sortPositions(state.payload?.positions ?? [], "value"), [state.payload?.positions]);
-  const account = state.payload?.account;
-  const dashboard = useMemo(() => buildPortfolioDashboard(account, state.payload?.positions ?? []), [account, state.payload?.positions]);
-  const loadHoldings = useCallback(() => loadPortfolioHoldingsStore(source, true), [source]);
-  return { payload: state.payload, loading: state.loading, refreshing: state.refreshing, error: state.error, errorStatus: state.errorStatus, positions, dashboard, loadHoldings };
+  const positions = useMemo(() => sortPositions(visibleState.payload?.positions ?? [], "value"), [visibleState.payload?.positions]);
+  const account = visibleState.payload?.account;
+  const dashboard = useMemo(() => buildPortfolioDashboard(account, visibleState.payload?.positions ?? []), [account, visibleState.payload?.positions]);
+  const loadHoldings = useCallback(
+    () => source === "active" ? paperAccount.refresh() : loadPortfolioHoldingsStore(source, true),
+    [paperAccount.refresh, source]
+  );
+  return { payload: visibleState.payload, loading: visibleState.loading, refreshing: visibleState.refreshing, error: visibleState.error, errorStatus: visibleState.errorStatus, positions, dashboard, loadHoldings };
 }
 
 export function PortfolioHoldingsPanel({
@@ -1220,21 +1274,12 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
     setError("");
     void fetchPortfolioPerformance(range, controller.signal)
       .then((payload) => {
-        setResponse(
-          DEV_PERFORMANCE_FIXTURE_ENABLED && payload.status !== "ready"
-            ? buildDevPortfolioPerformanceFixture(range)
-            : payload
-        );
+        setResponse(payload);
       })
       .catch((caught) => {
         if (controller.signal.aborted) return;
-        if (DEV_PERFORMANCE_FIXTURE_ENABLED) {
-          setResponse(buildDevPortfolioPerformanceFixture(range));
-          setError("");
-        } else {
-          setResponse(null);
-          setError(caught instanceof Error ? caught.message : "성과 데이터를 불러오지 못했습니다.");
-        }
+        setResponse(null);
+        setError(caught instanceof Error ? caught.message : "성과 데이터를 불러오지 못했습니다.");
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -1333,7 +1378,7 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
               <i className="benchmark" />S&amp;P 500
               <strong className={directionClass(benchmarkPeriodReturn)}>{formatSignedPercentPlain(benchmarkPeriodReturn)}</strong>
             </span>
-            {response?.isDevFixture && <em className="portfolio-performance-dev-badge">DEV DEMO</em>}
+            {response?.dataOrigin === "seeded-demo" && <em className="portfolio-performance-dev-badge">DEMO DATA</em>}
           </div>
           <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={`${range} 평가금, 보유 원금, S&P 500 변화율 비교`}>
             {yTicks.map((tick) => {
@@ -1754,254 +1799,6 @@ function formatPercentPlain(value: number | null | undefined): string {
     return "-";
   }
   return `${value.toFixed(Math.abs(value) >= 10 ? 1 : 2)}%`;
-}
-
-function buildDemoPortfolioPayload(): PortfolioHoldingsResponse {
-  const positions: PortfolioPosition[] = [
-    {
-      symbol: "NVDA",
-      name: "NVIDIA Corporation",
-      market: "overseas",
-      exchange: "NASDAQ",
-      currency: "USD",
-      sector: "Technology",
-      industry: "Semiconductors",
-      quantity: 18,
-      averagePrice: 148.42,
-      currentPrice: 195.55,
-      marketValueForeign: 3519.9,
-      unrealizedPnlForeign: 848.34,
-      unrealizedPnlRate: 31.75,
-      dayPnlForeign: 25.74,
-      dayPnlRate: 0.74,
-      dividendYield: 0.02,
-      dividendPerShare: 0.04,
-      annualDividend: 0.72,
-      peRatio: 69.41,
-      epsTtm: 2.82,
-      low52: 86.62,
-      high52: 195.95
-    },
-    {
-      symbol: "AAPL",
-      name: "Apple Inc.",
-      market: "overseas",
-      exchange: "NASDAQ",
-      currency: "USD",
-      sector: "Technology",
-      industry: "Technology Hardware",
-      quantity: 22,
-      averagePrice: 178.1,
-      currentPrice: 212.66,
-      marketValueForeign: 4678.52,
-      unrealizedPnlForeign: 760.32,
-      unrealizedPnlRate: 19.41,
-      dayPnlForeign: 61.38,
-      dayPnlRate: 1.33,
-      dividendYield: 0.47,
-      dividendPerShare: 1.04,
-      annualDividend: 22.88,
-      peRatio: 33.24,
-      epsTtm: 6.4,
-      low52: 164.08,
-      high52: 260.1
-    },
-    {
-      symbol: "MSFT",
-      name: "Microsoft Corporation",
-      market: "overseas",
-      exchange: "NASDAQ",
-      currency: "USD",
-      sector: "Technology",
-      industry: "Systems Software",
-      quantity: 12,
-      averagePrice: 386.74,
-      currentPrice: 423.18,
-      marketValueForeign: 5078.16,
-      unrealizedPnlForeign: 437.28,
-      unrealizedPnlRate: 9.42,
-      dayPnlForeign: -48.12,
-      dayPnlRate: -0.94,
-      dividendYield: 0.72,
-      dividendPerShare: 3.32,
-      annualDividend: 39.84,
-      peRatio: 36.92,
-      epsTtm: 11.46,
-      low52: 344.79,
-      high52: 468.35
-    },
-    {
-      symbol: "AMD",
-      name: "Advanced Micro Devices, Inc.",
-      market: "overseas",
-      exchange: "NASDAQ",
-      currency: "USD",
-      sector: "Technology",
-      industry: "Semiconductors",
-      quantity: 16,
-      averagePrice: 128.33,
-      currentPrice: 141.9,
-      marketValueForeign: 2270.4,
-      unrealizedPnlForeign: 217.12,
-      unrealizedPnlRate: 10.57,
-      dayPnlForeign: -38.88,
-      dayPnlRate: -1.68,
-      dividendYield: 0,
-      annualDividend: 0,
-      peRatio: 118.25,
-      epsTtm: 1.2,
-      low52: 76.48,
-      high52: 182.5
-    },
-    {
-      symbol: "JPM",
-      name: "JPMorgan Chase & Co.",
-      market: "overseas",
-      exchange: "NYSE",
-      currency: "USD",
-      sector: "Financial Services",
-      industry: "Diversified Banks",
-      quantity: 9,
-      averagePrice: 199.2,
-      currentPrice: 216.44,
-      marketValueForeign: 1947.96,
-      unrealizedPnlForeign: 155.16,
-      unrealizedPnlRate: 8.65,
-      dayPnlForeign: 14.49,
-      dayPnlRate: 0.75,
-      dividendYield: 2.25,
-      dividendPerShare: 4.6,
-      annualDividend: 41.4,
-      peRatio: 12.11,
-      epsTtm: 17.87,
-      low52: 190.9,
-      high52: 247.3
-    },
-    {
-      symbol: "XOM",
-      name: "Exxon Mobil Corporation",
-      market: "overseas",
-      exchange: "NYSE",
-      currency: "USD",
-      sector: "Energy",
-      industry: "Integrated Oil & Gas",
-      quantity: 11,
-      averagePrice: 109.5,
-      currentPrice: 113.22,
-      marketValueForeign: 1245.42,
-      unrealizedPnlForeign: 40.92,
-      unrealizedPnlRate: 3.4,
-      dayPnlForeign: 4.07,
-      dayPnlRate: 0.33,
-      dividendYield: 3.38,
-      dividendPerShare: 3.96,
-      annualDividend: 43.56,
-      peRatio: 13.62,
-      epsTtm: 8.31,
-      low52: 97.8,
-      high52: 126.34
-    },
-    {
-      symbol: "GOOGL", name: "Alphabet Inc.", market: "overseas", exchange: "NASDAQ", currency: "USD",
-      sector: "Communication Services", industry: "Interactive Media & Services", quantity: 8,
-      averagePrice: 172.4, currentPrice: 184.3, marketValueForeign: 1474.4,
-      unrealizedPnlForeign: 95.2, unrealizedPnlRate: 6.9, dayPnlForeign: 12.8, dayPnlRate: 0.88,
-      dividendYield: 0, annualDividend: 0, peRatio: 24.18, epsTtm: 7.62, low52: 140.53, high52: 207.05
-    },
-    {
-      symbol: "AMZN", name: "Amazon.com, Inc.", market: "overseas", exchange: "NASDAQ", currency: "USD",
-      sector: "Consumer Cyclical", industry: "Internet Retail", quantity: 7,
-      averagePrice: 194.5, currentPrice: 187.2, marketValueForeign: 1310.4,
-      unrealizedPnlForeign: -51.1, unrealizedPnlRate: -3.75, dayPnlForeign: -19.6, dayPnlRate: -1.47,
-      dividendYield: 0, annualDividend: 0, peRatio: 31.74, epsTtm: 5.9, low52: 151.61, high52: 242.52
-    },
-    {
-      symbol: "META", name: "Meta Platforms, Inc.", market: "overseas", exchange: "NASDAQ", currency: "USD",
-      sector: "Communication Services", industry: "Interactive Media & Services", quantity: 3,
-      averagePrice: 612, currentPrice: 698.4, marketValueForeign: 2095.2,
-      unrealizedPnlForeign: 259.2, unrealizedPnlRate: 14.12, dayPnlForeign: 28.5, dayPnlRate: 1.38,
-      dividendYield: 0.3, dividendPerShare: 2.1, annualDividend: 6.3,
-      peRatio: 27.36, epsTtm: 25.53, low52: 479.8, high52: 740.91
-    },
-    {
-      symbol: "AVGO", name: "Broadcom Inc.", market: "overseas", exchange: "NASDAQ", currency: "USD",
-      sector: "Technology", industry: "Semiconductors", quantity: 4,
-      averagePrice: 292.5, currentPrice: 326.8, marketValueForeign: 1307.2,
-      unrealizedPnlForeign: 137.2, unrealizedPnlRate: 11.73, dayPnlForeign: -18.4, dayPnlRate: -1.39,
-      dividendYield: 0.72, dividendPerShare: 2.36, annualDividend: 9.44,
-      peRatio: 43.82, epsTtm: 7.46, low52: 138.1, high52: 329.4
-    },
-    {
-      symbol: "TSLA", name: "Tesla, Inc.", market: "overseas", exchange: "NASDAQ", currency: "USD",
-      sector: "Consumer Cyclical", industry: "Auto Manufacturers", quantity: 5,
-      averagePrice: 345, currentPrice: 318.6, marketValueForeign: 1593,
-      unrealizedPnlForeign: -132, unrealizedPnlRate: -7.65, dayPnlForeign: 35.1, dayPnlRate: 2.25,
-      dividendYield: 0, annualDividend: 0, peRatio: 171.29, epsTtm: 1.86, low52: 182, high52: 488.54
-    },
-    {
-      symbol: "LLY", name: "Eli Lilly and Company", market: "overseas", exchange: "NYSE", currency: "USD",
-      sector: "Healthcare", industry: "Drug Manufacturers - General", quantity: 2,
-      averagePrice: 750, currentPrice: 789.5, marketValueForeign: 1579,
-      unrealizedPnlForeign: 79, unrealizedPnlRate: 5.27, dayPnlForeign: -21.4, dayPnlRate: -1.34,
-      dividendYield: 0.66, dividendPerShare: 5.2, annualDividend: 10.4,
-      peRatio: 55.8, epsTtm: 14.15, low52: 623.78, high52: 972.53
-    },
-    {
-      symbol: "V", name: "Visa Inc.", market: "overseas", exchange: "NYSE", currency: "USD",
-      sector: "Financial Services", industry: "Credit Services", quantity: 6,
-      averagePrice: 329, currentPrice: 351.2, marketValueForeign: 2107.2,
-      unrealizedPnlForeign: 133.2, unrealizedPnlRate: 6.75, dayPnlForeign: 15.6, dayPnlRate: 0.75,
-      dividendYield: 0.67, dividendPerShare: 2.36, annualDividend: 14.16,
-      peRatio: 34.42, epsTtm: 10.2, low52: 252.7, high52: 375.51
-    },
-    {
-      symbol: "COST", name: "Costco Wholesale Corporation", market: "overseas", exchange: "NASDAQ", currency: "USD",
-      sector: "Consumer Defensive", industry: "Discount Stores", quantity: 2,
-      averagePrice: 935, currentPrice: 1005, marketValueForeign: 2010,
-      unrealizedPnlForeign: 140, unrealizedPnlRate: 7.49, dayPnlForeign: 18, dayPnlRate: 0.9,
-      dividendYield: 0.52, dividendPerShare: 5.2, annualDividend: 10.4,
-      peRatio: 58.74, epsTtm: 17.11, low52: 793, high52: 1078.23
-    },
-    {
-      symbol: "HD", name: "The Home Depot, Inc.", market: "overseas", exchange: "NYSE", currency: "USD",
-      sector: "Consumer Cyclical", industry: "Home Improvement Retail", quantity: 4,
-      averagePrice: 389, currentPrice: 375.5, marketValueForeign: 1502,
-      unrealizedPnlForeign: -54, unrealizedPnlRate: -3.47, dayPnlForeign: -12, dayPnlRate: -0.79,
-      dividendYield: 2.45, dividendPerShare: 9.2, annualDividend: 36.8,
-      peRatio: 25.47, epsTtm: 14.74, low52: 326.31, high52: 439.37
-    },
-    {
-      symbol: "KO", name: "The Coca-Cola Company", market: "overseas", exchange: "NYSE", currency: "USD",
-      sector: "Consumer Defensive", industry: "Beverages - Non-Alcoholic", quantity: 15,
-      averagePrice: 66.2, currentPrice: 70.4, marketValueForeign: 1056,
-      unrealizedPnlForeign: 63, unrealizedPnlRate: 6.34, dayPnlForeign: 4.8, dayPnlRate: 0.46,
-      dividendYield: 2.9, dividendPerShare: 2.04, annualDividend: 30.6,
-      peRatio: 27.1, epsTtm: 2.6, low52: 60.62, high52: 74.38
-    }
-  ];
-  const stockValueForeign = sumNumbers(positions.map(positionValue));
-  const cashForeign = 1850;
-  const totalValueForeign = sumNumbers([stockValueForeign, cashForeign]);
-  const unrealizedPnlForeign = sumNumbers(positions.map((position) => position.unrealizedPnlForeign));
-  const investedValue = totalValueForeign != null && unrealizedPnlForeign != null ? totalValueForeign - cashForeign - unrealizedPnlForeign : null;
-
-  return {
-    status: "ok",
-    source: "demo-ui",
-    asOf: new Date().toISOString(),
-    account: {
-      alias: "더미 포트폴리오",
-      market: "overseas",
-      currency: "USD",
-      cashForeign,
-      stockValueForeign,
-      totalValueForeign,
-      unrealizedPnlForeign,
-      unrealizedPnlRate: investedValue ? (unrealizedPnlForeign ?? 0) / investedValue * 100 : null
-    },
-    positions,
-    limitations: ["development demo payload"]
-  };
 }
 
 function buildPortfolioDashboard(account: PortfolioHoldingsResponse["account"] | undefined, positions: PortfolioPosition[]): PortfolioDashboard {

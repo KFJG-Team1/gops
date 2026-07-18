@@ -7,6 +7,7 @@ import {
   type PaperAccountSnapshot
 } from "./paperTradingClient";
 import type { OrderSnapshot } from "./orderClient";
+import { subscribePortfolioRefresh } from "../simulator/simulatorApi";
 
 type PaperAccountContextValue = {
   snapshot?: PaperAccountSnapshot;
@@ -148,6 +149,12 @@ export function PaperAccountProvider({ children }: { children: ReactNode }) {
       socket.close();
     };
   }, [accountKey, canLoad, refresh, refreshOrders]);
+
+  useEffect(() => subscribePortfolioRefresh(() => {
+    if (!canLoad) return;
+    void refresh();
+    void refreshOrders();
+  }), [canLoad, refresh, refreshOrders]);
 
   const visibleState = state.accountKey === accountKey
     ? state

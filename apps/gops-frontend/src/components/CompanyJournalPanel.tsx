@@ -258,14 +258,21 @@ export function CompanyJournalPanel({
       : [];
     const primaryTags = Array.from(new Set([...(activeSignal?.metrics ?? []), ...movementTags]));
     return insights
-      .filter((insight) => insight.id === "tab-focus" || insight.id === "summary" || insight.id === "first-check")
+      .filter((insight) => (
+        (activeView === "earnings" && insight.id === "movement")
+        || insight.id === "tab-focus"
+        || insight.id === "summary"
+        || insight.id === "first-check"
+      ))
       .map((insight) => ({
         ...insight,
-        title: insight.id === "tab-focus"
-          ? `${journalViewLabel(activeView)} 핵심`
-          : insight.id === "summary"
-            ? "GOPS AI 판단"
-            : "다음으로 볼 지표",
+        title: insight.id === "movement"
+          ? "최근 시장·기관 의견"
+          : insight.id === "tab-focus"
+            ? `${journalViewLabel(activeView)} 핵심`
+            : insight.id === "summary"
+              ? "GOPS AI 판단"
+              : "다음으로 볼 지표",
         tags: insight.id === "tab-focus" ? primaryTags : splitInsightTags(insight.lead)
       }));
   }, [activeView, diagnosis.signals, insights]);
@@ -633,7 +640,7 @@ function buildJournalInsights({
           title: "최근 움직임",
           lead: "3거래일 +4.2% · S&P 500 대비 +1.6%p",
           emphasis: `${companyName}의 상승 폭이 시장보다 컸기 때문에 단기 상대강도는 개선된 모습입니다.`,
-          text: "AI·핵심 사업 기대와 주가 상승이 같은 기간에 나타났지만, 특정 뉴스 하나만으로 상승 원인을 단정할 수는 없습니다. 이 차이가 다음 거래일에도 유지되면 단기 수급 우위가 이어질 가능성이 있습니다."
+          text: "모건스탠리는 투자의견 Overweight를 유지했습니다. 시장 평균 목표주가는 현재 $205입니다. AI·핵심 사업 기대와 주가 상승이 같은 기간에 나타났지만, 특정 뉴스 하나만으로 상승 원인을 단정할 수는 없습니다."
         },
         {
           id: "tab-focus",

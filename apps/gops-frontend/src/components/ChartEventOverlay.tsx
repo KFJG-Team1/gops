@@ -169,7 +169,8 @@ export function ChartEventOverlay({
       viewportHeight: window.innerHeight,
       anchorX,
       anchorY: anchorTop,
-      contentHeight
+      contentHeight,
+      preferredWidth: selected.event.type === "news" ? 360 : undefined
     });
     return {
       left: placement.left,
@@ -323,22 +324,25 @@ function EarningsEventContent({ event, upcoming }: { event: ChartEarningsEvent; 
 
 function NewsEventContent({ event }: { event: ChartNewsDay }) {
   return (
-    <div className="chart-event-popover-body">
-      <div className="chart-event-context-strip">
-        <span><CalendarClock size={13} aria-hidden="true" />{dateLabel.format(new Date(`${event.date}T12:00:00Z`))}</span>
-        <strong>기사 {event.articleCount}건 종합</strong>
-      </div>
-      <section className={`chart-event-highlight is-${event.impactDirection}`} aria-label="뉴스 영향 요약">
+    <div className="chart-event-popover-body chart-event-news-body">
+      <dl className="chart-event-news-meta" aria-label="뉴스 브리핑 정보">
         <div>
-          <small>MARKET IMPACT</small>
-          <strong>{newsImpactLabel(event.impactDirection)}</strong>
+          <dt><CalendarClock size={13} aria-hidden="true" />날짜</dt>
+          <dd>{dateLabel.format(new Date(`${event.date}T12:00:00Z`))}</dd>
         </div>
-        <span>{newsSentimentLabel(event.sentiment)}</span>
+        <div>
+          <dt>종합 기사</dt>
+          <dd>{event.articleCount}건</dd>
+        </div>
+      </dl>
+      <section className={`chart-event-news-impact is-${event.impactDirection}`} aria-label="뉴스 영향 요약">
+        <span>시장 영향</span>
+        <strong>{newsImpactLabel(event.impactDirection)}</strong>
+        <small>{newsSentimentLabel(event.sentiment)}</small>
       </section>
       <section className="chart-event-section">
         <div className="chart-event-section-label">
           <span>핵심 요약</span>
-          <small>일별 뉴스 브리핑</small>
         </div>
         <p className="chart-event-news-summary">{event.summary || "저장된 일별 요약이 없습니다."}</p>
       </section>
@@ -346,7 +350,6 @@ function NewsEventContent({ event }: { event: ChartNewsDay }) {
         <section className="chart-event-section">
           <div className="chart-event-section-label">
             <span>주요 포인트</span>
-            <small>{event.keyPoints.length}개</small>
           </div>
           <ul className="chart-event-key-points">
             {event.keyPoints.map((point) => <li key={point}>{point}</li>)}
@@ -357,7 +360,7 @@ function NewsEventContent({ event }: { event: ChartNewsDay }) {
         <section className="chart-event-section">
           <div className="chart-event-section-label">
             <span>원문 기사</span>
-            <small>새 창에서 열기</small>
+            <small>{Math.min(event.sources.length, 3)}개</small>
           </div>
           <nav className="chart-event-source-links" aria-label="뉴스 원문">
             {event.sources.slice(0, 3).map((source) => (

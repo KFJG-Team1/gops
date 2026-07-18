@@ -220,12 +220,14 @@ const portfolioHoldingsSource = readFileSync(
   fileURLToPath(new URL("../src/components/PortfolioHoldingsPanel.tsx", import.meta.url)),
   "utf-8"
 );
-assert.match(portfolioHoldingsSource, /portfolioStores/);
-assert.match(
-  portfolioHoldingsSource,
-  /usePortfolioHoldingsData[\s\S]*subscribePortfolioRefresh\(\(\) => refreshPortfolioHoldingsStore\(source\)\)/
+const paperAccountProviderSource = readFileSync(
+  fileURLToPath(new URL("../src/orders/PaperAccountProvider.tsx", import.meta.url)),
+  "utf-8"
 );
+assert.match(portfolioHoldingsSource, /portfolioStores/);
+assert.match(portfolioHoldingsSource, /paperSnapshotToPortfolioPayload\(paperAccount\.snapshot\)/);
+assert.match(paperAccountProviderSource, /subscribePortfolioRefresh\(\(\) =>/);
 assert.match(apiSource, /function requestPortfolioRefresh/);
-assert.match(portfolioHoldingsSource, /DEMO_PORTFOLIO_ENABLED \? 1_000 : REFRESH_INTERVAL_MS/);
+assert.doesNotMatch(portfolioHoldingsSource, /buildDemoPortfolioPayload|DEMO_PORTFOLIO_ENABLED/);
 
 console.log("simulator UI tests passed");

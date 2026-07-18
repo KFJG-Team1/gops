@@ -4,6 +4,7 @@ export type ChartEventPopoverPlacementInput = {
   anchorX: number;
   anchorY: number;
   contentHeight: number;
+  preferredWidth?: number;
 };
 
 export type ChartEventPopoverPlacement = {
@@ -16,7 +17,7 @@ export type ChartEventPopoverPlacement = {
 };
 
 const viewportMargin = 12;
-const preferredWidth = 432;
+const defaultPreferredWidth = 432;
 const aboveGap = 14;
 const belowGap = 38;
 
@@ -25,7 +26,8 @@ export function chartEventPopoverPlacement({
   viewportHeight,
   anchorX,
   anchorY,
-  contentHeight
+  contentHeight,
+  preferredWidth = defaultPreferredWidth
 }: ChartEventPopoverPlacementInput): ChartEventPopoverPlacement {
   const maxHeight = Math.max(0, viewportHeight - viewportMargin * 2);
   const width = Math.max(0, Math.min(preferredWidth, viewportWidth - viewportMargin * 2));

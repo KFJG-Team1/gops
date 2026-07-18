@@ -51,6 +51,13 @@ const factorLabels: Record<string, string> = {
   liquidityCashCompatibility: "유동성/현금 적합도"
 };
 
+const recommendationQueryExamples = [
+  "거래대금이 강하고 추세가 이어지는 종목",
+  "돌파 후 VWAP을 지키는 종목",
+  "실적 뉴스와 성장성이 좋은 종목",
+  "저변동·하방 방어 중심 종목"
+];
+
 export function ScoreProfileManager({
   disabled,
   onActivated
@@ -291,6 +298,18 @@ export function ScoreProfileManager({
             AI 제안
           </button>
         </form>
+        <div className="score-profile-query-examples" aria-label="추천 로직 쿼리 예시">
+          {recommendationQueryExamples.map((example) => (
+            <button
+              key={example}
+              type="button"
+              disabled={disabled || suggesting}
+              onClick={() => setPromptQuery(example)}
+            >
+              {example}
+            </button>
+          ))}
+        </div>
         {suggestion && (
           <article className="score-profile-ai-suggestion" tabIndex={0} aria-label={`${suggestion.name} 제안 근거 보기`}>
             <div>
@@ -301,12 +320,7 @@ export function ScoreProfileManager({
             <button type="button" disabled={disabled || working || customCount >= maxCustomProfiles} onClick={applySuggestion}>초안에 적용</button>
             <div className="score-profile-ai-rationale" role="tooltip">
               <strong>제안 근거</strong>
-              <p>{suggestion.rationale}</p>
-              {suggestion.intent.documents.map((document) => <span key={document.id}>{document.title}<em>{document.matchedKeywords.join(" · ")}</em></span>)}
-              {suggestion.evidence.summary.map((line) => <span key={line}>{line}</span>)}
-              {suggestion.evidence.news.slice(0, 3).map((news, index) => (
-                <span key={news.ref ?? `${news.symbol}:${index}`}>{[news.symbol, news.headline].filter(Boolean).join(" · ")}</span>
-              ))}
+              <p>{suggestionRationaleSummary(suggestion)}</p>
             </div>
           </article>
         )}
@@ -590,6 +604,16 @@ function topSuggestedBlocks(profile: ScoreProfile): string[] {
     .sort((left, right) => right[1] - left[1])
     .slice(0, 3)
     .map(([block, weight]) => `${recommendationBlockLabels[block] ?? block} ${weight}%`);
+}
+
+export function suggestionRationaleSummary(suggestion: ScoreProfileSuggestion): string {
+  const focus = suggestion.intent.documents
+    .slice(0, 2)
+    .map((document) => document.title.replace(/ 확인$/, ""));
+  const focusLabel = focus.length > 0
+    ? focus.join("·")
+    : topSuggestedBlocks(suggestion.profile).slice(0, 2).join("·");
+  return `${focusLabel}에 비중을 둔 로직입니다. 체결 여건과 기업 품질까지 함께 반영해 신호의 안정성을 높였습니다.`;
 }
 
 async function persistCustomProfile(profile: ScoreProfile): Promise<ScoreProfile> {

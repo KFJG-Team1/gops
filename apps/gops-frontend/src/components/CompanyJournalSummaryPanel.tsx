@@ -679,9 +679,8 @@ function EarningsHistoryChart({ metric, series }: { metric: EarningsMetric; seri
           const actualY = actual == null ? null : yFor(actual);
           const estimateY = estimate == null ? null : yFor(estimate);
           const hasComparison = actualY != null && estimateY != null;
-          const comparisonGap = hasComparison ? Math.min(9, Math.max(5, xStep * 0.08)) : 0;
-          const estimateX = x - comparisonGap;
-          const actualX = x + comparisonGap;
+          const estimateX = x;
+          const actualX = x;
           return (
             <g
               key={`${point.period}-${index}`}
@@ -2028,7 +2027,7 @@ function isRenderableProfitabilityPoint(point: FinancialChartPoint): boolean {
 
 function isRenderableStabilityPoint(point: FinancialChartPoint): boolean {
   return Number.isFinite(point.totalEquity ?? NaN) &&
-    Number.isFinite(point.totalLiabilities ?? NaN) &&
+    Number.isFinite(totalLiabilitiesFor(point) ?? NaN) &&
     (point.totalEquity as number) !== 0;
 }
 
@@ -2038,7 +2037,7 @@ function isRenderableStabilityRatiosPoint(point: FinancialChartPoint): boolean {
 }
 
 function debtRatioFor(point: FinancialChartPoint): number | null {
-  return firstFinite(point.debtRatio, safeDivide(point.totalLiabilities, point.totalEquity)) ?? null;
+  return firstFinite(point.debtRatio, safeDivide(totalLiabilitiesFor(point), point.totalEquity)) ?? null;
 }
 
 function currentLiabilityRatioFor(point: FinancialChartPoint): number | null {
@@ -2046,10 +2045,18 @@ function currentLiabilityRatioFor(point: FinancialChartPoint): number | null {
 }
 
 function noncurrentLiabilityRatioFor(point: FinancialChartPoint): number | null {
-  const noncurrentLiabilities = Number.isFinite(point.totalLiabilities ?? NaN) && Number.isFinite(point.currentLiabilities ?? NaN)
-    ? (point.totalLiabilities as number) - (point.currentLiabilities as number)
+  const totalLiabilities = totalLiabilitiesFor(point);
+  const noncurrentLiabilities = Number.isFinite(totalLiabilities ?? NaN) && Number.isFinite(point.currentLiabilities ?? NaN)
+    ? (totalLiabilities as number) - (point.currentLiabilities as number)
     : null;
   return firstFinite(point.noncurrentLiabilityRatio, safeDivide(noncurrentLiabilities, point.totalEquity)) ?? null;
+}
+
+export function totalLiabilitiesFor(point: FinancialChartPoint): number | null {
+  if (Number.isFinite(point.totalLiabilities ?? NaN)) return point.totalLiabilities as number;
+  if (!Number.isFinite(point.totalAssets ?? NaN) || !Number.isFinite(point.totalEquity ?? NaN)) return null;
+  const derived = (point.totalAssets as number) - (point.totalEquity as number);
+  return derived >= 0 ? derived : null;
 }
 
 function currentRatioFor(point: FinancialChartPoint): number | null {
@@ -2116,7 +2123,8 @@ function isAnnualFinancialPoint(point: FinancialChartPoint): boolean {
 
 export function aggregateQuarterlySeriesToAnnual(series: FinancialChartPoint[]): FinancialChartPoint[] {
   const grouped = new Map<number, FinancialChartPoint[]>();
-  series.forEach((point) => {
+  series.forEach((sourcePoint) => {
+    const point = normalizeFinancialPoint(sourcePoint);
     const year = financialPointYear(point);
     if (year == null) return;
     const points = grouped.get(year) ?? [];
@@ -2319,7 +2327,7 @@ function formatPercentagePointChange(value: number): string {
 }
 
 function normalizeFinancialPoint(point: CompanyFinancialSeriesPoint): FinancialChartPoint {
-  return {
+  const normalized = {
     period: point.period,
     periodEndDate: point.periodEndDate,
     revenue: point.revenue,
@@ -2327,7 +2335,7 @@ function normalizeFinancialPoint(point: CompanyFinancialSeriesPoint): FinancialC
     netIncome: point.netIncome,
     eps: point.eps,
     totalAssets: point.totalAssets,
-    totalLiabilities: point.totalLiabilities,
+    totalLiabilities: totalLiabilitiesFor(point),
     totalEquity: point.totalEquity,
     currentAssets: point.currentAssets,
     currentLiabilities: point.currentLiabilities,
@@ -2344,6 +2352,13 @@ function normalizeFinancialPoint(point: CompanyFinancialSeriesPoint): FinancialC
     interestCoverage: point.interestCoverage,
     financialCostBurdenRatio: point.financialCostBurdenRatio,
     netDebt: point.netDebt
+  } satisfies FinancialChartPoint;
+  return {
+    ...normalized,
+    debtRatio: debtRatioFor(normalized),
+    currentLiabilityRatio: currentLiabilityRatioFor(normalized),
+    noncurrentLiabilityRatio: noncurrentLiabilityRatioFor(normalized),
+    currentRatio: currentRatioFor(normalized)
   };
 }
 

@@ -14,6 +14,27 @@ export type PaperPosition = {
   realized_pnl: number;
   price_source: string;
   price_timestamp?: string | null;
+  name?: string;
+  market?: string;
+  exchange?: string;
+  currency?: string;
+  sector?: string | null;
+  industry?: string | null;
+  day_pnl?: number | null;
+  day_pnl_rate?: number | null;
+  pe_ratio?: number | null;
+  eps_ttm?: number | null;
+  low_52?: number | null;
+  high_52?: number | null;
+  market_stats_as_of?: string | null;
+  stats_52w_source?: string | null;
+  fundamentals_source?: string | null;
+  fundamentals_as_of?: string | null;
+  dividend_yield?: number | null;
+  dividend_per_share?: number | null;
+  annual_dividend?: number | null;
+  next_dividend_date?: string | null;
+  dividend_source?: string | null;
 };
 
 export type PaperAccountSummary = {
@@ -30,6 +51,9 @@ export type PaperAccountSummary = {
   total_pnl: number;
   total_pnl_rate: number;
   started_at: string;
+  seed_profile?: string | null;
+  seeded_at?: string | null;
+  seed_suppressed_at?: string | null;
 };
 
 export type PaperAccountSnapshot = {
