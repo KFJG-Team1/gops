@@ -157,8 +157,14 @@ assert.match(companyJournalSource, /disableRemoteFetch=\{previewEnabled \|\| sim
 assert.match(companyJournalSource, /companyJournalRequestKey/);
 assert.match(companyJournalSource, /disableRemoteFetch=\{simulatorMode === "simulation"\}/);
 assert.match(companyJournalPerformanceSource, /if \(disableRemoteFetch\) \{/);
-assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, chart\.interval\)/);
+assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, requestedInterval\)/);
+assert.match(chartPanelSource, /fetchChartCommentaryAsset\(requestedSymbol, requestedInterval\)/);
 assert.match(chartPanelSource, /scheduleChartAnalysisAssetRequest/);
+assert.ok(
+  chartPanelSource.indexOf("fetchChartCommentaryAsset(requestedSymbol, requestedInterval)")
+    < chartPanelSource.indexOf("!analysisSceneReadyToken"),
+  "lightweight commentary starts outside the first-scene gate"
+);
 
 const chartCommentarySource = readFileSync(
   fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)),

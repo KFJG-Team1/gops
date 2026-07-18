@@ -72,7 +72,10 @@ import { analysisTraceDataMode, buildAnalysisTraceOverlay, type AnalysisTraceOve
 import { analysisAssetFreshness, candleKeyForTimestamp, resolveAnalysisAssetForCandles, staleAnalysisAsset } from "../chart/analysisAssetPresentation";
 import {
   analysisAssetsLoadErrorMessage,
+  chartCommentaryAssetFromAnalysisAsset,
+  chartCommentaryAssetIdentity,
   fetchAnalysisAssets,
+  fetchChartCommentaryAsset,
   subscribeAnalysisAssetsInvalidation,
   type AnalysisAssetInterval,
   type AnalysisAssetsResponse,
@@ -94,6 +97,8 @@ import {
   chartAnalysisAssetRuntimeIdentity,
   chartAnalysisAssetSceneContainsLoadedSnapshot,
   clearChartAnalysisAssetRuntime,
+  getChartAnalysisAssetRuntimeSnapshot,
+  patchChartAnalysisAssetRuntime,
   updateChartAnalysisAssetRuntime,
   type ChartAnalysisAssetLoadedCandleSnapshot,
   type ChartAnalysisAssetLoadPhase
@@ -773,6 +778,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const activeChartSessionIdRef = useRef(`chart-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
   const analysisLayerVisibilityRef = useRef(analysisLayerVisibility);
   const appliedAnalysisAssetKeyRef = useRef("");
+  const commentaryAssetRequestGenerationRef = useRef(0);
   const candleLoadGenerationRef = useRef(0);
   const loadedCandleSnapshotRef = useRef<ChartAnalysisAssetLoadedCandleSnapshot | null>(null);
   const analysisSceneReadyTokenRef = useRef("");
@@ -799,7 +805,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       identity: analysisRuntimeIdentity,
       phase: loadPhase,
       response: null,
-      error: null
+      error: null,
+      commentaryPhase: isAnalysisAssetInterval(chart.interval) ? "loading" : "missing",
+      commentaryAsset: null,
+      commentaryError: null
     });
     return () => clearChartAnalysisAssetRuntime(document.id, analysisRuntimeIdentity);
   }, [analysisRuntimeIdentity, chart.interval, document.id]);
@@ -807,19 +816,66 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
     const activeSymbol = chart.symbol.trim().toUpperCase();
     if (!invalidatedSymbol || invalidatedSymbol === activeSymbol) {
+      commentaryAssetRequestGenerationRef.current += 1;
       setAnalysisAssets(null);
       setAnalysisAssetsLoadError(null);
       setAnalysisAssetsLoadPhase("loading");
       appliedAnalysisAssetKeyRef.current = "";
-      updateChartAnalysisAssetRuntime(document.id, {
-        identity: analysisRuntimeIdentity,
+      patchChartAnalysisAssetRuntime(document.id, analysisRuntimeIdentity, {
         phase: "loading",
         response: null,
-        error: null
+        error: null,
+        commentaryPhase: "loading",
+        commentaryAsset: null,
+        commentaryError: null
       });
       setAnalysisAssetsRevision((current) => current + 1);
     }
   }), [analysisRuntimeIdentity, chart.symbol, document.id]);
+
+  useEffect(() => {
+    if (!isAnalysisAssetInterval(chart.interval)) return undefined;
+    const requestedSymbol = chart.symbol.trim().toUpperCase();
+    const requestedInterval = chart.interval;
+    const runtimeIdentity = analysisRuntimeIdentity;
+    const requestGeneration = commentaryAssetRequestGenerationRef.current + 1;
+    commentaryAssetRequestGenerationRef.current = requestGeneration;
+    let active = true;
+    patchChartAnalysisAssetRuntime(document.id, runtimeIdentity, {
+      commentaryPhase: "loading",
+      commentaryAsset: null,
+      commentaryError: null
+    });
+    fetchChartCommentaryAsset(requestedSymbol, requestedInterval)
+      .then((response) => {
+        if (
+          !active
+          || commentaryAssetRequestGenerationRef.current !== requestGeneration
+          || response.symbol !== requestedSymbol
+          || response.interval !== requestedInterval
+        ) return;
+        const currentRuntime = getChartAnalysisAssetRuntimeSnapshot(document.id);
+        if (currentRuntime.identity === runtimeIdentity && currentRuntime.phase === "ready") {
+          return;
+        }
+        patchChartAnalysisAssetRuntime(document.id, runtimeIdentity, {
+          commentaryPhase: response.asset?.commentary ? "ready" : "missing",
+          commentaryAsset: response.asset,
+          commentaryError: null
+        });
+      })
+      .catch((reason) => {
+        if (!active || commentaryAssetRequestGenerationRef.current !== requestGeneration) return;
+        patchChartAnalysisAssetRuntime(document.id, runtimeIdentity, {
+          commentaryPhase: "error",
+          commentaryAsset: null,
+          commentaryError: reason instanceof Error ? reason.message : "저장 해설을 불러오지 못했습니다."
+        });
+      });
+    return () => {
+      active = false;
+    };
+  }, [analysisAssetsRevision, analysisRuntimeIdentity, chart.interval, chart.symbol, document.id]);
 
   useEffect(() => {
     chartRef.current = chart;
@@ -1009,28 +1065,41 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       return undefined;
     }
     let active = true;
+    const requestedInterval = chart.interval;
     const runtimeIdentity = analysisRuntimeIdentity;
     const cancelScheduledRequest = scheduleChartAnalysisAssetRequest(() => {
       if (!active) return;
       setAnalysisAssetsLoadPhase("loading");
       setAnalysisAssetsLoadError(null);
-      updateChartAnalysisAssetRuntime(document.id, {
-        identity: runtimeIdentity,
+      patchChartAnalysisAssetRuntime(document.id, runtimeIdentity, {
         phase: "loading",
         response: null,
         error: null
       });
-      fetchAnalysisAssets(requestedSymbol, chart.interval)
+      fetchAnalysisAssets(requestedSymbol, requestedInterval)
         .then((response) => {
           if (!active || response.symbol !== requestedSymbol) return;
           setAnalysisAssets(response);
           setAnalysisAssetsLoadError(null);
           setAnalysisAssetsLoadPhase("ready");
-          updateChartAnalysisAssetRuntime(document.id, {
-            identity: runtimeIdentity,
+          const fullAsset = response.assets[requestedInterval];
+          const fullCommentaryAsset = fullAsset ? chartCommentaryAssetFromAnalysisAsset(fullAsset) : null;
+          const currentRuntime = getChartAnalysisAssetRuntimeSnapshot(document.id);
+          const commentaryMatches = Boolean(
+            fullCommentaryAsset?.commentary
+            && currentRuntime.identity === runtimeIdentity
+            && currentRuntime.commentaryPhase === "ready"
+            && chartCommentaryAssetIdentity(currentRuntime.commentaryAsset) === chartCommentaryAssetIdentity(fullCommentaryAsset)
+          );
+          patchChartAnalysisAssetRuntime(document.id, runtimeIdentity, {
             phase: "ready",
             response,
-            error: null
+            error: null,
+            ...(commentaryMatches ? {} : {
+              commentaryPhase: fullCommentaryAsset?.commentary ? "ready" as const : "missing" as const,
+              commentaryAsset: fullCommentaryAsset,
+              commentaryError: null
+            })
           });
         })
         .catch((reason) => {
@@ -1039,8 +1108,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           setAnalysisAssets(null);
           setAnalysisAssetsLoadError(message);
           setAnalysisAssetsLoadPhase("error");
-          updateChartAnalysisAssetRuntime(document.id, {
-            identity: runtimeIdentity,
+          patchChartAnalysisAssetRuntime(document.id, runtimeIdentity, {
             phase: "error",
             response: null,
             error: message

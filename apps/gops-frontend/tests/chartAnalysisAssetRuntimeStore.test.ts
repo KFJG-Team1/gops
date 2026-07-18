@@ -5,6 +5,7 @@ import {
   chartAnalysisAssetSceneContainsLoadedSnapshot,
   clearChartAnalysisAssetRuntime,
   getChartAnalysisAssetRuntimeSnapshot,
+  patchChartAnalysisAssetRuntime,
   subscribeChartAnalysisAssetRuntime,
   updateChartAnalysisAssetRuntime
 } from "../src/chart/chartAnalysisAssetRuntimeStore";
@@ -34,7 +35,10 @@ updateChartAnalysisAssetRuntime(documentId, {
   identity,
   phase: "loading",
   response: null,
-  error: null
+  error: null,
+  commentaryPhase: "loading",
+  commentaryAsset: null,
+  commentaryError: null
 });
 assert.equal(notifications, 1);
 assert.equal(getChartAnalysisAssetRuntimeSnapshot(documentId).phase, "loading");
@@ -44,14 +48,29 @@ updateChartAnalysisAssetRuntime(documentId, {
   identity,
   phase: "ready",
   response,
-  error: null
+  error: null,
+  commentaryPhase: "ready",
+  commentaryAsset: {
+    assetVersion: "geometry",
+    algorithmVersion: "v6",
+    asOf: "2026-07-16T04:00:00.000Z",
+    generatedAt: "2026-07-17T00:00:00.000Z",
+    inputDigest: "sha256:test",
+    drawingIds: [],
+    commentary: null
+  },
+  commentaryError: null
 });
 assert.equal(notifications, 2);
 assert.equal(getChartAnalysisAssetRuntimeSnapshot(documentId).response, response);
+patchChartAnalysisAssetRuntime(documentId, identity, { phase: "error", error: "geometry unavailable" });
+assert.equal(getChartAnalysisAssetRuntimeSnapshot(documentId).commentaryPhase, "ready");
+assert.equal(getChartAnalysisAssetRuntimeSnapshot(documentId).commentaryAsset?.inputDigest, "sha256:test");
+assert.equal(notifications, 3);
 
 clearChartAnalysisAssetRuntime(documentId, "another-identity");
-assert.equal(getChartAnalysisAssetRuntimeSnapshot(documentId).phase, "ready");
+assert.equal(getChartAnalysisAssetRuntimeSnapshot(documentId).phase, "error");
 clearChartAnalysisAssetRuntime(documentId, identity);
-assert.equal(notifications, 3);
+assert.equal(notifications, 4);
 assert.equal(getChartAnalysisAssetRuntimeSnapshot(documentId).phase, "waiting-for-chart");
 unsubscribe();

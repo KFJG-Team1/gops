@@ -1,12 +1,16 @@
-import type { AnalysisAssetsResponse } from "./analysisAssetsApi";
+import type { AnalysisAssetsResponse, ChartCommentaryAsset } from "./analysisAssetsApi";
 
 export type ChartAnalysisAssetLoadPhase = "waiting-for-chart" | "loading" | "ready" | "error";
+export type ChartCommentaryAssetLoadPhase = "loading" | "ready" | "missing" | "error";
 
 export type ChartAnalysisAssetRuntimeSnapshot = {
   identity: string;
   phase: ChartAnalysisAssetLoadPhase;
   response: AnalysisAssetsResponse | null;
   error: string | null;
+  commentaryPhase: ChartCommentaryAssetLoadPhase;
+  commentaryAsset: ChartCommentaryAsset | null;
+  commentaryError: string | null;
 };
 
 export type ChartAnalysisAssetLoadedCandleSnapshot = {
@@ -19,7 +23,10 @@ const emptySnapshot: ChartAnalysisAssetRuntimeSnapshot = Object.freeze({
   identity: "",
   phase: "waiting-for-chart",
   response: null,
-  error: null
+  error: null,
+  commentaryPhase: "missing",
+  commentaryAsset: null,
+  commentaryError: null
 });
 
 const snapshots = new Map<string, ChartAnalysisAssetRuntimeSnapshot>();
@@ -77,6 +84,19 @@ export function updateChartAnalysisAssetRuntime(
   listeners.get(chartDocumentId)?.forEach((listener) => listener());
 }
 
+export function patchChartAnalysisAssetRuntime(
+  chartDocumentId: string,
+  identity: string,
+  patch: Partial<Omit<ChartAnalysisAssetRuntimeSnapshot, "identity">>
+): void {
+  const current = snapshots.get(chartDocumentId);
+  updateChartAnalysisAssetRuntime(chartDocumentId, {
+    ...(current?.identity === identity ? current : emptySnapshot),
+    ...patch,
+    identity
+  });
+}
+
 export function clearChartAnalysisAssetRuntime(
   chartDocumentId: string,
   identity?: string
@@ -94,5 +114,8 @@ function runtimeSnapshotsEqual(
   return left.identity === right.identity
     && left.phase === right.phase
     && left.response === right.response
-    && left.error === right.error;
+    && left.error === right.error
+    && left.commentaryPhase === right.commentaryPhase
+    && left.commentaryAsset === right.commentaryAsset
+    && left.commentaryError === right.commentaryError;
 }

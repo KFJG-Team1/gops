@@ -348,8 +348,27 @@ export type AnalysisAssetsResponse = {
   meta?: { servedAt?: string };
 };
 
+export type ChartCommentaryAsset = {
+  assetVersion: "geometry";
+  algorithmVersion: string;
+  asOf: string;
+  generatedAt: string;
+  inputDigest: string;
+  drawingIds: string[];
+  commentary: ChartAssetCommentary | null;
+};
+
+export type ChartCommentaryAssetResponse = {
+  symbol: string;
+  interval: AnalysisAssetInterval;
+  asset: ChartCommentaryAsset | null;
+  meta?: { servedAt?: string; simulation?: boolean; cutoff?: string };
+};
+
 const responseCache = new Map<string, AnalysisAssetsResponse>();
 const inFlight = new Map<string, Promise<AnalysisAssetsResponse>>();
+const commentaryResponseCache = new Map<string, ChartCommentaryAssetResponse>();
+const commentaryInFlight = new Map<string, Promise<ChartCommentaryAssetResponse>>();
 const symbolGenerations = new Map<string, number>();
 const invalidationListeners = new Set<(symbol?: string) => void>();
 let globalGeneration = 0;
@@ -415,6 +434,46 @@ export function fetchAnalysisAssets(symbol: string, interval?: string): Promise<
   return request;
 }
 
+export function fetchChartCommentaryAsset(
+  symbol: string,
+  interval: AnalysisAssetInterval
+): Promise<ChartCommentaryAssetResponse> {
+  const normalized = symbol.trim().toUpperCase();
+  const cacheKey = `${normalized}:${interval}`;
+  const cached = commentaryResponseCache.get(cacheKey);
+  if (cached) return Promise.resolve(cached);
+  const pending = commentaryInFlight.get(cacheKey);
+  if (pending) return pending;
+  const requestGlobalGeneration = globalGeneration;
+  const requestSymbolGeneration = symbolGenerations.get(normalized) ?? 0;
+  const params = new URLSearchParams({ symbol: normalized, interval });
+  let request: Promise<ChartCommentaryAssetResponse>;
+  request = fetch(`/api/charts/analysis-assets/commentary?${params.toString()}`, {
+    headers: { Accept: "application/json" }
+  }).then(async (response) => {
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new AnalysisAssetsRequestError(
+        response.status,
+        typeof payload?.detail === "string" ? payload.detail : `HTTP ${response.status}`
+      );
+    }
+    return normalizeChartCommentaryAssetResponse(payload, normalized, interval);
+  }).then((payload) => {
+    if (
+      globalGeneration === requestGlobalGeneration
+      && (symbolGenerations.get(normalized) ?? 0) === requestSymbolGeneration
+    ) {
+      commentaryResponseCache.set(cacheKey, payload);
+    }
+    return payload;
+  }).finally(() => {
+    if (commentaryInFlight.get(cacheKey) === request) commentaryInFlight.delete(cacheKey);
+  });
+  commentaryInFlight.set(cacheKey, request);
+  return request;
+}
+
 export function invalidateAnalysisAssets(symbol?: string): void {
   if (symbol) {
     const normalized = symbol.trim().toUpperCase();
@@ -424,12 +483,20 @@ export function invalidateAnalysisAssets(symbol?: string): void {
     for (const key of inFlight.keys()) {
       if (key.startsWith(`${normalized}:`)) inFlight.delete(key);
     }
+    for (const key of commentaryResponseCache.keys()) {
+      if (key.startsWith(`${normalized}:`)) commentaryResponseCache.delete(key);
+    }
+    for (const key of commentaryInFlight.keys()) {
+      if (key.startsWith(`${normalized}:`)) commentaryInFlight.delete(key);
+    }
     symbolGenerations.set(normalized, (symbolGenerations.get(normalized) ?? 0) + 1);
     invalidationListeners.forEach((listener) => listener(normalized));
     return;
   }
   responseCache.clear();
   inFlight.clear();
+  commentaryResponseCache.clear();
+  commentaryInFlight.clear();
   symbolGenerations.clear();
   globalGeneration += 1;
   invalidationListeners.forEach((listener) => listener());
@@ -460,6 +527,76 @@ export function normalizeAnalysisAssetsResponse(value: unknown, fallbackSymbol: 
       "1W": normalizeAsset(rawAssets["1W"], "1W")
     },
     meta: asRecord(source.meta)
+  };
+}
+
+export function normalizeChartCommentaryAssetResponse(
+  value: unknown,
+  fallbackSymbol: string,
+  fallbackInterval: AnalysisAssetInterval
+): ChartCommentaryAssetResponse {
+  const source = asRecord(value);
+  const interval = isAnalysisAssetIntervalValue(asString(source.interval))
+    ? asString(source.interval) as AnalysisAssetInterval
+    : fallbackInterval;
+  const symbol = asString(source.symbol)?.trim().toUpperCase() || fallbackSymbol;
+  return {
+    symbol,
+    interval,
+    asset: interval === fallbackInterval ? normalizeChartCommentaryAsset(source.asset) : null,
+    meta: asRecord(source.meta)
+  };
+}
+
+export function chartCommentaryAssetFromAnalysisAsset(asset: ChartAnalysisAsset): ChartCommentaryAsset {
+  return {
+    assetVersion: asset.assetVersion,
+    algorithmVersion: asset.algorithmVersion,
+    asOf: asset.asOf,
+    generatedAt: asset.generatedAt,
+    inputDigest: asset.inputDigest,
+    drawingIds: asset.geometry.drawings.map((drawing) => drawing.id),
+    commentary: asset.commentary ?? null
+  };
+}
+
+export function chartCommentaryAssetIdentity(asset: ChartCommentaryAsset | null | undefined): string {
+  if (!asset) return "";
+  return [
+    asset.algorithmVersion,
+    asset.inputDigest,
+    asset.asOf,
+    asset.commentary?.sourceIdentity.contextDigest ?? ""
+  ].join("|");
+}
+
+function normalizeChartCommentaryAsset(value: unknown): ChartCommentaryAsset | null {
+  const source = asRecord(value);
+  const drawingIds = Array.isArray(source.drawingIds)
+    ? source.drawingIds.filter((drawingId): drawingId is string => typeof drawingId === "string" && drawingId.length > 0)
+    : [];
+  const assetVersion = asString(source.assetVersion);
+  const algorithmVersion = asString(source.algorithmVersion);
+  const asOf = asString(source.asOf);
+  const generatedAt = asString(source.generatedAt);
+  const inputDigest = asString(source.inputDigest);
+  if (
+    assetVersion !== "geometry"
+    || !algorithmVersion || !asOf || !generatedAt || !inputDigest
+    || new Set(drawingIds).size !== drawingIds.length
+  ) return null;
+  return {
+    assetVersion,
+    algorithmVersion,
+    asOf,
+    generatedAt,
+    inputDigest,
+    drawingIds,
+    commentary: normalizeCommentary(source.commentary, {
+      inputDigest,
+      asOf,
+      drawingIds: new Set(drawingIds)
+    }) ?? null
   };
 }
 

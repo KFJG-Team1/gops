@@ -4,7 +4,11 @@ import { fileURLToPath } from "node:url";
 import { createChartDocument } from "../../chart-engine/src/chartDocuments";
 import { executeChartCommandGroup, makeChartCommand } from "../../chart-engine/src/commands";
 import { analysisAssetApplyCommands, analysisLayerOfDrawing, analysisLayerToggleCommands, defaultAnalysisLayerVisibility, hasAnalysisLayerDrawings, interpretationFinalDrawings, isChartAssetDrawing } from "../src/chart/analysisLayerController";
-import { normalizeAnalysisAssetsResponse, type ChartAnalysisAsset } from "../src/chart/analysisAssetsApi";
+import {
+  normalizeAnalysisAssetsResponse,
+  normalizeChartCommentaryAssetResponse,
+  type ChartAnalysisAsset
+} from "../src/chart/analysisAssetsApi";
 import { analysisTraceDataMode, analysisTraceLevelPrice, buildAnalysisTraceOverlay, selectInterpretationCandidates, type AnalysisTraceOverlayCandidate } from "../src/chart/analysisTraceOverlay";
 import { analysisAssetFreshness, analysisAssetPresentationDiagnostics, candleKeyForTimestamp, detectedPatternSummary, formatDetectedPattern, isAnalysisAssetStale, resolveAnalysisAssetForCandles } from "../src/chart/analysisAssetPresentation";
 import { buildPatternSymbolGroups, filterPatternSymbolGroups } from "../src/chart/patternAssetList";
@@ -159,6 +163,21 @@ const commentaryV2Asset = {
 const normalizedCommentaryV2 = normalizeAnalysisAssetsResponse({ symbol: "AAPL", assets: { "1D": commentaryV2Asset } }, "AAPL").assets["1D"];
 assert.equal(normalizedCommentaryV2?.commentary?.promptVersion, "chart-commentary.ko.v2");
 assert.equal(normalizedCommentaryV2?.commentary?.version, "chart-commentary.v2");
+const lightweightCommentary = normalizeChartCommentaryAssetResponse({
+  symbol: "AAPL",
+  interval: "1D",
+  asset: {
+    assetVersion: commentaryV2Asset.assetVersion,
+    algorithmVersion: commentaryV2Asset.algorithmVersion,
+    asOf: commentaryV2Asset.asOf,
+    generatedAt: commentaryV2Asset.generatedAt,
+    inputDigest: commentaryV2Asset.inputDigest,
+    drawingIds: commentaryV2Asset.geometry.drawings.map((drawing) => drawing.id),
+    commentary: commentaryV2Asset.commentary
+  }
+}, "AAPL", "1D");
+assert.equal(lightweightCommentary.asset?.commentary?.promptVersion, "chart-commentary.ko.v2");
+assert.deepEqual(lightweightCommentary.asset?.drawingIds, [upper.id, lower.id]);
 const commentaryV3Asset = structuredClone(commentaryV2Asset);
 commentaryV3Asset.commentary.promptVersion = "chart-commentary.ko.v3";
 assert.equal(
@@ -463,7 +482,11 @@ assert.match(commentarySource, /수치 근거 자세히/);
 assert.match(commentarySource, /candidateIds/);
 assert.match(commentarySource, /evidenceRefs/);
 assert.match(commentarySource, /chart-commentary-metric-card/);
-assert.match(commentarySource, /asset\.commentary\?\.status === "ready"/);
+assert.match(commentarySource, /storedCommentary\?\.status === "ready"/);
+assert.match(commentarySource, /interactionsReady/);
+assert.match(commentarySource, /종합 해설 준비 중/);
+assert.match(commentarySource, /title=\{!interactionsReady[\s\S]*?"차트 준비 중"/);
+assert.doesNotMatch(commentarySource, /차트 로드 후 작도·해설을 불러옵니다/);
 assert.match(commentarySource, /dispatchChartCommentaryIndicatorToggle/);
 assert.match(commentarySource, /dispatchChartCommentaryReferenceOpen/);
 assert.match(commentarySource, /chart-commentary-inline-reference/);
@@ -506,6 +529,8 @@ assert.match(toggleSource, /label="제안"/);
 assert.match(toggleSource, /data-state=\{state\}/);
 assert.match(toggleSource, /unavailable \? undefined : visibility\[layer\]/);
 assert.match(toggleSource, /분석 레이어 사용 불가/);
+assert.match(toggleSource, /차트 준비 후 작도를 불러옵니다/);
+assert.doesNotMatch(toggleSource, /차트 로드 후 작도·해설을 불러옵니다/);
 assert.doesNotMatch(toggleSource, /lucide-react|chart-analysis-layer-state|icon=/);
 assert.deepEqual(defaultAnalysisLayerVisibility, { interpretation: false, levels: false, trend: false, pattern: false, proposal: false });
 assert.equal(analysisLayerOfDrawing(upper), "pattern");

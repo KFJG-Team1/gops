@@ -37,9 +37,9 @@ export function ChartAnalysisLayerToggles({
 }
 
 function analysisAssetLoadStatusText(phase: ChartAnalysisAssetLoadPhase): string {
-  if (phase === "waiting-for-chart") return "차트 로드 후 작도·해설을 불러옵니다";
-  if (phase === "loading") return "작도·해설 불러오는 중";
-  if (phase === "error") return "작도·해설을 불러오지 못했습니다";
+  if (phase === "waiting-for-chart") return "차트 준비 후 작도를 불러옵니다";
+  if (phase === "loading") return "작도 불러오는 중";
+  if (phase === "error") return "작도를 불러오지 못했습니다";
   return "생성된 작도 자산 없음";
 }
 

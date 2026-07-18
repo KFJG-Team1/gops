@@ -703,6 +703,32 @@ async function fulfillApi(route: Route): Promise<void> {
   else if (url.pathname === "/api/charts/symbols") payload = { symbols: [{ symbol: "NVDA", tradable: true }, { symbol: "AAPL", tradable: true }] };
   else if (url.pathname === "/api/charts/candles") payload = candlePayload(url.searchParams.get("symbol") ?? "NVDA", url.searchParams.get("interval") ?? "1D");
   else if (url.pathname === "/api/charts/events") payload = commentaryChartEventsPayload(url);
+  else if (url.pathname === "/api/charts/analysis-assets/commentary") {
+    if (analysisAssetStorageUnavailable) {
+      status = 503;
+      payload = { detail: "Chart commentary asset storage is unavailable." };
+    } else {
+      const symbol = url.searchParams.get("symbol") ?? "NVDA";
+      const interval = url.searchParams.get("interval") ?? "1D";
+      const fullAsset = symbol === "NVDA"
+        ? (assetResponse().assets as Record<string, any>)[interval]
+        : null;
+      payload = {
+        symbol,
+        interval,
+        asset: fullAsset ? {
+          assetVersion: fullAsset.assetVersion,
+          algorithmVersion: fullAsset.algorithmVersion,
+          asOf: fullAsset.asOf,
+          generatedAt: fullAsset.generatedAt,
+          inputDigest: fullAsset.inputDigest,
+          drawingIds: fullAsset.geometry.drawings.map((drawing: { id: string }) => drawing.id),
+          commentary: fullAsset.commentary ?? null
+        } : null,
+        meta: {}
+      };
+    }
+  }
   else if (url.pathname === "/api/charts/analysis-assets") {
     if (analysisAssetStorageUnavailable) {
       status = 503;

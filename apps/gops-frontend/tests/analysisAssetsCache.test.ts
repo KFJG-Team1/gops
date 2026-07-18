@@ -3,6 +3,7 @@ import {
   AnalysisAssetsRequestError,
   analysisAssetsLoadErrorMessage,
   fetchAnalysisAssets,
+  fetchChartCommentaryAsset,
   invalidateAnalysisAssets,
   subscribeAnalysisAssetsInvalidation
 } from "../src/chart/analysisAssetsApi";
@@ -57,6 +58,18 @@ try {
   assert.match(requestUrls[4], /symbol=CACHE-RACE&interval=1m/);
   assert.match(requestUrls[5], /symbol=CACHE-RACE&interval=1D/);
 
+  invalidateAnalysisAssets("CACHE-RACE");
+  const commentaryRequest = fetchChartCommentaryAsset("CACHE-RACE", "1D");
+  responseResolvers[6](fakeCommentaryResponse("commentary-first"));
+  assert.equal((await commentaryRequest).meta?.servedAt, "commentary-first");
+  await fetchChartCommentaryAsset("CACHE-RACE", "1D");
+  assert.equal(fetchCalls, 7, "the lightweight commentary response has its own cache");
+  invalidateAnalysisAssets("CACHE-RACE");
+  const refreshedCommentary = fetchChartCommentaryAsset("CACHE-RACE", "1D");
+  responseResolvers[7](fakeCommentaryResponse("commentary-refreshed"));
+  assert.equal((await refreshedCommentary).meta?.servedAt, "commentary-refreshed");
+  assert.match(requestUrls[6], /\/api\/charts\/analysis-assets\/commentary\?symbol=CACHE-RACE&interval=1D/);
+
   assert.equal(
     analysisAssetsLoadErrorMessage(new AnalysisAssetsRequestError(409, "simulation_data_unavailable")),
     "시뮬레이션 중에는 작도 자산을 불러올 수 없습니다."
@@ -90,5 +103,18 @@ function fakeErrorResponse(status: number, detail: string): Response {
     ok: false,
     status,
     json: async () => ({ detail })
+  } as Response;
+}
+
+function fakeCommentaryResponse(servedAt: string): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      symbol: "CACHE-RACE",
+      interval: "1D",
+      asset: null,
+      meta: { servedAt }
+    })
   } as Response;
 }

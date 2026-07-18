@@ -10,6 +10,7 @@ import {
 import {
   type AnalysisAssetInterval,
   type ChartAnalysisAsset,
+  type ChartCommentaryAsset,
   type ChartAssetCommentary,
   type ChartAssetCommentaryLink,
   type ChartAssetCommentaryReference,
@@ -19,7 +20,8 @@ import {
   chartAnalysisAssetRuntimeIdentity,
   getChartAnalysisAssetRuntimeSnapshot,
   subscribeChartAnalysisAssetRuntime,
-  type ChartAnalysisAssetLoadPhase
+  type ChartAnalysisAssetLoadPhase,
+  type ChartCommentaryAssetLoadPhase
 } from "../chart/chartAnalysisAssetRuntimeStore";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import { buildChartCommentaryViewModel, type ChartCommentaryScenario } from "../chart/commentaryModel";
@@ -108,6 +110,10 @@ export function ChartCommentaryPanel({
     ? assetRuntime.phase
     : "waiting-for-chart";
   const assetLoadError = runtimeMatchesSource ? assetRuntime.error : null;
+  const commentaryAsset = runtimeMatchesSource ? assetRuntime.commentaryAsset : null;
+  const commentaryLoadPhase: ChartCommentaryAssetLoadPhase = runtimeMatchesSource
+    ? assetRuntime.commentaryPhase
+    : "loading";
 
   useEffect(() => () => {
     if (chartDocumentId) dispatchFocus(chartDocumentId, normalizedSymbol, interval, [], "clear");
@@ -118,6 +124,7 @@ export function ChartCommentaryPanel({
     if (chartDocumentId) dispatchFocus(chartDocumentId, normalizedSymbol, interval, [], "clear");
   };
   const asset = isAnalysisAssetInterval(interval) ? assets?.assets[interval] ?? null : null;
+  const displayedAsOf = asset?.asOf ?? commentaryAsset?.asOf;
   const diagnostics = useMemo(() => asset
     ? analysisAssetPresentationDiagnostics(asset, candles, drawingIds, assets?.assets)
     : null, [asset, assets?.assets, candles, drawingIds]);
@@ -128,19 +135,21 @@ export function ChartCommentaryPanel({
       ? `${diagnostics.freshness.lagBars}봉 전`
       : asset
         ? "최신"
-        : assetLoadPhase === "loading"
-          ? "불러오는 중"
-          : assetLoadPhase === "waiting-for-chart"
-            ? "차트 대기"
-            : assetLoadPhase === "error"
-              ? "조회 오류"
-              : "분석 없음";
+        : commentaryLoadPhase === "ready"
+          ? "저장 해설"
+          : commentaryLoadPhase === "loading"
+            ? "해설 준비 중"
+            : assetLoadPhase === "loading" || assetLoadPhase === "waiting-for-chart"
+              ? "작도 준비 중"
+              : assetLoadPhase === "error"
+                ? "조회 오류"
+                : "분석 없음";
 
   return (
     <article className="chart-commentary-shell">
       <header className="chart-commentary-source">
         <strong>{normalizedSymbol} · {interval}</strong>
-        <span className="chart-commentary-source-meta">{freshnessLabel}{asset ? ` · ${formatAnalysisAssetAsOf(asset.asOf)}` : ""}</span>
+        <span className="chart-commentary-source-meta">{freshnessLabel}{displayedAsOf ? ` · ${formatAnalysisAssetAsOf(displayedAsOf)}` : ""}</span>
         {chartOptions.length > 1 && <button type="button" className={chartSelectionActive ? "is-active" : ""} aria-pressed={chartSelectionActive} onClick={onChartSelectionToggle}>연결</button>}
         {hasConversation && <button
           type="button"
@@ -177,6 +186,7 @@ export function ChartCommentaryPanel({
           candles={candles}
           drawingIds={drawingIds}
           asset={asset}
+          commentaryAsset={commentaryAsset}
           availableAssets={assets?.assets}
           chartLayers={chartLayers}
           holding={verifiedHolding}
@@ -191,7 +201,7 @@ export function ChartCommentaryPanel({
 }
 
 function CurrentCommentary({
-  chartDocumentId, sourceAvailable, symbol, interval, candles, drawingIds, asset, availableAssets,
+  chartDocumentId, sourceAvailable, symbol, interval, candles, drawingIds, asset, commentaryAsset, availableAssets,
   chartLayers, holding, holdingsLoading, holdingsError, holdingsErrorStatus, assetLoadPhase, assetLoadError
 }: {
   chartDocumentId?: string;
@@ -201,6 +211,7 @@ function CurrentCommentary({
   candles: CandleDto[];
   drawingIds: string[];
   asset: ChartAnalysisAsset | null;
+  commentaryAsset: ChartCommentaryAsset | null;
   availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>;
   chartLayers: Partial<Record<string, boolean>>;
   holding: PortfolioPosition | null;
@@ -228,21 +239,21 @@ function CurrentCommentary({
   useEffect(() => {
     setPinnedStepId(null);
   }, [asset?.algorithmVersion, asset?.asOf, asset?.inputDigest, chartDocumentId, interval, symbol]);
+  const storedCommentary = commentaryAsset?.commentary ?? asset?.commentary ?? null;
+  const interactionsReady = assetLoadPhase === "ready" && Boolean(asset && diagnostics && viewModel);
   const emptyText = !sourceAvailable
     ? "연결된 원본 차트가 없습니다"
     : !isAnalysisAssetInterval(interval)
       ? "이 주기는 차트 해설을 지원하지 않습니다"
-      : assetLoadPhase === "waiting-for-chart"
-        ? "차트 로드 후 작도·해설을 불러옵니다"
-        : assetLoadPhase === "loading"
-          ? "작도·해설 불러오는 중"
-          : assetLoadPhase === "error"
-            ? assetLoadError ?? "작도·해설을 불러오지 못했습니다"
-            : !asset
+      : storedCommentary || (asset && diagnostics && viewModel)
+        ? null
+        : assetLoadPhase === "error"
+          ? assetLoadError ?? "작도·해설을 불러오지 못했습니다"
+          : assetLoadPhase === "ready"
+            ? !asset
               ? "아직 생성된 차트 해설이 없습니다"
-              : !diagnostics || !viewModel
-                ? "차트 해설을 불러오지 못했습니다"
-                : null;
+              : "차트 해설을 불러오지 못했습니다"
+            : "종합 해설 준비 중";
   const focusStep = (stepId: string | null, mode: FocusMode) => {
     if (!chartDocumentId) return;
     const step = viewModel?.evidence.find((candidate) => candidate.id === stepId);
@@ -269,22 +280,23 @@ function CurrentCommentary({
         error={holdingsError}
         errorStatus={holdingsErrorStatus}
       />
-      {emptyText || !diagnostics || !viewModel || !asset
-        ? <Empty text={emptyText ?? "차트 해설을 불러오지 못했습니다"} />
-        : <>
-      <section className="chart-commentary-summary" aria-label="종합 해설">
-        {asset.commentary?.status === "ready"
+      {emptyText
+        ? <Empty text={emptyText} />
+        : <section className="chart-commentary-summary" aria-label="종합 해설">
+        {storedCommentary?.status === "ready"
           ? <StoredCommentary
-            commentary={asset.commentary}
+            commentary={storedCommentary}
             chartDocumentId={chartDocumentId}
             symbol={symbol}
             interval={interval}
             candles={candles}
             chartLayers={chartLayers}
+            interactionsReady={interactionsReady}
             onRestoreFocus={restorePinned}
           />
-          : viewModel.summary.map((sentence) => <p key={sentence}><GlossaryText text={sentence} /></p>)}
-      </section>
+          : viewModel?.summary.map((sentence) => <p key={sentence}><GlossaryText text={sentence} /></p>)}
+      </section>}
+      {diagnostics && viewModel && asset && <>
       {viewModel.keyPrices.length > 0 && <section className="chart-commentary-key-prices" aria-label="주요 가격">
         <div className="chart-commentary-price-table" role="table">
           <div className="chart-commentary-price-head" role="row">
@@ -354,13 +366,14 @@ function CurrentCommentary({
 
 type StructuredCommentarySegment = ChartAssetCommentaryV2["paragraphs"][number]["segments"][number];
 
-function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candles, chartLayers, onRestoreFocus }: {
+function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candles, chartLayers, interactionsReady, onRestoreFocus }: {
   commentary: ChartAssetCommentary;
   chartDocumentId?: string;
   symbol: string;
   interval: ChartInterval;
   candles: CandleDto[];
   chartLayers: Partial<Record<string, boolean>>;
+  interactionsReady: boolean;
   onRestoreFocus: () => void;
 }) {
   const [pinnedDrawingLinkId, setPinnedDrawingLinkId] = useState<string | null>(null);
@@ -455,6 +468,7 @@ function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candl
     candles={candles}
     chartLayers={chartLayers}
     interactionSnapshot={interactionSnapshot}
+    interactionsReady={interactionsReady}
     drawingIds={drawingLinks.get(segment.id) ?? []}
     drawingPinned={pinnedDrawingLinkId === segment.id}
     onDrawingFocus={focusDrawing}
@@ -506,7 +520,8 @@ function commentaryLinkActionKey(
 
 function CommentaryInlineSegment({
   segmentId, text, link, references, recommendation, chartDocumentId, interval, candles,
-  chartLayers, interactionSnapshot, drawingIds, drawingPinned, onDrawingFocus, onDrawingRestore, onDrawingPin
+  chartLayers, interactionSnapshot, interactionsReady, drawingIds, drawingPinned,
+  onDrawingFocus, onDrawingRestore, onDrawingPin
 }: {
   segmentId: string;
   text: string;
@@ -518,6 +533,7 @@ function CommentaryInlineSegment({
   candles: CandleDto[];
   chartLayers: Partial<Record<string, boolean>>;
   interactionSnapshot: ChartCommentaryInteractionSnapshot;
+  interactionsReady: boolean;
   drawingIds: string[];
   drawingPinned: boolean;
   onDrawingFocus: (drawingIds: string[], mode: FocusMode) => void;
@@ -526,14 +542,18 @@ function CommentaryInlineSegment({
 }) {
   if (!link) return <span><GlossaryText text={text} /></span>;
   if (link.kind === "drawing") {
-    const available = Boolean(chartDocumentId && drawingIds.length);
+    const available = Boolean(interactionsReady && chartDocumentId && drawingIds.length);
     return <button
       type="button"
       className="chart-commentary-inline-reference is-drawing"
       disabled={!available}
       aria-pressed={drawingPinned}
       aria-label={`${text.trim()} 관련 작도 강조 고정`}
-      title={!available ? "현재 자산에서 이 작도를 찾을 수 없습니다." : undefined}
+      title={!interactionsReady
+        ? "차트 준비 중"
+        : !available
+          ? "현재 자산에서 이 작도를 찾을 수 없습니다."
+          : undefined}
       onMouseEnter={() => available && onDrawingFocus(drawingIds, "spotlight")}
       onMouseLeave={onDrawingRestore}
       onFocus={() => available && onDrawingFocus(drawingIds, "spotlight")}
@@ -546,7 +566,7 @@ function CommentaryInlineSegment({
     const runtimeStatus = interactionSnapshot.indicatorStatuses[link.layer] ?? "off";
     const statusMessage = commentaryIndicatorStatusMessage(runtimeStatus);
     const unavailable = runtimeStatus === "unavailable";
-    const available = Boolean(chartDocumentId && recommendation && !unavailable);
+    const available = Boolean(interactionsReady && chartDocumentId && recommendation && !unavailable);
     const tooltip = [recommendation?.reason, statusMessage].filter(Boolean).join(" ");
     return <span className="chart-commentary-inline-reference-wrap is-indicator">
       <button
@@ -557,8 +577,10 @@ function CommentaryInlineSegment({
         aria-disabled={unavailable || undefined}
         aria-label={`${text.trim()} 차트 레이어 전환`}
         aria-describedby={tooltip ? reasonId : undefined}
-        disabled={!chartDocumentId || !recommendation}
-        title={!recommendation
+        disabled={!interactionsReady || !chartDocumentId || !recommendation}
+        title={!interactionsReady
+          ? "차트 준비 중"
+          : !recommendation
           ? "이 보조지표의 저장된 추천 근거가 없습니다."
           : runtimeStatus === "unavailable"
             ? statusMessage
@@ -578,7 +600,7 @@ function CommentaryInlineSegment({
     return <span className="chart-commentary-inline-reference is-unavailable" aria-disabled="true">{text}</span>;
   }
   const referenceAvailable = commentaryReferenceAvailable(reference, candles, interval);
-  const available = referenceAvailable
+  const available = interactionsReady && referenceAvailable
     && (reference.type !== "candle" || interactionSnapshot.candleSelectionAvailable);
   const active = reference.type === "candle"
     ? interactionSnapshot.activeCandleKey === commentaryReferenceCandleKey(reference, interval)
@@ -590,8 +612,10 @@ function CommentaryInlineSegment({
     disabled={!chartDocumentId || !available}
     aria-pressed={active}
     aria-label={`${text.trim()} 차트 ${active ? "연동 해제" : "연동"}`}
-    title={!available
-      ? reference.type === "candle" && !interactionSnapshot.candleSelectionAvailable
+    title={!interactionsReady
+      ? "차트 준비 중"
+      : !available
+        ? reference.type === "candle" && !interactionSnapshot.candleSelectionAvailable
         ? "현재 차트 형식에서는 봉을 선택할 수 없습니다."
         : "현재 로드된 차트 범위에서 이 참조 시점을 열 수 없습니다."
       : undefined}
