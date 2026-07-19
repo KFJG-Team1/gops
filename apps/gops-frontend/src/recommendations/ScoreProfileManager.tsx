@@ -252,12 +252,12 @@ export function ScoreProfileManager({
 
   return (
     <section className="score-profile-manager" aria-label="추천 가중치 편집기">
-      <div className="score-profile-manager-head">
-        <strong>로직 라이브러리</strong>
-        {loading && <LoaderCircle size={14} className="spin" />}
-      </div>
-      <section className="score-profile-preset-shelf" aria-label="시작 프리셋">
-        <header><strong>시작 프리셋</strong></header>
+      {loading && (
+        <div className="score-profile-manager-head" aria-label="추천 수식 불러오는 중">
+          <LoaderCircle size={14} className="spin" />
+        </div>
+      )}
+      <section className="score-profile-preset-shelf" aria-label="기본 추천 수식">
         <div>
           {presetProfiles.map((profile) => {
             const key = profileKey(profile);
@@ -268,7 +268,7 @@ export function ScoreProfileManager({
                 className={key === selectedKey ? "is-selected" : ""}
                 aria-pressed={key === selectedKey}
                 disabled={disabled || working || customCount >= maxCustomProfiles}
-                aria-label={`${profile.name} 프리셋으로 새 로직 시작`}
+                aria-label={`${profile.name} 기본 수식 사용`}
                 onClick={() => startFromPreset(profile)}
               >
                 <Sparkles size={13} aria-hidden="true" />

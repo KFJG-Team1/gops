@@ -74,6 +74,56 @@ type PerformanceChartPoint = {
   value: number;
 };
 
+function monotonePerformancePath(
+  points: PerformanceChartPoint[],
+  xFor: (time: string) => number,
+  yFor: (value: number) => number
+): string {
+  const coordinates = points
+    .map((point) => ({ x: xFor(point.time), y: yFor(point.value) }))
+    .reduce<Array<{ x: number; y: number }>>((result, point) => {
+      if (result.length && Math.abs(result[result.length - 1].x - point.x) < 0.001) {
+        result[result.length - 1] = point;
+      } else {
+        result.push(point);
+      }
+      return result;
+    }, []);
+  if (coordinates.length === 0) return "";
+  if (coordinates.length === 1) return `M ${coordinates[0].x.toFixed(1)} ${coordinates[0].y.toFixed(1)}`;
+
+  const intervals = coordinates.slice(0, -1).map((point, index) => coordinates[index + 1].x - point.x);
+  const secants = intervals.map((interval, index) => (coordinates[index + 1].y - coordinates[index].y) / interval);
+  const slopes = coordinates.map((_point, index) => {
+    if (index === 0) return secants[0];
+    if (index === coordinates.length - 1) return secants.at(-1) ?? 0;
+    const previous = secants[index - 1];
+    const next = secants[index];
+    if (previous === 0 || next === 0 || previous * next <= 0) return 0;
+    const previousInterval = intervals[index - 1];
+    const nextInterval = intervals[index];
+    const previousWeight = 2 * nextInterval + previousInterval;
+    const nextWeight = nextInterval + 2 * previousInterval;
+    return (previousWeight + nextWeight) / (previousWeight / previous + nextWeight / next);
+  });
+
+  const commands = [`M ${coordinates[0].x.toFixed(1)} ${coordinates[0].y.toFixed(1)}`];
+  intervals.forEach((interval, index) => {
+    const start = coordinates[index];
+    const end = coordinates[index + 1];
+    commands.push([
+      "C",
+      (start.x + interval / 3).toFixed(1),
+      (start.y + slopes[index] * interval / 3).toFixed(1),
+      (end.x - interval / 3).toFixed(1),
+      (end.y - slopes[index + 1] * interval / 3).toFixed(1),
+      end.x.toFixed(1),
+      end.y.toFixed(1)
+    ].join(" "));
+  });
+  return commands.join(" ");
+}
+
 const REFRESH_INTERVAL_MS = 60_000;
 const portfolioSectorBySymbol = new Map(sp500UniverseSeed.map((item) => [item.symbol.toUpperCase(), item.sector]));
 const allocationTones = ["green-deep", "green", "red", "red-soft", "neutral", "brass", "green-soft", "clay"];
@@ -1338,8 +1388,7 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
   const valueSpan = maxValue - minValue || 1;
   const xFor = (time: string) => padding.left + ((Date.parse(time) - minTime) / Math.max(maxTime - minTime, 1)) * chartWidth;
   const yFor = (value: number) => padding.top + chartHeight - ((value - minValue) / valueSpan) * chartHeight;
-  const pathFor = (points: PerformanceChartPoint[]) =>
-    points.map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(point.time).toFixed(1)} ${yFor(point.value).toFixed(1)}`).join(" ");
+  const smoothPathFor = (points: PerformanceChartPoint[]) => monotonePerformancePath(points, xFor, yFor);
   const stepPathFor = (points: PerformanceChartPoint[]) => points.map((point, index) => {
     const x = xFor(point.time).toFixed(1);
     const y = yFor(point.value).toFixed(1);
@@ -1423,9 +1472,9 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
             {!hasMoneyHistory && (
               <line x1={padding.left} x2={width - padding.right} y1={yFor(0)} y2={yFor(0)} className="portfolio-terminal-zero-line" />
             )}
-            <path d={pathFor(displayedPortfolioPoints)} className="portfolio-performance-return-line portfolio" />
+            <path d={smoothPathFor(displayedPortfolioPoints)} className="portfolio-performance-return-line portfolio" />
             {displayedPrincipalPoints.length >= 2 && <path d={stepPathFor(displayedPrincipalPoints)} className="portfolio-performance-return-line principal" />}
-            {displayedBenchmarkPoints.length >= 2 && <path d={pathFor(displayedBenchmarkPoints)} className="portfolio-performance-return-line benchmark" />}
+            {displayedBenchmarkPoints.length >= 2 && <path d={smoothPathFor(displayedBenchmarkPoints)} className="portfolio-performance-return-line benchmark" />}
             {displayedPortfolioPoints.at(-1) && (
               <circle cx={xFor(displayedPortfolioPoints.at(-1)!.time)} cy={yFor(displayedPortfolioPoints.at(-1)!.value)} r="4" className="portfolio-performance-return-point portfolio">
                 <title>{hasMoneyHistory ? `평가금 ${formatPanelMoney(latestPortfolioValue, "USD")} · ${formatSignedPercentPlain(portfolioPeriodReturn)}` : `포트폴리오 ${formatSignedPercentPlain(portfolioPeriodReturn)}`}</title>

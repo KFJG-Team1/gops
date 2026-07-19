@@ -154,7 +154,7 @@ export function StockDiscoveryPanel({
           setMode("recommended");
           setActiveTab("logic");
         }}>
-          <SlidersHorizontal size={13} /> 추천 로직 설정
+          <SlidersHorizontal size={13} /> 추천 수식 설정
         </button>
       </nav>
 
