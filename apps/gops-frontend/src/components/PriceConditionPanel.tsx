@@ -585,7 +585,7 @@ function AccountPriceConditionPanel({
                       <span>직접 취소 전</span>
                     </div>
                     <div className="paper-reservation-order">
-                      <strong>US${formatPrice(price)}</strong>
+                      <strong>${formatPrice(price)}</strong>
                       <span>지정가</span>
                     </div>
                     <div className="paper-reservation-quantity">
@@ -644,7 +644,7 @@ function AccountPriceConditionPanel({
                       <strong>{condition.validity}</strong>
                     </div>
                     <div className="paper-reservation-order">
-                      <strong>US${formatPrice(condition.limitPrice)}</strong>
+                      <strong>${formatPrice(condition.limitPrice)}</strong>
                     </div>
                     <div className="paper-reservation-quantity">
                       <strong>{condition.quantity}주</strong>
@@ -702,7 +702,7 @@ function AccountPriceConditionPanel({
                     {expanded && (
                       <div className="paper-reservation-detail" id={detailId} onClick={(event) => event.stopPropagation()}>
                         <div className="paper-reservation-detail-grid">
-                          <ReservationDetail label="발동 조건" value={`현재가 ${directionOperator} US$${formatPrice(condition.triggerPrice)}`} />
+                          <ReservationDetail label="발동 조건" value={`현재가 ${directionOperator} $${formatPrice(condition.triggerPrice)}`} />
                         </div>
 
                         {reviewing && (

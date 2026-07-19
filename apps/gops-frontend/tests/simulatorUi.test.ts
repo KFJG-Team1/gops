@@ -103,6 +103,11 @@ const replayStatus: SimulatorStatus = {
 const observedAtMs = Date.parse("2026-07-16T14:00:00.000Z");
 assert.equal(companyJournalRequestKey(replayStatus), "simulation:run-clock:2026-07-15");
 assert.equal(
+  companyJournalRequestKey({ ...replayStatus, mode: "live", runId: null }),
+  "live",
+  "leaving SIM must invalidate the replay journal cache and restore LIVE evidence"
+);
+assert.equal(
   companyJournalRequestKey({ ...replayStatus, virtualTime: "2026-07-15T08:59:59+09:00" }),
   "simulation:run-clock:2026-07-15"
 );

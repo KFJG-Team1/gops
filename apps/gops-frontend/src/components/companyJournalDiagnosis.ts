@@ -1,4 +1,5 @@
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
+import { formatKoreanCompactUsd } from "../currencyFormat";
 import type { CompanyJournalEvidence, FinancialChartPoint } from "./CompanyJournalSummaryPanel";
 
 export type CompanyJournalDiagnosisView = "earnings" | "valuation" | "profitability" | "stability";
@@ -287,10 +288,5 @@ function formatMultiple(value: number): string {
 }
 
 function formatMoney(value: number): string {
-  return new Intl.NumberFormat("ko-KR", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1
-  }).format(value);
+  return formatKoreanCompactUsd(value);
 }

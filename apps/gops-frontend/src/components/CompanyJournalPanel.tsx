@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentReference } from "../agent/agentReferences";
+import { formatKoreanCompactUsd, formatUsd } from "../currencyFormat";
 import { GlossaryText, type GlossarySelectionContext } from "../glossary/GlossaryText";
 import type { GlossaryEntry } from "../glossary/stockGlossary";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
@@ -274,7 +275,7 @@ export function CompanyJournalPanel({
   const [focusedFinancialMetric, setFocusedFinancialMetric] = useState<string | null>(null);
   const [focusedFinancialYear, setFocusedFinancialYear] = useState<number | null>(null);
   const [comparisonFinancialYear, setComparisonFinancialYear] = useState<number | null>(null);
-  const [financialPeriodMode, setFinancialPeriodMode] = useState<FinancialPeriodMode>("annual");
+  const [financialPeriodMode, setFinancialPeriodMode] = useState<FinancialPeriodMode>("quarterly");
   const [selectedInsightId, setSelectedInsightId] = useState("");
   const [journalReport, setJournalReport] = useState<CompanyJournalReport | null>(null);
   const [journalStatus, setJournalStatus] = useState<CompanyJournalStatus>(
@@ -392,6 +393,7 @@ export function CompanyJournalPanel({
   }, [clearMetricFocus]);
   const selectView = useCallback((view: CompanyJournalView) => {
     setActiveView(view);
+    if (view === "earnings") setFinancialPeriodMode("quarterly");
     clearMetricFocus();
     setSelectedInsightId("");
   }, [clearMetricFocus]);
@@ -531,10 +533,12 @@ export function CompanyJournalPanel({
             );
           })}
         </div>
-        <div className="company-journal-period-toggle" role="group" aria-label="재무 표시 기간">
-          <button type="button" aria-pressed={financialPeriodMode === "annual"} onClick={() => changeFinancialPeriodMode("annual")}>연간</button>
-          <button type="button" aria-pressed={financialPeriodMode === "quarterly"} onClick={() => changeFinancialPeriodMode("quarterly")}>분기</button>
-        </div>
+        {activeView !== "earnings" && (
+          <div className="company-journal-period-toggle" role="group" aria-label="재무 표시 기간">
+            <button type="button" aria-pressed={financialPeriodMode === "annual"} onClick={() => changeFinancialPeriodMode("annual")}>연간</button>
+            <button type="button" aria-pressed={financialPeriodMode === "quarterly"} onClick={() => changeFinancialPeriodMode("quarterly")}>분기</button>
+          </div>
+        )}
       </div>
 
       <div className="company-journal-body">
@@ -1535,16 +1539,11 @@ function formatJournalMultiple(value: number | null) {
 }
 
 function formatJournalMoney(value: number | null) {
-  return value == null ? "데이터 확인 중" : new Intl.NumberFormat("ko-KR", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1
-  }).format(value);
+  return value == null ? "데이터 확인 중" : formatKoreanCompactUsd(value, { invalidValue: "데이터 확인 중" });
 }
 
 function formatJournalPerShare(value: number | null) {
-  return value == null ? "데이터 확인 중" : `US$${value.toFixed(2)}`;
+  return value == null ? "데이터 확인 중" : formatUsd(value);
 }
 
 function formatDeltaDetail(value: number | null) {

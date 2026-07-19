@@ -52,6 +52,10 @@ const testCases = [
     outfile: new URL("../.tmp/company-journal-evidence-api-test.mjs", import.meta.url)
   },
   {
+    entry: new URL("../tests/portfolioPerformanceApi.test.ts", import.meta.url),
+    outfile: new URL("../.tmp/portfolio-performance-api-test.mjs", import.meta.url)
+  },
+  {
     entry: new URL("../tests/companyAnalysisNavigation.test.ts", import.meta.url),
     outfile: new URL("../.tmp/company-analysis-navigation-test.mjs", import.meta.url)
   },

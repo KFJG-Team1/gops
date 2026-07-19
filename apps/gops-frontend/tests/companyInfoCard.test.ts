@@ -8,8 +8,8 @@ import {
 } from "../src/components/CompanySummaryPanel";
 import { fetchMarketHeatmap } from "../src/market/heatmapApi";
 
-assert.equal(formatCompanyInfoPrice(194.72), "US$194.72");
-assert.equal(formatCompanyInfoMarketCap(4_771_640_000_000), "US$4.77조");
+assert.equal(formatCompanyInfoPrice(194.72), "$194.72");
+assert.equal(formatCompanyInfoMarketCap(4_771_640_000_000), "$4.8조");
 assert.equal(formatCompanyInfoChange(2.05), "+2.05%");
 assert.equal(formatCompanyInfoChange(-2.05), "-2.05%");
 assert.equal(formatCompanyInfoChange(0), "0.00%", "a flat session is real data, not a missing value");

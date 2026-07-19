@@ -328,6 +328,7 @@ for (const glossaryId of ["current_ratio", "interest_coverage", "net_debt", "bps
 const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 const journalPanelSource = await readFile(new URL("../src/components/CompanyJournalPanel.tsx", import.meta.url), "utf8");
 const journalSummarySource = await readFile(new URL("../src/components/CompanyJournalSummaryPanel.tsx", import.meta.url), "utf8");
+assert.match(styles, /\.company-journal-body \{[\s\S]*?grid-template-columns: minmax\(0, 2fr\) minmax\(340px, 1fr\)/);
 assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-body[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
 assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-reading[\s\S]*?overflow: visible/);
 assert.match(styles, /\.company-journal-evidence \{[\s\S]*?overflow-y: auto/);
@@ -368,9 +369,16 @@ assert.match(styles, /::-webkit-scrollbar-thumb[\s\S]*?background-clip: padding-
 assert.match(styles, /\.workspace-panel-frame \.company-journal-panel :is\([\s\S]*?\.company-journal-evidence[\s\S]*?scrollbar-width: thin !important/);
 assert.match(styles, /::-webkit-scrollbar[\s\S]*?display: block !important/);
 assert.doesNotMatch(styles, /scrollbar-color:[^;]*var\(--coinbase-primary\)/);
-assert.match(styles, /\.company-journal-quote \{[\s\S]*?width: 92%;[\s\S]*?max-width: 1200px;[\s\S]*?font-size: clamp\(24px, 1\.65cqw, 30px\)/);
+assert.match(styles, /\.company-journal-quote \{[\s\S]*?width: 96%;[\s\S]*?max-width: 1660px;[\s\S]*?font-size: clamp\(23px, 1\.45cqw, 30px\)/);
+assert.match(styles, /\.company-journal-analyst-opinion \{[\s\S]*?justify-items: start;[\s\S]*?text-align: left/);
+assert.match(styles, /\.company-journal-analyst-opinion h3 \{[\s\S]*?width: 100%;[\s\S]*?justify-self: start;[\s\S]*?text-align: left/);
+assert.match(styles, /\.company-journal-analyst-opinion p \{[\s\S]*?max-width: 100%;[\s\S]*?justify-self: start/);
+assert.match(styles, /\.company-journal-analyst-opinion p \{[\s\S]*?font-size: clamp\(21px, 1\.55cqw, 26px\)/);
+assert.match(styles, /\.company-journal-insight\[data-insight-kind="comparison"\] \.company-journal-insight-tags > button \{[\s\S]*?min-height: 42px;[\s\S]*?font-size: 16px/);
 assert.match(styles, /\.company-journal-tabs button\.is-positive[\s\S]*?var\(--color-up\)/);
 assert.match(styles, /\.company-journal-tabs button\.is-negative[\s\S]*?var\(--color-down\)/);
+assert.match(styles, /\.company-journal-tabs button\.is-appropriate \{ --company-journal-tab-signal: var\(--color-muted\); \}/);
+assert.doesNotMatch(styles, /\.company-journal-tabs button\.is-appropriate[^\n]*var\(--coinbase-primary\)/);
 assert.match(styles, /\.company-journal-insight \{[\s\S]*?--company-journal-insight-tone: var\(--color-muted\)/);
 assert.match(
   styles,
@@ -390,6 +398,9 @@ assert.match(journalPanelSource, /focusedFinancialYear/);
 assert.match(journalPanelSource, /comparisonFinancialYear/);
 assert.match(journalPanelSource, /selectReadingTarget/);
 assert.match(journalPanelSource, /onFinancialSelectionChange=\{clearMetricFocus\}/);
+assert.match(journalPanelSource, /useState<FinancialPeriodMode>\("quarterly"\)/);
+assert.match(journalPanelSource, /if \(view === "earnings"\) setFinancialPeriodMode\("quarterly"\)/);
+assert.match(journalPanelSource, /activeView !== "earnings" &&/);
 assert.doesNotMatch(journalPanelSource, /previewEnabled \|\| hasStoredCompanyEvidence/);
 assert.match(journalSummarySource, /data-journal-stability-focus/);
 assert.match(journalSummarySource, /data-journal-financial-metric/);
@@ -411,10 +422,11 @@ assert.match(journalSummarySource, /company-journal-analyst-opinion/);
 assert.doesNotMatch(journalPanelSource, /company-journal-brand/, "the company journal must not render a separate brand row");
 assert.doesNotMatch(journalPanelSource, /gopsai/i, "the company journal must not render the gopsai wordmark");
 assert.match(journalSummarySource, /export function CompanyJournalAnalystOpinionPanel/);
+assert.match(journalSummarySource, /useState<FinancialPeriodMode>\("quarterly"\)/);
 assert.match(journalSummarySource, /showAnalystOpinion && <CompanyJournalAnalystOpinionPanel/);
 assert.doesNotMatch(journalSummarySource, /<time dateTime=\{analystOpinion\.actionAt\}/);
-assert.match(styles, /\.company-journal-analyst-opinion \{[^}]*padding: 15px 0 4px/);
-assert.match(styles, /\.company-journal-analyst-opinion p \{[^}]*font-size: clamp\(18px, 1\.45cqw, 22px\)/);
+assert.match(styles, /\.company-journal-analyst-opinion \{[^}]*padding: 18px 12px 12px/);
+assert.match(styles, /\.company-journal-analyst-opinion p \{[^}]*font-size: clamp\(21px, 1\.55cqw, 26px\)/);
 assert.doesNotMatch(styles, /\.company-journal-analyst-opinion \{[^}]*background:/);
 assert.doesNotMatch(journalSummarySource, /comparisonGap/);
 assert.match(

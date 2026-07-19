@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getSymbolMeta, normalizeSupportedSymbol, type SupportedSymbol, type WatchlistSymbol } from "@gops/chart-engine/symbols";
 import { useAuth } from "../auth/AuthProvider";
 import type { ChartPriceSelection } from "../chart/chartTradeAutomation";
+import { formatUsd as formatUsdAmount } from "../currencyFormat";
 import {
   makeIdempotencyKey,
   orderWebSocketUrl,
@@ -147,15 +148,7 @@ function orderStatusDescription(status?: string): string {
 }
 
 function formatUsd(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "-";
-  }
-
-  return new Intl.NumberFormat("ko-KR", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2
-  }).format(value);
+  return formatUsdAmount(value, { invalidValue: "-" });
 }
 
 function parseFiniteNumber(value: string | number | null | undefined): number | undefined {

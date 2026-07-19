@@ -69,7 +69,6 @@ export type CompanyJournalEvidenceResponse = {
   missingData: string[];
   simulation?: boolean;
   sourceMode?: "historical_reconstruction" | string;
-  currentProjectionSources?: string[];
 };
 
 function analystSummaryText(value: unknown): string {

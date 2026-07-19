@@ -16,6 +16,7 @@ export function normalizeSimulatorSpeed(value: unknown): SimulatorSpeed {
 export type SimulatorSymbolStatus = {
   symbol: string;
   price?: number | null;
+  previousClose?: number | null;
   changePercent?: number | null;
 };
 
