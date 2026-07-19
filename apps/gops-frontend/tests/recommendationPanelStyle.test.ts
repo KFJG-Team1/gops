@@ -15,7 +15,7 @@ assert.match(panelSource, /거래대금/, "dollar volume is a first-class list m
 assert.match(panelSource, /인기 Top 15/, "popular stocks are a fixed top-fifteen list mode");
 assert.match(panelSource, /전체 종목/, "the complete market universe is a first-class searchable list mode");
 assert.doesNotMatch(panelSource, /stock-discovery-results|filteredRows\.length\}개|modeLabel\(/, "the list omits mode and result-count helper text");
-assert.match(panelSource, /추천 로직 설정/, "recommendation logic is a first-class panel tab");
+assert.match(panelSource, /추천 수식 설정/, "recommendation formula settings are a first-class panel tab");
 assert.match(panelSource, /stock-discovery-logic-page/, "the logic editor is a full in-panel tab");
 assert.doesNotMatch(panelSource, /stock-discovery-logic-sidebar|stock-discovery-logic-backdrop|aria-controls="recommendation-logic-sidebar"/, "the logic editor is not an overlay or side rail");
 assert.match(panelSource, /<ScoreProfileManager/, "the logic tab renders the score profile editor directly");
@@ -38,6 +38,7 @@ assert.doesNotMatch(panelSource, /장전|본장|sessionMode/, "the panel no long
 assert.doesNotMatch(apiSource, /RecommendationSessionMode|sessionMode/, "the frontend recommendation API has one sessionless contract");
 assert.match(profileSource, /type="range"/, "factor weights have visible sliders");
 assert.match(profileSource, /score-profile-preset-shelf/, "immutable defaults are presented only as starting presets");
+assert.doesNotMatch(profileSource, /로직 라이브러리|시작 프리셋/, "the formula editor omits jargon-heavy section headings");
 assert.doesNotMatch(profileSource, /현재 기준|>불러오기</, "preset cards omit status helper labels");
 assert.match(profileSource, /customProfiles\.map/, "saved user logic is separated from preset templates");
 assert.match(profileSource, /aria-label="추천 로직 요청"/, "the custom logic library accepts a natural-language profile request");

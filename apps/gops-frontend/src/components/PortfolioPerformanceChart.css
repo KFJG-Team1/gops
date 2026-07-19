@@ -106,7 +106,7 @@
 }
 
 .portfolio-performance-chart-v2 .portfolio-performance-return-line.portfolio {
-  stroke-width: 4;
+  stroke-width: 3.25;
 }
 
 .portfolio-performance-chart-v2 .portfolio-performance-return-line.principal {
@@ -116,7 +116,7 @@
 
 .portfolio-performance-chart-v2 .portfolio-performance-return-line.benchmark {
   stroke-dasharray: 3 5;
-  stroke-width: 3;
+  stroke-width: 2.5;
 }
 
 .portfolio-performance-chart-v2 .portfolio-terminal-axis-label {
