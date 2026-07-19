@@ -87,7 +87,7 @@ const replayStatus: SimulatorStatus = {
   available: true,
   mode: "simulation",
   state: "running",
-  datasetId: "sp500-top20-plus-amd-mu-20260715-kst-v2",
+  datasetId: "sp500-full-20260715-kst-v3",
   runId: "run-clock",
   virtualTime: "2026-07-14T15:06:40.000Z",
   startTime: "2026-07-14T15:00:00.000Z",

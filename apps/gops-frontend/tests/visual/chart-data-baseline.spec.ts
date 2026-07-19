@@ -90,7 +90,7 @@ test("SIM virtual session renders order flow and bidask while wall clock is week
       available: true,
       mode: "simulation",
       state: "paused",
-      datasetId: "sp500-top20-plus-amd-mu-20260715-kst-v2",
+      datasetId: "sp500-full-20260715-kst-v3",
       runId: "visual-sim-run",
       virtualTime: `${fixtureSessionDate}T14:30:00.000Z`,
       startTime: `${fixtureSessionDate}T13:30:00.000Z`,
