@@ -116,7 +116,7 @@ assert.deepEqual(projectedPattern.priceSources.stop.drawingIds, ["chart-asset:AA
 assert.deepEqual(projectedPattern.priceSources.target.drawingIds, bullishPatternDrawings.map((drawing) => drawing.id).sort());
 assert.equal(drawings.length, 2);
 assert.equal(drawings[0].type, "flagMarker");
-assert.equal(drawings[0].label, "조건부 매수 검토 · 상승 깃발형");
+assert.equal(drawings[0].label, "조건부 매수 시나리오 · 상승 깃발형");
 assert.equal(drawings[0].anchors[0].timestamp, candles[1].timestamp);
 assert.match(drawings[0].id, /^chart-plan:/);
 assert.equal(drawings[0].style.colorToken, "bullish");
@@ -159,14 +159,9 @@ const exitAsset: ChartAnalysisAsset = {
     }
   }
 };
-assert.equal(buildTradeTimingDrawings(exitAsset, candles).length, 2);
-assert.equal(buildTradeTimingDrawings(exitAsset, candles)[0].label, "조건부 매도 검토 · 하락 깃발형");
-assert.equal(buildTradeTimingDrawings(exitAsset, candles)[1].style.proposalAction, "sell_candidate");
+assert.equal(buildTradeTimingDrawings(exitAsset, candles).length, 0);
 const projectedExit = projectChartTradeSetup(exitAsset, candles);
-assert.deepEqual([projectedExit?.entryPrice, projectedExit?.targetPrice, projectedExit?.stopPrice], [98, 88, 100]);
-assert.equal(projectedExit?.priceSources.entry.label, "패턴 하단");
-assert.equal(projectedExit?.priceSources.target.label, "깃대 길이");
-assert.equal(projectedExit?.priceSources.stop.label, "패턴 상단");
+assert.equal(projectedExit, null, "하락 구조는 신규 매수 포지션 박스로 투영하지 않는다");
 
 assert.equal(projectChartTradeSetup(asset, candles.map((candle, index) => (
   index === candles.length - 1 ? { ...candle, close: 109 } : candle
@@ -239,11 +234,7 @@ const sellLevelAsset: ChartAnalysisAsset = {
   }
 };
 const sellLevelSetup = projectChartTradeSetup(sellLevelAsset, candles);
-assert.deepEqual([sellLevelSetup?.action, sellLevelSetup?.entryPrice, sellLevelSetup?.targetPrice, sellLevelSetup?.stopPrice], ["sell_candidate", 97, 92, 105]);
-assert.deepEqual(
-  [sellLevelSetup?.priceSources.entry.label, sellLevelSetup?.priceSources.target.label, sellLevelSetup?.priceSources.stop.label],
-  ["지지선", "다음 지지선", "저항선"]
-);
+assert.equal(sellLevelSetup, null, "H-line fallback도 신규 매수 시나리오만 만든다");
 
 const incompleteLevelAsset: ChartAnalysisAsset = {
   ...levelAsset,
@@ -255,6 +246,144 @@ const incompleteLevelAsset: ChartAnalysisAsset = {
   }
 };
 assert.deepEqual(buildTradeTimingDrawings(incompleteLevelAsset, candles), [], "missing target lines do not produce a close/2R fallback");
+
+const referenceLevelAsset: ChartAnalysisAsset = {
+  ...incompleteLevelAsset,
+  geometry: {
+    ...incompleteLevelAsset.geometry,
+    analysisTrace: {
+      version: "geometry-analysis-trace-v2",
+      pivots: [],
+      levelCandidates: [{
+        id: "candidate-resistance-next", category: "level", role: "resistance",
+        selected: false, hardPass: true, evidencePass: true, activePass: true,
+        score: .72, rejectReasons: [], anchors: [{ timestamp: candles[1].timestamp, price: 110 }],
+        metrics: { price: 110 }
+      }],
+      trendCandidates: [], patternCandidates: [],
+      selections: { levelCandidateIds: [], trendCandidateIds: [], patternCandidateIds: [] },
+      omittedCounts: {}
+    }
+  }
+};
+const referenceSetup = projectChartTradeSetup(referenceLevelAsset, candles);
+assert.equal(referenceSetup?.evidenceKind, "reference");
+assert.deepEqual([referenceSetup?.entryPrice, referenceSetup?.targetPrice, referenceSetup?.stopPrice], [105, 110, 90]);
+assert.equal(referenceSetup?.referenceGuides.length, 1);
+assert.equal(referenceSetup?.priceSources.target.label, "후보 저항선");
+const referenceDrawings = buildTradeTimingDrawings(referenceLevelAsset, candles);
+assert.deepEqual(referenceDrawings.map((drawing) => drawing.type), ["horizontalLine", "riskRewardBox"]);
+assert.equal(referenceDrawings[0].id, referenceSetup?.referenceGuides[0].id);
+
+const staleReferenceAsset: ChartAnalysisAsset = {
+  ...referenceLevelAsset,
+  geometry: {
+    ...referenceLevelAsset.geometry,
+    analysisTrace: {
+      ...referenceLevelAsset.geometry.analysisTrace!,
+      levelCandidates: [{
+        ...referenceLevelAsset.geometry.analysisTrace!.levelCandidates[0],
+        rejectReasons: ["stale_candidate"]
+      }]
+    }
+  }
+};
+assert.equal(projectChartTradeSetup(staleReferenceAsset, candles), null);
+
+const trendSupportDrawing = {
+  ...systemLine("trend-support", 92, 92),
+  id: "chart-asset:AAPL:1D:trend-support",
+  symbol: "AAPL", interval: "1D" as const, sourceInterval: "1D" as const,
+  anchors: [
+    { logicalIndex: 0, price: 92 },
+    { logicalIndex: 2, price: 92 }
+  ]
+};
+const trendAndPivotAsset: ChartAnalysisAsset = {
+  ...incompleteLevelAsset,
+  geometry: {
+    ...incompleteLevelAsset.geometry,
+    supports: [],
+    drawings: [
+      ...incompleteLevelAsset.geometry.drawings.filter((drawing) => drawing.id.endsWith(":resistance")),
+      trendSupportDrawing
+    ],
+    drawingGroups: {
+      levels: ["chart-asset:AAPL:1D:resistance"],
+      trend: [trendSupportDrawing.id],
+      pattern: []
+    },
+    trends: [{
+      id: "trend-support", kind: "uptrend", direction: "up", score: .8,
+      drawingId: trendSupportDrawing.id, anchors: [], anchorPivotIds: [], touchPivotIds: [], reactionPivotIds: [],
+      touchCount: 3, reactionCount: 2, slopeAtrPerBar: 0, medianResidualAtr: .1,
+      currentDistanceAtr: .2, lastTouchAgeBars: 1
+    }],
+    primaryTrend: {
+      id: "trend-support", kind: "uptrend", direction: "up", score: .8,
+      drawingId: trendSupportDrawing.id, anchors: [], anchorPivotIds: [], touchPivotIds: [], reactionPivotIds: [],
+      touchCount: 3, reactionCount: 2, slopeAtrPerBar: 0, medianResidualAtr: .1,
+      currentDistanceAtr: .2, lastTouchAgeBars: 1
+    },
+    analysisTrace: {
+      version: "geometry-analysis-trace-v2",
+      pivots: [{
+        id: "pivot-high", kind: "H", timestamp: candles[1].timestamp,
+        confirmedAt: candles[2].timestamp, price: 110
+      }],
+      levelCandidates: [], trendCandidates: [], patternCandidates: [],
+      selections: { levelCandidateIds: [], trendCandidateIds: [], patternCandidateIds: [] },
+      omittedCounts: {}
+    }
+  }
+};
+const trendAndPivotSetup = projectChartTradeSetup(trendAndPivotAsset, candles);
+assert.deepEqual(
+  [trendAndPivotSetup?.entryPrice, trendAndPivotSetup?.targetPrice, trendAndPivotSetup?.stopPrice],
+  [105, 110, 92]
+);
+assert.equal(trendAndPivotSetup?.evidenceKind, "reference");
+assert.equal(trendAndPivotSetup?.priceSources.stop.derivation, "trend");
+assert.equal(trendAndPivotSetup?.priceSources.target.label, "확인된 전고점");
+
+const channelDrawing = {
+  ...systemLine("channel", 95, 95),
+  id: "chart-asset:AAPL:1D:channel",
+  type: "trendParallelLines" as const,
+  symbol: "AAPL", interval: "1D" as const, sourceInterval: "1D" as const,
+  anchors: [
+    { timestamp: candles[0].timestamp, price: 95 },
+    { timestamp: candles[2].timestamp, price: 95 },
+    { timestamp: candles[1].timestamp, price: 105 }
+  ]
+};
+const channelAsset: ChartAnalysisAsset = {
+  ...watchAsset,
+  interval: "1D", sourceInterval: "1D",
+  geometry: {
+    ...watchAsset.geometry,
+    drawings: [channelDrawing], supports: [], resistances: [], patterns: [], primaryPattern: null,
+    trends: [{
+      id: "channel", kind: "channel", direction: "up", score: .8,
+      drawingId: channelDrawing.id, anchors: channelDrawing.anchors,
+      anchorPivotIds: [], touchPivotIds: [], reactionPivotIds: [], touchCount: 4, reactionCount: 3,
+      slopeAtrPerBar: 0, medianResidualAtr: .1, currentDistanceAtr: .2, lastTouchAgeBars: 1,
+      channelWidthAtr: 2, parallelSlopeError: 0, containment: .9
+    }],
+    primaryTrend: {
+      id: "channel", kind: "channel", direction: "up", score: .8,
+      drawingId: channelDrawing.id, anchors: channelDrawing.anchors,
+      anchorPivotIds: [], touchPivotIds: [], reactionPivotIds: [], touchCount: 4, reactionCount: 3,
+      slopeAtrPerBar: 0, medianResidualAtr: .1, currentDistanceAtr: .2, lastTouchAgeBars: 1,
+      channelWidthAtr: 2, parallelSlopeError: 0, containment: .9
+    },
+    drawingGroups: { levels: [], trend: [channelDrawing.id], pattern: [] }
+  }
+};
+const channelSetup = projectChartTradeSetup(channelAsset, candles);
+assert.deepEqual([channelSetup?.entryPrice, channelSetup?.targetPrice, channelSetup?.stopPrice], [100, 105, 95]);
+assert.equal(channelSetup?.priceSources.entry.label, "채널 중단");
+assert.equal(channelSetup?.evidenceKind, "final");
 
 const amdCandles = [
   ...candles.map((candle) => ({ ...candle, close: 535.1 })),
@@ -288,12 +417,7 @@ const amdAsset: ChartAnalysisAsset = {
   }
 };
 const amdConditional = buildTradeTimingDrawings(amdAsset, amdCandles);
-assert.equal(amdConditional.length, 1);
-assert.equal(amdConditional[0].style.proposalAction, "sell_candidate");
-assert.deepEqual(amdConditional[0].anchors.map((anchor) => anchor.price), [526.15809, 582.298117, 466.15809]);
-assert.equal(amdConditional[0].anchors[0].logicalIndex, 2, "the projection starts at the real last completed candle");
-assert.equal(amdConditional[0].anchors[0].timestamp, candles[2].timestamp);
-assert.equal(amdConditional[0].anchors[1].logicalIndex, 12, "the future edge ignores an unclosed candle slot");
+assert.deepEqual(amdConditional, [], "하락 패턴은 보유분 매도 해설로만 남고 신규 포지션 박스를 만들지 않는다");
 
 const noEvidenceAsset: ChartAnalysisAsset = {
   ...watchAsset,

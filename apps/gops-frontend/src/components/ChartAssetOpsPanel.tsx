@@ -21,6 +21,7 @@ import {
 } from "../chart/analysisAssetsApi";
 import { defaultChartAssetBuildIntervals } from "../chart/chartAssetBuildPolicy";
 import type { CandleDto, ChartInterval } from "../chart/types";
+import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 
 const terminalStatuses = new Set(["completed", "completed_with_warnings", "completed_with_errors", "failed", "canceled"]);
 const assetIntervals: AnalysisAssetInterval[] = ["1m", "5m", "10m", "1h", "4h", "1D", "1W"];
@@ -49,6 +50,13 @@ export function ChartAssetOpsPanel({
   const [currentAssets, setCurrentAssets] = useState<AnalysisAssetsResponse | null>(null);
   const [currentAssetsLoadError, setCurrentAssetsLoadError] = useState<string | null>(null);
   const [assetRevision, setAssetRevision] = useState(0);
+  const [simulatorStatus, setSimulatorStatus] = useState<SimulatorStatus | null>(() => latestSimulatorStatus());
+  const [buildTarget, setBuildTarget] = useState<"live" | "simulation">(() => (
+    latestSimulatorStatus()?.mode === "simulation" ? "simulation" : "live"
+  ));
+  const simulatorContextRef = useRef(
+    `${latestSimulatorStatus()?.mode ?? "live"}|${latestSimulatorStatus()?.datasetId ?? ""}`
+  );
   const logRef = useRef<HTMLDivElement | null>(null);
   const existingAssetKeysRef = useRef<Set<string>>(new Set());
   const normalizedCurrentSymbol = currentSymbol.trim().toUpperCase();
@@ -56,12 +64,26 @@ export function ChartAssetOpsPanel({
   const loadCoverage = useCallback(async () => {
     setCoverageLoading(true);
     try {
-      setCoverage(await fetchChartAssetCoverage());
+      setCoverage(await fetchChartAssetCoverage(undefined, buildTarget));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "자산 현황을 불러오지 못했습니다.");
     } finally {
       setCoverageLoading(false);
     }
+  }, [buildTarget]);
+
+  useEffect(() => {
+    const handleStatus = (event: Event) => {
+      const next = (event as CustomEvent<SimulatorStatus>).detail;
+      setSimulatorStatus(next);
+      const nextContext = `${next.mode}|${next.datasetId ?? ""}`;
+      if (simulatorContextRef.current !== nextContext) {
+        simulatorContextRef.current = nextContext;
+        setBuildTarget(next.mode === "simulation" ? "simulation" : "live");
+      }
+    };
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
   }, []);
 
   useEffect(() => {
@@ -179,7 +201,14 @@ export function ChartAssetOpsPanel({
       setError("interval을 하나 이상 선택하세요.");
       return;
     }
-    if (!window.confirm(`${symbols.join(", ")} · ${intervals.join(", ")} 자산을 현재 완료 봉 기준으로 생성·갱신할까요? 성공한 자산만 기존 저장본을 교체합니다.`)) {
+    if (buildTarget === "simulation" && simulatorStatus?.mode !== "simulation") {
+      setError("시뮬레이션이 활성화되어 있고 dataset 시작 시각을 확인할 수 있어야 합니다.");
+      return;
+    }
+    const targetLabel = buildTarget === "simulation"
+      ? `시뮬레이션 ${simulatorStatus?.datasetId ?? "dataset"} 시작 기준 (${simulatorStatus?.startTime ?? "기준 시각 없음"})`
+      : "LIVE 현재 완료 봉 기준";
+    if (!window.confirm(`${symbols.join(", ")} · ${intervals.join(", ")} 자산을 ${targetLabel}으로 생성·갱신할까요? 성공한 자산만 ${buildTarget === "simulation" ? "simulation snapshot" : "LIVE 저장본"}을 교체합니다.`)) {
       return;
     }
     setError(null);
@@ -202,7 +231,8 @@ export function ChartAssetOpsPanel({
       const result = await submitChartAssetBuild({
         symbols,
         intervals,
-        force: true
+        force: true,
+        target: buildTarget
       });
       setAccepted(result);
       setNotice(result.coalesced ? "같은 조건의 실행 중 작업에 연결했습니다." : null);
@@ -238,6 +268,14 @@ export function ChartAssetOpsPanel({
           <strong>개별 심볼</strong>
           <span>콤마로 구분</span>
         </div>
+        <fieldset className="chart-asset-ops-target">
+          <legend>생성 기준</legend>
+          <label><input type="radio" name="chart-asset-build-target" value="live" checked={buildTarget === "live"} onChange={() => setBuildTarget("live")} />LIVE 현재 완료봉</label>
+          <label title={simulatorStatus?.mode === "simulation" ? undefined : "시뮬레이션을 먼저 활성화하세요."}>
+            <input type="radio" name="chart-asset-build-target" value="simulation" checked={buildTarget === "simulation"} disabled={simulatorStatus?.mode !== "simulation"} onChange={() => setBuildTarget("simulation")} />
+            시뮬레이션 시작 기준{simulatorStatus?.mode === "simulation" ? ` · ${simulatorStatus.datasetId} · ${formatGeneratedAt(simulatorStatus.startTime)}` : ""}
+          </label>
+        </fieldset>
         <div className="chart-asset-ops-symbols">
           <textarea aria-label="빌드 심볼" value={symbolsText} onChange={(event) => setSymbolsText(event.target.value)} />
           <button type="button" onClick={() => setSymbolsText((current) => mergeSymbol(current, currentSymbol))}>현재 심볼 추가</button>
@@ -258,7 +296,7 @@ export function ChartAssetOpsPanel({
       {notice && <p className="chart-asset-ops-notice" role="status">{notice}</p>}
       {job && (
         <section className="chart-asset-ops-progress">
-          <div><span>{job.status}{unverifiedSavedCount ? ` · 저장 미검증 ${unverifiedSavedCount}` : ""} · {job.source === "manual" ? "수동 우선 작업" : "정기 작업"}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
+          <div><span>{job.status}{unverifiedSavedCount ? ` · 저장 미검증 ${unverifiedSavedCount}` : ""} · {job.requested?.target === "simulation" ? `SIM ${job.requested.datasetId ?? ""} · ${job.requested.snapshotCutoff ?? ""}` : "LIVE"} · {job.source === "manual" ? "수동 우선 작업" : "정기 작업"}</span><span>{job.progress.done}/{job.progress.total} · 생성 {job.createdEntities ?? 0} · 경고 {job.progress.warnings ?? 0} · 실패 {job.progress.failed}</span></div>
           <progress max={Math.max(1, job.progress.total)} value={job.progress.done} />
           <p>{job.progress.current ?? "대기 중"}</p>
           {job.repair && (job.repair.checkedSymbols > 0 || job.repair.attemptedSymbols > 0) && (
@@ -315,7 +353,7 @@ export function ChartAssetOpsPanel({
       </section>
 
       <section className="chart-asset-ops-coverage">
-        <header><strong>자산 현황</strong><button type="button" disabled={coverageLoading} onClick={() => void loadCoverage()}>새로고침</button></header>
+        <header><strong>{buildTarget === "simulation" ? `시뮬레이션 snapshot 현황 · ${simulatorStatus?.datasetId ?? "-"}` : "LIVE 자산 현황"}</strong><button type="button" disabled={coverageLoading} onClick={() => void loadCoverage()}>새로고침</button></header>
         <div className="chart-asset-ops-table-wrap">
           <table>
             <thead><tr><th>심볼</th><th>주기</th><th>감지 패턴</th><th>상태</th><th>해석 후보</th><th>작도</th><th>생성</th><th>관리</th></tr></thead>
@@ -331,7 +369,7 @@ export function ChartAssetOpsPanel({
                   : item.traceMode === "geometry-analysis-trace-v1" ? "일부" : "재생성 필요"}</td>
                 <td>{item.storedDrawingCount ?? item.drawingCount ?? "-"}</td>
                 <td>{formatGeneratedAt(item.generatedAt)}</td>
-                <td><button type="button" disabled={deletingKey !== null} aria-label={`${item.symbol} ${item.interval} 작도 자산 삭제`} onClick={() => void removeAsset(item)}>{deletingKey === key ? "삭제 중" : "삭제"}</button></td>
+                <td>{buildTarget === "live" ? <button type="button" disabled={deletingKey !== null} aria-label={`${item.symbol} ${item.interval} 작도 자산 삭제`} onClick={() => void removeAsset(item)}>{deletingKey === key ? "삭제 중" : "삭제"}</button> : "재생성으로 교체"}</td>
               </tr>;
             })}</tbody>
           </table>

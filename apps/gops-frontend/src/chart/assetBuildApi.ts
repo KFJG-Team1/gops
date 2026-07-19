@@ -4,6 +4,7 @@ export type ChartAssetBuildRequest = {
   symbols: string[] | "sp500";
   intervals: AnalysisAssetInterval[];
   force?: boolean;
+  target?: "live" | "simulation";
 };
 
 export type ChartAssetBuildAccepted = {
@@ -29,6 +30,14 @@ export type ChartAssetBuildStatus = {
   status: "queued" | "running" | "completed" | "completed_with_warnings" | "completed_with_errors" | "failed" | "canceled";
   source: "manual" | "scheduled";
   priority: number;
+  requested?: {
+    symbolCount: number;
+    intervals: AnalysisAssetInterval[];
+    force: boolean;
+    target?: "live" | "simulation";
+    datasetId?: string | null;
+    snapshotCutoff?: string | null;
+  };
   progress: { total: number; done: number; failed: number; skipped: number; warnings: number; current: string | null };
   repair?: {
     checkedSymbols: number;
@@ -66,6 +75,7 @@ export type ChartAssetCoverageItem = {
   traceMode?: "geometry-analysis-trace-v1" | "geometry-analysis-trace-v2" | "none" | string;
   traceCandidateCounts?: { levels: number; trends: number; patterns: number };
   primaryPattern?: Pick<GeometryPattern, "kind" | "state" | "score"> | null;
+  datasetId?: string;
 };
 
 export type ChartAssetDeleteResult = {
@@ -90,8 +100,12 @@ export async function cancelChartAssetBuild(jobId: string): Promise<ChartAssetBu
   return apiJson(`/api/charts/analysis-assets/build/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
 }
 
-export async function fetchChartAssetCoverage(symbols?: string[]): Promise<ChartAssetCoverageItem[]> {
-  const query = symbols?.length ? `?${new URLSearchParams({ symbols: symbols.join(",") }).toString()}` : "";
+export async function fetchChartAssetCoverage(
+  symbols?: string[], target: "live" | "simulation" = "live"
+): Promise<ChartAssetCoverageItem[]> {
+  const params = new URLSearchParams({ target });
+  if (symbols?.length) params.set("symbols", symbols.join(","));
+  const query = `?${params.toString()}`;
   const response = await apiJson<{ items?: ChartAssetCoverageItem[] }>(`/api/charts/analysis-assets/coverage${query}`);
   return Array.isArray(response.items) ? response.items : [];
 }

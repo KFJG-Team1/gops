@@ -25,7 +25,11 @@ import {
 } from "../chart/chartAnalysisAssetRuntimeStore";
 import { analysisAssetPresentationDiagnostics, candleKeyForTimestamp, formatAnalysisAssetAsOf } from "../chart/analysisAssetPresentation";
 import { buildChartCommentaryViewModel, type ChartCommentaryScenario } from "../chart/commentaryModel";
-import { dispatchChartAnalysisLayerToggle } from "../chart/analysisLayerController";
+import {
+  defaultAnalysisLayerVisibility,
+  dispatchChartAnalysisLayerToggle,
+  type AnalysisLayerKey
+} from "../chart/analysisLayerController";
 import { chartCommentaryHoldingDisplay } from "../chart/commentaryHoldings";
 import {
   dispatchChartCommentaryIndicatorToggle,
@@ -44,6 +48,7 @@ import type { CandleDto, ChartInterval } from "../chart/types";
 import { GlossaryText } from "../glossary/GlossaryText";
 import { usePortfolioHoldingsData } from "./PortfolioHoldingsPanel";
 import type { PortfolioPosition } from "./portfolioHoldingsApi";
+import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
 
 type ChartCommentaryPanelProps = {
   chartDocumentId?: string;
@@ -59,6 +64,14 @@ type ChartCommentaryPanelProps = {
   chartSelectionActive?: boolean;
   onChartSelectionToggle?: () => void;
   onChartDocumentChange?: (chartDocumentId: string) => void;
+};
+
+const allLayersDisabled: Record<AnalysisLayerKey, boolean> = {
+  interpretation: true,
+  levels: true,
+  trend: true,
+  pattern: true,
+  proposal: true
 };
 
 export function ChartCommentaryPanel({
@@ -86,7 +99,7 @@ export function ChartCommentaryPanel({
     () => chartDocumentId ? getActiveTradePlan(chartDocumentId) : null,
     () => null
   );
-  const holdings = usePortfolioHoldingsData(undefined, "active");
+  const holdings = usePortfolioHoldingsData(undefined, "kis");
   const holding = useMemo(
     () => holdings.positions.find((position) => position.symbol.trim().toUpperCase() === normalizedSymbol) ?? null,
     [holdings.positions, normalizedSymbol]
@@ -101,10 +114,10 @@ export function ChartCommentaryPanel({
     [chartDocumentId]
   );
   const assetRuntime = useSyncExternalStore(subscribeAssetRuntime, readAssetRuntime, readAssetRuntime);
-  const expectedAssetIdentity = chartDocumentId
-    ? chartAnalysisAssetRuntimeIdentity(chartDocumentId, normalizedSymbol, interval)
+  const expectedAssetIdentityPrefix = chartDocumentId
+    ? `${chartAnalysisAssetRuntimeIdentity(chartDocumentId, normalizedSymbol, interval, "").slice(0, -1)}|`
     : "";
-  const runtimeMatchesSource = sourceAvailable && assetRuntime.identity === expectedAssetIdentity;
+  const runtimeMatchesSource = sourceAvailable && assetRuntime.identity.startsWith(expectedAssetIdentityPrefix);
   const assets = runtimeMatchesSource ? assetRuntime.response : null;
   const assetLoadPhase: ChartAnalysisAssetLoadPhase = runtimeMatchesSource
     ? assetRuntime.phase
@@ -188,6 +201,7 @@ export function ChartCommentaryPanel({
           asset={asset}
           commentaryAsset={commentaryAsset}
           availableAssets={assets?.assets}
+          assetMeta={assets?.meta}
           chartLayers={chartLayers}
           holding={verifiedHolding}
           holdingsLoading={holdings.loading}
@@ -195,6 +209,8 @@ export function ChartCommentaryPanel({
           holdingsErrorStatus={holdings.errorStatus}
           assetLoadPhase={assetLoadPhase}
           assetLoadError={assetLoadError}
+          layerVisibility={assetRuntime.layerVisibility ?? defaultAnalysisLayerVisibility}
+          layerDisabled={assetRuntime.layerDisabled ?? allLayersDisabled}
         />}
     </article>
   );
@@ -202,7 +218,8 @@ export function ChartCommentaryPanel({
 
 function CurrentCommentary({
   chartDocumentId, sourceAvailable, symbol, interval, candles, drawingIds, asset, commentaryAsset, availableAssets,
-  chartLayers, holding, holdingsLoading, holdingsError, holdingsErrorStatus, assetLoadPhase, assetLoadError
+  chartLayers, holding, holdingsLoading, holdingsError, holdingsErrorStatus, assetLoadPhase, assetLoadError, assetMeta,
+  layerVisibility, layerDisabled
 }: {
   chartDocumentId?: string;
   sourceAvailable: boolean;
@@ -213,6 +230,7 @@ function CurrentCommentary({
   asset: ChartAnalysisAsset | null;
   commentaryAsset: ChartCommentaryAsset | null;
   availableAssets?: Partial<Record<AnalysisAssetInterval, ChartAnalysisAsset | null>>;
+  assetMeta?: import("../chart/analysisAssetsApi").ChartAnalysisAssetResponseMeta;
   chartLayers: Partial<Record<string, boolean>>;
   holding: PortfolioPosition | null;
   holdingsLoading: boolean;
@@ -220,6 +238,8 @@ function CurrentCommentary({
   holdingsErrorStatus?: number;
   assetLoadPhase: ChartAnalysisAssetLoadPhase;
   assetLoadError: string | null;
+  layerVisibility: Record<AnalysisLayerKey, boolean>;
+  layerDisabled: Record<AnalysisLayerKey, boolean>;
 }) {
   const [pinnedStepId, setPinnedStepId] = useState<string | null>(null);
   const drawingIdsKey = drawingIds.join("\u0000");
@@ -251,7 +271,11 @@ function CurrentCommentary({
           ? assetLoadError ?? "작도·해설을 불러오지 못했습니다"
           : assetLoadPhase === "ready"
             ? !asset
-              ? "아직 생성된 차트 해설이 없습니다"
+              ? assetMeta?.assetContext === "simulation"
+                ? assetMeta.snapshotStatus === "regeneration_required"
+                  ? "시뮬레이션 작도·해설 자산 재생성 필요"
+                  : "시뮬레이션 작도·해설 자산 없음 · 개발 패널에서 생성 필요"
+                : "아직 생성된 차트 해설이 없습니다"
               : "차트 해설을 불러오지 못했습니다"
             : "종합 해설 준비 중";
   const focusStep = (stepId: string | null, mode: FocusMode) => {
@@ -279,6 +303,14 @@ function CurrentCommentary({
         loading={holdingsLoading}
         error={holdingsError}
         errorStatus={holdingsErrorStatus}
+      />
+      <ChartAnalysisLayerToggles
+        visibility={layerVisibility}
+        disabled={layerDisabled}
+        loadPhase={assetLoadPhase}
+        showMeta={false}
+        variant="remote"
+        onToggle={(layer) => chartDocumentId && dispatchChartAnalysisLayerToggle({ chartDocumentId, layer })}
       />
       {emptyText
         ? <Empty text={emptyText} />

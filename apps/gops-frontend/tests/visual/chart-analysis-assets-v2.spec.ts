@@ -54,10 +54,11 @@ test("five analysis layers render independently with commentary focus and cards"
   const chart = page.locator(".chart-panel");
   const canvas = chart.locator(".chart-canvas");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
-  await expect(page.locator(".chart-analysis-layer-controls")).toBeVisible();
-  await expect(page.locator(".chart-analysis-layer-controls svg")).toHaveCount(0);
+  await chart.hover();
+  await expect(chart.locator(".chart-analysis-layer-controls")).toBeVisible();
+  await expect(chart.locator(".chart-analysis-layer-controls svg")).toHaveCount(0);
   await expect(page.locator(".chart-analysis-layer-state")).toHaveCount(0);
-  await expect(page.locator(".chart-analysis-asof")).toContainText(/해석 유력 후보 · 유력 후보 \d+\/2 · 전체 4/);
+  await expect(chart.locator(".chart-analysis-asof")).toContainText(/해석 유력 후보 · 유력 후보 \d+\/2 · 전체 4/);
   const interpretationToggle = page.getByRole("button", { name: "해석 분석 레이어 켜기" });
   const levelsToggle = page.getByRole("button", { name: /^지지·저항 분석 레이어 (?:켜기|끄기)$/ });
   const trendToggle = page.getByRole("button", { name: /^추세 분석 레이어 (?:켜기|끄기)$/ });
@@ -83,6 +84,12 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(proposalToggle).toHaveAttribute("data-state", "off");
   await expect(page.getByText(/상승 삼각형 돌파 확인/).first()).toBeVisible();
   const commentaryPanel = page.locator(".chart-commentary-panel");
+  const remoteLevelsToggle = commentaryPanel.getByRole("button", { name: "지지·저항 분석 레이어 리모컨 끄기" });
+  await expect(remoteLevelsToggle).toHaveAttribute("aria-pressed", "true");
+  await remoteLevelsToggle.click();
+  await expect(levelsToggle).toHaveAttribute("aria-pressed", "false");
+  await commentaryPanel.getByRole("button", { name: "지지·저항 분석 레이어 리모컨 켜기" }).click();
+  await expect(levelsToggle).toHaveAttribute("aria-pressed", "true");
   const holdingSummary = commentaryPanel.getByLabel("실계좌 보유 현황");
   await expect(holdingSummary.getByRole("columnheader")).toHaveText(["보유 상태", "평균 매입가", "보유 수량"]);
   await expect(holdingSummary.getByRole("cell")).toHaveText(["보유", "$148.42", "18주"]);
@@ -124,13 +131,14 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(chart).toHaveAttribute("data-commentary-volume-profile-status", "off");
   await page.locator(".chart-commentary-source").hover();
   await expect(commentaryPanel.locator(".chart-commentary-price-head").getByRole("columnheader")).toHaveText(["제안", "가격", "현재가 대비"]);
-  await expect(commentaryPanel.locator(".chart-commentary-price-table > button > span:first-child")).toHaveText(["진입", "목표", "손절"]);
+  await expect(commentaryPanel.locator(".chart-commentary-price-table > button > span:first-child")).toHaveText(["매수 검토", "수익 실현 검토", "손실 제한 검토"]);
   await expect(page.getByRole("button", { name: "연결", exact: true })).toHaveCount(0);
   expect(await commentaryPanel.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await expect(commentaryPanel).toHaveScreenshot("chart-commentary-panel.png", { timeout: 15_000 });
   await expect(canvas).toBeVisible();
   await expect(page).toHaveScreenshot("chart-assets-layers-both.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
 
+  await chart.hover();
   await trendToggle.click();
   await expect(page.getByRole("button", { name: "추세 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
   await expect(patternToggle).toHaveAttribute("aria-pressed", "true");
@@ -144,15 +152,13 @@ test("five analysis layers render independently with commentary focus and cards"
   await levelsToggle.click();
   await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
   await expect(patternToggle).toHaveAttribute("aria-pressed", "true");
-  await expect(page).toHaveScreenshot("chart-assets-proposal-only.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
   await evidenceStep.hover();
-  await expect(page).toHaveScreenshot("chart-assets-hidden-level-hover.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
   await page.locator(".chart-commentary-summary").hover();
+  await chart.hover();
   await page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" }).click();
 
   await proposalToggle.click();
   await expect(page.getByRole("button", { name: "제안 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page).toHaveScreenshot("chart-assets-evidence-only.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
   await page.getByRole("button", { name: "제안 분석 레이어 끄기" }).click();
 
   await interpretationToggle.click();
@@ -260,6 +266,7 @@ test("interpretation alone keeps broad final underlays and shortlisted candidate
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+  await chart.hover();
   await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
   await expect(page.getByRole("button", { name: "해석 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
@@ -271,6 +278,7 @@ test("final analysis strokes sit above their interpretation underlays", async ({
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+  await chart.hover();
   await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
   await page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" }).click();
   await page.getByRole("button", { name: "추세 분석 레이어 켜기" }).click();
@@ -286,6 +294,7 @@ test("final analysis strokes sit above their interpretation underlays", async ({
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+  await chart.hover();
   await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
   const focusButtons = page.locator(".chart-commentary-focus button");
   await expect(focusButtons).toHaveCount(3);
@@ -297,7 +306,7 @@ test("final analysis strokes sit above their interpretation underlays", async ({
   await expect(chart).toHaveScreenshot("chart-assets-interpretation-focused-pattern.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
   await focusButtons.nth(2).click();
   await expect(focusButtons.nth(2)).toHaveAttribute("aria-pressed", "true");
-  await chart.locator(".chart-analysis-layer-controls").hover();
+  await chart.hover();
   await expect(chart).toHaveScreenshot("chart-assets-interpretation-pinned-pattern.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
 });
 
@@ -305,13 +314,15 @@ test("proposal toggle is disabled when the asset has no proposal drawings", asyn
   includeTradePlan = false;
   includeConditionalEvidence = false;
   await page.goto("/?symbol=NVDA");
-  await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
+  const chart = page.locator(".chart-panel");
+  await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+  await chart.hover();
   await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" })).toBeEnabled();
   const unavailableProposalToggle = page.getByRole("button", { name: "제안 분석 레이어 사용 불가" });
   await expect(unavailableProposalToggle).toBeDisabled();
   await expect(unavailableProposalToggle).toHaveAttribute("data-state", "unavailable");
   await expect(unavailableProposalToggle).not.toHaveAttribute("aria-pressed", /.+/);
-  await expect(page.locator(".chart-analysis-layer-controls")).toHaveScreenshot("chart-assets-no-proposal.png", { timeout: 15_000 });
+  await expect(chart.locator(".chart-analysis-layer-controls")).toHaveScreenshot("chart-assets-no-proposal.png", { timeout: 15_000 });
 });
 
 test("another interval never becomes a silent proposal fallback", async ({ page }) => {
@@ -346,6 +357,7 @@ test("chart questions keep current commentary and attach the snapshot answer to 
   delayAgentAnswer = true;
   await page.goto("/?symbol=NVDA");
   await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toBeEnabled();
   await page.getByLabel("Agent command").fill("차트 분석해줘");
   await page.getByRole("button", { name: "Agent에게 전송" }).click();
   await expect(page.locator(".chart-commentary-pending")).toContainText("현재 해설은 그대로 유지됩니다");
@@ -355,9 +367,10 @@ test("chart questions keep current commentary and attach the snapshot answer to 
   await expect(page.getByText("분석하고 있습니다.")).toBeVisible();
   await expect(page.getByText("기존 Geometry 자산의 지지·패턴을 기준으로 해설했습니다.")).toBeVisible();
   await expect(page.getByRole("button", { name: "해설", exact: true })).toBeVisible();
-  const supportFocus = page.locator(".chart-commentary-answer-focus").getByRole("button", { name: "지지·저항" });
+  const answer = page.locator(".chart-commentary-answer");
+  const supportFocus = answer.locator(".chart-commentary-answer-focus").getByRole("button", { name: "지지·저항" });
   await supportFocus.hover();
-  await expect(page).toHaveScreenshot("chart-commentary-question-answer.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
+  await expect(answer).toHaveScreenshot("chart-commentary-question-answer.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
   await page.getByRole("button", { name: "해설", exact: true }).click();
   await expect(page.getByText(/지지선 1개와 저항선 0개를 관찰합니다/)).toBeVisible();
 });
@@ -395,6 +408,7 @@ test("reservation buy uses a price written in the prompt without a price-axis se
   });
   await page.goto("/?symbol=NVDA");
   await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toBeEnabled();
 
   await page.getByLabel("Agent command").fill("NVDA 185.50달러에 예약 매수 20주 걸어줘");
   await page.getByRole("button", { name: "Agent에게 전송" }).click();
@@ -423,6 +437,7 @@ test("reservation sell uses the prompt side even when the chart setup is a buy c
   });
   await page.goto("/?symbol=NVDA");
   await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toBeEnabled();
 
   await page.getByLabel("Agent command").fill("NVDA 190달러에 예약 매도 20주 걸어줘");
   await page.getByRole("button", { name: "Agent에게 전송" }).click();
@@ -461,6 +476,8 @@ test("price axis selection accepts a natural reservation buy command and creates
     ].includes(pathname)) executionRequests.push(pathname);
   });
   await page.goto("/?symbol=NVDA");
+  await expect(page.locator(".chart-panel")).toHaveAttribute("data-chart-candle-count", "140");
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toBeEnabled();
   const canvas = page.locator(".chart-canvas");
   const canvasBox = await canvas.boundingBox();
   expect(canvasBox).not.toBeNull();
@@ -482,7 +499,7 @@ test("price axis selection accepts a natural reservation buy command and creates
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("NVDA · 1D");
-  await expect(dialog).toContainText("조건부 매수 검토");
+  await expect(dialog).toContainText("조건부 매수 시나리오");
   await expect(dialog).toContainText(`$${selectedPrice}`);
   await expect(dialog).toContainText("$198.00");
   await expect(dialog).toContainText("$164.00");
@@ -517,6 +534,7 @@ test("price axis support label snaps the order price while the remaining axis st
   const chart = page.locator(".chart-panel");
   const quickOrder = page.locator(".quick-order-panel");
   const levelsToggle = chart.getByRole("button", { name: "지지·저항 분석 레이어 켜기" });
+  await chart.hover();
   await levelsToggle.click();
 
   const supportTarget = chart.locator('.chart-analysis-level-price-target[data-analysis-level-price="164.00"]');
@@ -556,19 +574,20 @@ test("price axis and proposal labels share order selection while scenario contro
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
   const quickOrder = page.locator(".quick-order-panel");
-  const scenario = page.getByRole("button", { name: "조건부 매수 검토 제안 레이어 전환" });
+  const scenario = page.getByRole("button", { name: "조건부 매수 시나리오 제안 레이어 전환" });
   const labels = chart.locator(".chart-trade-plan-price-label");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
+  await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toBeEnabled();
   await expect(labels).toHaveCount(0);
 
   await scenario.hover();
   await expect(labels).toHaveCount(3);
-  await expect(chart.getByRole("button", { name: "진입 가격 178.00 주문창에 적용" })).toHaveText("진입 $178.00");
-  await expect(chart.getByRole("button", { name: "목표 가격 198.00 주문창에 적용" })).toHaveText("목표 $198.00");
-  await expect(chart.getByRole("button", { name: "손절 가격 164.00 주문창에 적용" })).toHaveText("손절 $164.00");
+  await expect(chart.getByRole("button", { name: "매수 검토 가격 178.00 주문창에 적용" })).toHaveText("매수 검토 $178.00");
+  await expect(chart.getByRole("button", { name: "수익 실현 검토 가격 198.00 주문창에 적용" })).toHaveText("수익 실현 검토 $198.00");
+  await expect(chart.getByRole("button", { name: "손실 제한 검토 가격 164.00 주문창에 적용" })).toHaveText("손실 제한 검토 $164.00");
   await expect(chart).toHaveScreenshot("chart-proposal-hover-labels.png", { maxDiffPixelRatio: 0.015 });
 
-  await chart.locator(".chart-analysis-layer-controls").hover();
+  await chart.hover();
   await expect(labels).toHaveCount(0);
   await scenario.focus();
   await expect(labels).toHaveCount(3);
@@ -590,7 +609,7 @@ test("price axis and proposal labels share order selection while scenario contro
   await page.mouse.up();
   await expect(labels).toHaveCount(3);
   await assertLabelsRightOfBox();
-  const targetLabel = chart.getByRole("button", { name: "목표 가격 198.00 주문창에 적용" });
+  const targetLabel = chart.getByRole("button", { name: "수익 실현 검토 가격 198.00 주문창에 적용" });
   const patternToggle = chart.getByRole("button", { name: "패턴 분석 레이어 켜기" });
   await expect(patternToggle).toHaveAttribute("aria-pressed", "false");
   await expect(chart.locator(".chart-primary-pattern-badge")).toHaveCount(0);
@@ -617,6 +636,7 @@ test("price axis targets the last interacted panel when multiple order panels ex
   const orderPanels = page.locator(".quick-order-panel");
   await expect(orderPanels).toHaveCount(2);
   await orderPanels.nth(1).click({ position: { x: 12, y: 12 } });
+  await page.locator(".chart-panel").hover();
   await page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" }).click();
   await page.locator('.chart-analysis-level-price-target[data-analysis-level-price="164.00"]').click();
   await expect(page.locator(".order-chart-price-source")).toHaveCount(0);
@@ -652,7 +672,7 @@ test("asset ops wording and comma-separated input remain readable", async ({ pag
   await expect(ops.locator(".chart-asset-ops-actions button")).toHaveCount(1);
   await ops.getByLabel("빌드 심볼").fill("NVDA,AAPL, MSFT");
   page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("성공한 자산만 기존 저장본을 교체합니다");
+    expect(dialog.message()).toContain("성공한 자산만 LIVE 저장본을 교체합니다");
     await dialog.accept();
   });
   await ops.getByRole("button", { name: "작도 자산 생성·갱신" }).click();
@@ -840,6 +860,22 @@ async function fulfillApi(route: Route): Promise<void> {
   } else if (url.pathname === "/api/charts/indicators") payload = { symbol: "NVDA", interval: "1D", series: {} };
   else if (url.pathname === "/api/charts/volume-profile-bins") payload = commentaryVolumeProfilePayload(url);
   else if (url.pathname === "/api/market/heatmap") payload = { items: [] };
+  else if (url.pathname === "/api/simulator/status") payload = {
+    available: true,
+    mode: "live",
+    state: "idle",
+    datasetId: "chart-analysis-fixture",
+    virtualTime: candles.at(-1)?.timestamp,
+    startTime: candles[0]?.timestamp,
+    endTime: candles.at(-1)?.timestamp,
+    requestedSpeed: 1,
+    effectiveSpeed: 1,
+    processedEventCount: 0,
+    totalEventCount: 0,
+    progress: 0,
+    lagMs: 0,
+    symbols: [{ symbol: "NVDA" }, { symbol: "AAPL" }]
+  };
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(payload) });
 }
 

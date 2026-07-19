@@ -1,4 +1,5 @@
 import type { AnalysisAssetsResponse, ChartCommentaryAsset } from "./analysisAssetsApi";
+import type { AnalysisLayerKey, AnalysisLayerVisibility } from "./analysisLayerController";
 
 export type ChartAnalysisAssetLoadPhase = "waiting-for-chart" | "loading" | "ready" | "error";
 export type ChartCommentaryAssetLoadPhase = "loading" | "ready" | "missing" | "error";
@@ -11,6 +12,8 @@ export type ChartAnalysisAssetRuntimeSnapshot = {
   commentaryPhase: ChartCommentaryAssetLoadPhase;
   commentaryAsset: ChartCommentaryAsset | null;
   commentaryError: string | null;
+  layerVisibility: AnalysisLayerVisibility;
+  layerDisabled: Record<AnalysisLayerKey, boolean>;
 };
 
 export type ChartAnalysisAssetLoadedCandleSnapshot = {
@@ -26,7 +29,9 @@ const emptySnapshot: ChartAnalysisAssetRuntimeSnapshot = Object.freeze({
   error: null,
   commentaryPhase: "missing",
   commentaryAsset: null,
-  commentaryError: null
+  commentaryError: null,
+  layerVisibility: Object.freeze({ interpretation: false, levels: false, trend: false, pattern: false, proposal: false }),
+  layerDisabled: Object.freeze({ interpretation: true, levels: true, trend: true, pattern: true, proposal: true })
 });
 
 const snapshots = new Map<string, ChartAnalysisAssetRuntimeSnapshot>();
@@ -35,9 +40,10 @@ const listeners = new Map<string, Set<() => void>>();
 export function chartAnalysisAssetRuntimeIdentity(
   chartDocumentId: string,
   symbol: string,
-  interval: string
+  interval: string,
+  assetContext = "live"
 ): string {
-  return `${chartDocumentId}|${symbol.trim().toUpperCase()}|${interval}`;
+  return `${chartDocumentId}|${symbol.trim().toUpperCase()}|${interval}|${assetContext}`;
 }
 
 export function chartAnalysisAssetSceneContainsLoadedSnapshot(
@@ -117,5 +123,7 @@ function runtimeSnapshotsEqual(
     && left.error === right.error
     && left.commentaryPhase === right.commentaryPhase
     && left.commentaryAsset === right.commentaryAsset
-    && left.commentaryError === right.commentaryError;
+    && left.commentaryError === right.commentaryError
+    && left.layerVisibility === right.layerVisibility
+    && left.layerDisabled === right.layerDisabled;
 }

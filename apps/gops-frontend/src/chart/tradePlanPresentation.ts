@@ -1,18 +1,18 @@
 export type TradePlanPresentationAction = "buy_candidate" | "sell_candidate";
 
 export type TradePlanPresentation = {
-  basis: "진입" | "매도";
-  target: "목표" | "예상 하단";
-  risk: "손절" | "재검토";
-  scenario: "조건부 매수 검토" | "조건부 매도 검토";
+  basis: "매수 검토" | "매도";
+  target: "수익 실현 검토" | "예상 하단";
+  risk: "손실 제한 검토" | "재검토";
+  scenario: "조건부 매수 시나리오" | "조건부 매도 검토";
 };
 
 const presentations: Record<TradePlanPresentationAction, TradePlanPresentation> = {
   buy_candidate: {
-    basis: "진입",
-    target: "목표",
-    risk: "손절",
-    scenario: "조건부 매수 검토"
+    basis: "매수 검토",
+    target: "수익 실현 검토",
+    risk: "손실 제한 검토",
+    scenario: "조건부 매수 시나리오"
   },
   sell_candidate: {
     basis: "매도",

@@ -12,7 +12,7 @@ import {
 
 const documentId = "chart-document-runtime-test";
 const identity = chartAnalysisAssetRuntimeIdentity(documentId, " nvda ", "1D");
-assert.equal(identity, `${documentId}|NVDA|1D`);
+assert.equal(identity, `${documentId}|NVDA|1D|live`);
 const loadedSnapshot = {
   requestKey: "NVDA:1D",
   generation: 2,

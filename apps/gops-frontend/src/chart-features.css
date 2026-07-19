@@ -293,6 +293,39 @@
   color: var(--color-muted);
 }
 
+.chart-panel .chart-analysis-layer-controls.is-chart .chart-analysis-layer-buttons {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.chart-panel .chart-analysis-layer-controls.is-chart {
+  pointer-events: none;
+}
+
+.chart-panel:hover .chart-analysis-layer-controls.is-chart .chart-analysis-layer-buttons,
+.chart-panel:focus-within .chart-analysis-layer-controls.is-chart .chart-analysis-layer-buttons {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.chart-analysis-layer-controls.is-remote {
+  position: static;
+  z-index: auto;
+  max-width: 100%;
+}
+
+.chart-analysis-layer-controls.is-remote .chart-analysis-layer-buttons {
+  width: 100%;
+}
+
+.chart-analysis-layer-controls.is-remote .chart-analysis-layer-buttons button {
+  min-width: 0;
+  flex: 1 1 20%;
+}
+
 .chart-analysis-layer-buttons {
   display: inline-flex;
   overflow: hidden;
