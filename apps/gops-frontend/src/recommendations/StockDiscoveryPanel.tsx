@@ -2,6 +2,7 @@ import { Activity, Filter, Flame, LoaderCircle, RefreshCcw, RotateCcw, Search, S
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { agentReferenceKey, stockRecommendationReference, type AgentReference } from "../agent/agentReferences";
 import { LogoDevAttribution, StockLogo } from "../components/StockLogo";
+import { formatKoreanCompactUsd } from "../currencyFormat";
 import { canonicalSectorOptions, normalizeSector, sectorLabelKo } from "../market/sectors";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
 import {
@@ -568,11 +569,7 @@ function formatUsdPrice(value: number | null | undefined) {
 
 function formatCompactDollar(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "--";
-  const absolute = Math.abs(value);
-  if (absolute >= 1_000_000_000_000) return `$${(value / 1_000_000_000_000).toFixed(2)}T`;
-  if (absolute >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`;
-  if (absolute >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  return `$${Math.round(value).toLocaleString("en-US")}`;
+  return formatKoreanCompactUsd(value);
 }
 
 function formatScore(value: number | null | undefined) {

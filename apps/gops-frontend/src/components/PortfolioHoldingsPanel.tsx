@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
 import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatKoreanCompactUsd, formatUsd } from "../currencyFormat";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { usePaperAccount } from "../orders/PaperAccountProvider";
 import type { PaperAccountSnapshot } from "../orders/paperTradingClient";
@@ -2263,6 +2264,9 @@ function formatMoney(value: number | null | undefined, currency: string) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "-";
   }
+  if (currency === "USD") {
+    return formatUsd(value, { invalidValue: "-" });
+  }
   return new Intl.NumberFormat("ko-KR", {
     style: "currency",
     currency,
@@ -2291,6 +2295,9 @@ function formatHoldingQuantity(value: number | null | undefined) {
 function formatCompactMoney(value: number | null | undefined, currency: string) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "-";
+  }
+  if (currency === "USD") {
+    return formatKoreanCompactUsd(value, { invalidValue: "-" });
   }
   return new Intl.NumberFormat("en-US", {
     style: "currency",

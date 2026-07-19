@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentReference } from "../agent/agentReferences";
+import { formatKoreanCompactUsd, formatUsd } from "../currencyFormat";
 import { GlossaryText, type GlossarySelectionContext } from "../glossary/GlossaryText";
 import type { GlossaryEntry } from "../glossary/stockGlossary";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
@@ -1535,16 +1536,11 @@ function formatJournalMultiple(value: number | null) {
 }
 
 function formatJournalMoney(value: number | null) {
-  return value == null ? "데이터 확인 중" : new Intl.NumberFormat("ko-KR", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1
-  }).format(value);
+  return value == null ? "데이터 확인 중" : formatKoreanCompactUsd(value, { invalidValue: "데이터 확인 중" });
 }
 
 function formatJournalPerShare(value: number | null) {
-  return value == null ? "데이터 확인 중" : `US$${value.toFixed(2)}`;
+  return value == null ? "데이터 확인 중" : formatUsd(value);
 }
 
 function formatDeltaDetail(value: number | null) {

@@ -1,4 +1,5 @@
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
+import { formatKoreanCompactUsd } from "../currencyFormat";
 import type { CompanyJournalEvidence, FinancialChartPoint } from "./CompanyJournalSummaryPanel";
 import type { CompanyJournalDiagnosis, CompanyJournalSignalTone } from "./companyJournalDiagnosis";
 
@@ -518,11 +519,7 @@ function formatMultiple(value: number | null) {
 
 function formatMoney(value: number | null) {
   if (value == null) return "자료 부족";
-  const absolute = Math.abs(value);
-  const sign = value < 0 ? "-" : "";
-  if (absolute >= 1_000_000_000) return `${sign}US$${(absolute / 1_000_000_000).toFixed(1)}B`;
-  if (absolute >= 1_000_000) return `${sign}US$${(absolute / 1_000_000).toFixed(1)}M`;
-  return `${sign}US$${absolute.toFixed(0)}`;
+  return formatKoreanCompactUsd(value, { invalidValue: "자료 부족" });
 }
 
 function clampSentences(value: string, limit: number) {

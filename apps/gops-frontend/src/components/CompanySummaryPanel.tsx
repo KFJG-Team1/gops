@@ -2,6 +2,7 @@ import { ChartNoAxesCombined, ChevronRight, CircleDollarSign, ShieldCheck, Spark
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { fetchCandles } from "../chart/cdcClient";
 import type { CandleDto } from "../chart/types";
+import { formatKoreanCompactUsd, formatUsd } from "../currencyFormat";
 import { GlossaryText } from "../glossary/GlossaryText";
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
@@ -2450,7 +2451,7 @@ function formatEarningsAxisValue(value: number, metric: EarningsMetric): string 
     minimumFractionDigits: abs > 0 && abs < 10 ? 2 : 0,
     maximumFractionDigits: abs > 0 && abs < 10 ? 2 : 0
   }).format(abs);
-  return metric === "eps" ? `${sign}US$${formatted}` : `${sign}US$${formatted}억`;
+  return metric === "eps" ? `${sign}$${formatted}` : `${sign}$${formatted}억`;
 }
 
 function formatKoreanMoneyAxis(value: number): string {
@@ -2540,10 +2541,7 @@ export function formatCompanyInfoPrice(value: number | null | undefined): string
   if (!isPositiveFinite(value)) {
     return companyInfoMissingValue;
   }
-  return `US$${new Intl.NumberFormat("ko-KR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value)}`;
+  return formatUsd(value);
 }
 
 export function formatCompanyInfoChange(value: number | null | undefined): string {
@@ -2562,7 +2560,7 @@ export function formatCompanyInfoMarketCap(value: number | null | undefined): st
   if (!isPositiveFinite(value) || value <= 1) {
     return companyInfoMissingValue;
   }
-  return `US$${formatKoreanCompact(value)}`;
+  return formatKoreanCompactUsd(value);
 }
 
 function isPositiveFinite(value: number | null | undefined): value is number {
@@ -2573,7 +2571,7 @@ function formatUsdCompact(value: number | null | undefined): string {
   if (!Number.isFinite(value ?? NaN)) {
     return "확인 중";
   }
-  return `${formatKoreanCompact(value as number)} 달러`;
+  return formatKoreanCompactUsd(value as number, { invalidValue: "확인 중" });
 }
 
 function formatShares(value: number | null | undefined): string {
@@ -2631,13 +2629,12 @@ function formatMultipleAxis(value: number): string {
 
 function formatPerShareValue(value: number | null | undefined): string {
   if (!Number.isFinite(value ?? NaN)) return "확인 중";
-  return `US$${new Intl.NumberFormat("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value as number)}`;
+  return formatUsd(value as number);
 }
 
 function formatPerShareAxis(value: number): string {
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";
-  if (abs >= 1_000) return `${sign}$${formatFixed(abs / 1_000)}K`;
   return `${sign}$${new Intl.NumberFormat("ko-KR", { maximumFractionDigits: abs < 10 ? 1 : 0 }).format(abs)}`;
 }
 
