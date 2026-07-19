@@ -2,8 +2,7 @@ import {
   BookOpenText,
   CalendarRange,
   ChartNoAxesCombined,
-  ShieldCheck,
-  Sparkles
+  ShieldCheck
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentReference } from "../agent/agentReferences";
@@ -503,11 +502,6 @@ export function CompanyJournalPanel({
   return (
     <section className="company-journal-panel" aria-label={`${normalizedSymbol} AI 기업저널`}>
       <header className="company-journal-header">
-        <div className="company-journal-brand" aria-label="GOPS AI">
-          <span aria-hidden="true"><Sparkles /></span>
-          <strong>gopsai</strong>
-          {previewEnabled && <em>DEV PREVIEW</em>}
-        </div>
         <blockquote className="company-journal-quote">
           <GlossaryText text={overview.headline} />
         </blockquote>

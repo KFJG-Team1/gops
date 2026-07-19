@@ -2210,7 +2210,7 @@ function normalizeFinancialPoint(point: CompanyFinancialSeriesPoint): FinancialC
   };
 }
 
-function buildEarningsSeries(
+export function buildEarningsSeries(
   item: Sp500UniverseItem | undefined,
   financialSeries: FinancialChartPoint[] = [],
   apiSeries: CompanyEarningsSeriesPoint[] | null = null
@@ -2243,9 +2243,9 @@ function buildEarningsSeries(
       estimatedRevenue: null
     }))
     .filter(hasEarningsValue);
+  (apiSeries ?? []).map((point) => normalizeEarningsPoint(point)).forEach(addPoint);
   actualSeries.forEach(addPoint);
   (item?.earningsSeries ?? []).map((point) => normalizeEarningsPoint(point)).forEach(addPoint);
-  (apiSeries ?? []).map((point) => normalizeEarningsPoint(point)).forEach(addPoint);
   const period = item?.fiscalPeriod || item?.periodEndDate || item?.fundamentalsAsOf;
   if (period) {
     addPoint({

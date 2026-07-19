@@ -60,12 +60,14 @@ try {
       earningsSeries: [],
       performanceSeries: [],
       analystSummary,
+      currentProjectionSources: ["yahoo_earnings", "yahoo_analyst_summary"],
       missingData: []
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
   const response = await fetchCompanyJournalEvidence("NVDA", ["SPY", "XLK"]);
   assert.deepEqual(response.analystSummary, analystSummary);
   assert.equal(response.contractVersion, "company-journal-evidence.v1");
+  assert.deepEqual(response.currentProjectionSources, ["yahoo_earnings", "yahoo_analyst_summary"]);
 } finally {
   globalThis.fetch = originalFetch;
 }

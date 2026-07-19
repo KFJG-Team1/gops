@@ -27567,109 +27567,15 @@ textarea:focus,
 .company-journal-header {
   display: grid;
   min-width: 0;
-  gap: 14px;
-  padding: 26px 28px 22px;
+  padding: 44px 28px 30px;
   background: var(--coinbase-panel);
 }
 
-.company-journal-brand {
-  display: inline-flex;
-  width: fit-content;
-  align-items: center;
-  gap: 10px;
-}
-
-.company-journal-brand > span {
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
-  place-items: center;
-  border-radius: 47% 53% 58% 42% / 48% 43% 57% 52%;
-  background:
-    radial-gradient(circle at 68% 24%, rgb(117 255 242 / 0.95), transparent 33%),
-    radial-gradient(circle at 30% 70%, rgb(203 90 255 / 0.92), transparent 42%),
-    linear-gradient(145deg, #6df1ff 8%, #6e8bff 51%, #e563fa 100%);
-  box-shadow: 0 0 20px rgb(76 195 255 / 0.18), inset 0 0 10px rgb(255 255 255 / 0.42);
-  transform: rotate(-7deg);
-  animation: company-journal-blob-morph 8s ease-in-out infinite alternate,
-    company-journal-blob-float 6.5s ease-in-out infinite;
-}
-
-.company-journal-brand > span::before,
-.company-journal-brand > span::after {
-  position: absolute;
-  z-index: -1;
-  border-radius: inherit;
-  content: "";
-  pointer-events: none;
-}
-
-.company-journal-brand > span::before {
-  inset: -5px;
-  background: conic-gradient(from 45deg, rgb(64 225 255 / 0.52), rgb(115 112 255 / 0.38), rgb(246 62 255 / 0.56), rgb(76 244 222 / 0.45));
-  filter: blur(8px);
-  opacity: 0.7;
-  animation: company-journal-blob-flow 5s linear infinite;
-}
-
-.company-journal-brand > span::after {
-  inset: 5px 4px 3px 8px;
-  background: radial-gradient(circle at 64% 32%, rgb(255 255 255 / 0.82), transparent 36%);
-  filter: blur(4px);
-  mix-blend-mode: screen;
-  animation: company-journal-blob-glow 4.5s ease-in-out infinite alternate;
-}
-
-.company-journal-brand > span svg {
-  width: 18px;
-  height: 18px;
-  color: rgb(255 255 255 / 0.28);
-  transform: rotate(7deg);
-}
-
-@keyframes company-journal-blob-morph {
-  0% { border-radius: 47% 53% 58% 42% / 48% 43% 57% 52%; }
-  35% { border-radius: 62% 38% 43% 57% / 36% 58% 42% 64%; }
-  70% { border-radius: 40% 60% 65% 35% / 61% 37% 63% 39%; }
-  100% { border-radius: 56% 44% 35% 65% / 45% 66% 34% 55%; }
-}
-
-@keyframes company-journal-blob-float {
-  0%, 100% { transform: translate3d(0, 0, 0) rotate(-7deg) scale(1); }
-  50% { transform: translate3d(0, -2px, 0) rotate(4deg) scale(1.06); }
-}
-
-@keyframes company-journal-blob-flow {
-  to { transform: rotate(360deg) scale(1.06); }
-}
-
-@keyframes company-journal-blob-glow {
-  from { opacity: 0.46; transform: translate(-2px, 2px) scale(0.9); }
-  to { opacity: 0.9; transform: translate(3px, -2px) scale(1.12); }
-}
-
-.company-journal-brand > strong {
-  color: var(--color-text);
-  text-transform: none;
-  letter-spacing: -0.03em;
-  font: var(--type-title-lg);
-}
-
-.company-journal-brand em {
-  border: 1px solid color-mix(in srgb, var(--color-caution) 52%, transparent);
-  border-radius: 999px;
-  padding: 2px 7px;
-  background: color-mix(in srgb, var(--color-caution) 10%, transparent);
-  color: var(--color-caution);
-  font-style: normal;
-}
-
 .company-journal-quote {
+  box-sizing: border-box;
+  width: 92%;
   min-width: 0;
-  max-width: 76ch;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 0;
   color: var(--color-text);
@@ -27678,7 +27584,7 @@ textarea:focus,
   text-transform: var(--type-body-lg-text-transform);
   letter-spacing: var(--type-body-lg-letter-spacing);
   font: var(--type-body-lg);
-  font-size: clamp(20px, 1.3cqw, 25px);
+  font-size: clamp(24px, 1.65cqw, 30px);
   font-weight: 600;
   line-height: 1.48;
 }
@@ -28047,6 +27953,10 @@ textarea:focus,
   overflow: visible;
 }
 
+.company-journal-evidence .company-single-panel .company-single-fundamental-section {
+  padding-inline: 0;
+}
+
 .company-journal-evidence .company-valuation-dashboard,
 .company-journal-evidence .company-stability-dashboard,
 .company-journal-evidence .company-journal-earnings-evidence {
@@ -28114,6 +28024,7 @@ textarea:focus,
   grid-template-rows: auto auto auto;
   gap: 18px;
   overflow: visible;
+  padding-inline: 0;
 }
 
 .company-journal-evidence .company-profitability-chart-grid {
@@ -28185,6 +28096,10 @@ textarea:focus,
   grid-template-columns: minmax(0, 1fr);
 }
 
+.company-journal-evidence :is(.company-valuation-dashboard, .company-stability-dashboard) {
+  padding-inline: 0;
+}
+
 .company-journal-evidence .company-earnings-plot {
   width: 100%;
   height: clamp(210px, 34cqw, 260px);
@@ -28247,6 +28162,14 @@ textarea:focus,
 .company-journal-evidence .company-stability-dashboard-grid .company-financial-chart-card {
   height: auto;
   min-height: 0;
+  border: 0;
+  padding: 4px 0;
+  background: transparent;
+}
+
+.company-journal-evidence .company-stability-dashboard-grid .company-analysis-page {
+  position: relative;
+  inset: auto;
 }
 
 .company-journal-evidence .company-stability-dashboard-table {
@@ -28270,7 +28193,7 @@ textarea:focus,
 }
 
 .company-journal-insight {
-  --company-journal-insight-tone: var(--coinbase-primary);
+  --company-journal-insight-tone: var(--color-muted);
   display: grid;
   min-width: 0;
   gap: 8px;
@@ -28286,7 +28209,7 @@ textarea:focus,
 .company-journal-insight:has(.company-journal-insight-disclosure:focus-visible),
 .company-journal-insight.is-selected {
   background: color-mix(in srgb, var(--company-journal-insight-tone) 7%, transparent);
-  box-shadow: -4px 0 0 color-mix(in srgb, var(--company-journal-insight-tone) 75%, transparent);
+  box-shadow: none;
   outline: none;
   transform: translateX(3px);
 }
@@ -28639,7 +28562,7 @@ textarea:focus,
 
 @container (max-width: 960px) {
   .company-journal-header {
-    padding: 22px 20px 18px;
+    padding: 32px 20px 24px;
   }
 
   .company-journal-body {
@@ -28679,19 +28602,7 @@ textarea:focus,
 
 @container (max-width: 560px) {
   .company-journal-header {
-    gap: 12px;
-    padding: 18px 14px 16px;
-  }
-
-  .company-journal-brand > span {
-    width: 36px;
-    height: 36px;
-    flex-basis: 36px;
-  }
-
-  .company-journal-quote {
-    text-align: left;
-    text-wrap: pretty;
+    padding: 24px 14px 20px;
   }
 
   .company-journal-insight h3 {

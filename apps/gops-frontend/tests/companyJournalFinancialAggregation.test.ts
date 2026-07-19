@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
   aggregateQuarterlySeriesToAnnual,
+  buildEarningsSeries,
   companyJournalAnnualHistory,
   companyJournalHistoryYears,
   formatCompanyJournalAnalystOpinion,
@@ -25,6 +26,15 @@ import { allGlossaryEntries } from "../src/glossary/stockGlossary";
 assert.equal(companyJournalEvidencePriceChange(110, 100), 10);
 assert.equal(companyJournalEvidencePriceChange(110, 0), null, "zero previous close must not create infinity");
 assert.equal(companyJournalEvidencePriceChange(null, 100), null, "missing point-in-time price must remain missing");
+
+const currentYahooActual = buildEarningsSeries(
+  undefined,
+  [{ period: "2025Q3", periodEndDate: "2025-09-27", eps: 0.12, revenue: 10 }],
+  [{ period: "2025Q3", periodEndDate: "2025-09-27", actualEps: 0.13, estimatedEps: 0.10, actualRevenue: 11 }]
+);
+assert.equal(currentYahooActual[0]?.actualEps, 0.13, "the evidence API actual EPS must override the raw SEC chart value");
+assert.equal(currentYahooActual[0]?.actualRevenue, 11, "the normalized evidence revenue must override the raw SEC chart value");
+assert.equal(currentYahooActual[0]?.estimatedEps, 0.10);
 
 const annual = aggregateQuarterlySeriesToAnnual([
   {
@@ -331,16 +341,42 @@ assert.match(
 );
 assert.match(
   styles,
+  /\.company-journal-evidence \.company-single-panel \.company-single-fundamental-section \{[\s\S]*?padding-inline: 0/,
+  "every company journal tab must remove the nested fundamental-section side padding"
+);
+assert.match(
+  styles,
+  /\.company-journal-evidence :is\(\.company-valuation-dashboard, \.company-stability-dashboard\) \{[\s\S]*?padding-inline: 0/,
+  "valuation and stability dashboards must use the common journal left edge"
+);
+assert.match(
+  styles,
   /\.company-journal-evidence \.company-stability-dashboard-grid \.company-financial-chart-card \{[\s\S]*?height: auto;[\s\S]*?min-height: 0/,
   "company journal stability tables must follow the rendered chart without reserved card space"
+);
+assert.match(
+  styles,
+  /\.company-journal-evidence \.company-stability-dashboard-grid \.company-financial-chart-card \{[\s\S]*?padding: 4px 0/,
+  "stability chart titles must not add a second horizontal inset"
+);
+assert.match(
+  styles,
+  /\.company-journal-evidence \.company-stability-dashboard-grid \.company-analysis-page \{[\s\S]*?position: relative;[\s\S]*?inset: auto/,
+  "company journal stability charts must remain in normal flow so their SVG height is not clipped"
 );
 assert.match(styles, /::-webkit-scrollbar-thumb[\s\S]*?background-clip: padding-box/);
 assert.match(styles, /\.workspace-panel-frame \.company-journal-panel :is\([\s\S]*?\.company-journal-evidence[\s\S]*?scrollbar-width: thin !important/);
 assert.match(styles, /::-webkit-scrollbar[\s\S]*?display: block !important/);
 assert.doesNotMatch(styles, /scrollbar-color:[^;]*var\(--coinbase-primary\)/);
-assert.match(styles, /\.company-journal-quote \{[\s\S]*?font-size: clamp\(20px, 1\.3cqw, 25px\)/);
+assert.match(styles, /\.company-journal-quote \{[\s\S]*?width: 92%;[\s\S]*?max-width: 1200px;[\s\S]*?font-size: clamp\(24px, 1\.65cqw, 30px\)/);
 assert.match(styles, /\.company-journal-tabs button\.is-positive[\s\S]*?var\(--color-up\)/);
 assert.match(styles, /\.company-journal-tabs button\.is-negative[\s\S]*?var\(--color-down\)/);
+assert.match(styles, /\.company-journal-insight \{[\s\S]*?--company-journal-insight-tone: var\(--color-muted\)/);
+assert.match(
+  styles,
+  /\.company-journal-insight:has\(\.company-journal-insight-disclosure:hover\),[\s\S]*?box-shadow: none/,
+  "hovered journal insights must not draw an outer accent bar"
+);
 assert.match(styles, /\.company-journal-tab-signal[\s\S]*?background: var\(--company-journal-tab-signal\)/);
 assert.match(styles, /\.company-journal-insight-tags[\s\S]*?flex-wrap: wrap/);
 assert.match(styles, /\.company-journal-insight-tags > button/);
@@ -372,6 +408,8 @@ assert.match(journalSummarySource, /rowMarkers: \[focusedMetric as FinancialTabl
 assert.match(journalSummarySource, /focusedMetric === "current-ratio"[\s\S]*?focusedMetric === "interest-coverage"[\s\S]*?focusedMetric === "financial-cost-burden"/);
 assert.match(journalSummarySource, /const estimateX = x;\s*const actualX = x;/);
 assert.match(journalSummarySource, /company-journal-analyst-opinion/);
+assert.doesNotMatch(journalPanelSource, /company-journal-brand/, "the company journal must not render a separate brand row");
+assert.doesNotMatch(journalPanelSource, /gopsai/i, "the company journal must not render the gopsai wordmark");
 assert.match(journalSummarySource, /export function CompanyJournalAnalystOpinionPanel/);
 assert.match(journalSummarySource, /showAnalystOpinion && <CompanyJournalAnalystOpinionPanel/);
 assert.doesNotMatch(journalSummarySource, /<time dateTime=\{analystOpinion\.actionAt\}/);
