@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
+import { LoaderCircle, RefreshCcw } from "lucide-react";
 import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatKoreanCompactUsd, formatUsd } from "../currencyFormat";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
@@ -146,7 +146,7 @@ const portfolioPerformanceRanges: readonly { value: PortfolioPerformanceRange; l
 ];
 
 const portfolioMultiViews = [
-  { id: "summary", title: "포트폴리오" },
+  { id: "summary", title: "자산" },
   { id: "flow", title: "투자" },
   { id: "diversification", title: "분산투자" }
 ] as const;
@@ -803,7 +803,7 @@ export function PortfolioDiversificationPanel() {
 }
 
 export function PortfolioMultiPanel() {
-  const { loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
+  const { loading, error, positions, dashboard } = usePortfolioHoldingsData();
   const [activeView, setActiveView] = useState<PortfolioMultiView>("summary");
   const [transitionDirection, setTransitionDirection] = useState<"next" | "previous">("next");
   const wheelAccumulatorRef = useRef(0);
@@ -846,6 +846,21 @@ export function PortfolioMultiPanel() {
 
   return (
     <section className="portfolio-multi-panel" aria-label="멀티 포트폴리오 패널" onWheel={handleWheelPageChange}>
+      <nav className="portfolio-multi-view-tabs" role="tablist" aria-label="포트폴리오 화면">
+        {portfolioMultiViews.map((view, index) => (
+          <button
+            key={view.id}
+            type="button"
+            role="tab"
+            aria-selected={activeView === view.id}
+            aria-controls={`portfolio-multi-view-${view.id}`}
+            className={activeView === view.id ? "active" : ""}
+            onClick={() => selectViewByIndex(index)}
+          >
+            {view.title}
+          </button>
+        ))}
+      </nav>
       <div className="portfolio-multi-stage">
         <div
           key={activeView}
@@ -856,19 +871,13 @@ export function PortfolioMultiPanel() {
           {statusMessage ? (
             <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
           ) : activeView === "summary" ? (
-            <PortfolioMultiSummaryView dashboard={dashboard} refreshing={refreshing} onRefresh={loadHoldings} />
+            <PortfolioMultiSummaryView dashboard={dashboard} />
           ) : activeView === "flow" ? (
             <PortfolioMultiFlowView dashboard={dashboard} positions={positions} />
           ) : (
             <PortfolioMultiDiversificationView dashboard={dashboard} />
           )}
         </div>
-        <button type="button" className="portfolio-multi-page-arrow previous" aria-label="이전 포트폴리오 화면" disabled={activeIndex === 0} onClick={() => selectViewByIndex(activeIndex - 1)}>
-          <ChevronLeft aria-hidden="true" />
-        </button>
-        <button type="button" className="portfolio-multi-page-arrow next" aria-label="다음 포트폴리오 화면" disabled={activeIndex === portfolioMultiViews.length - 1} onClick={() => selectViewByIndex(activeIndex + 1)}>
-          <ChevronRight aria-hidden="true" />
-        </button>
       </div>
     </section>
   );
@@ -883,7 +892,7 @@ function PortfolioMultiPageHeader({ title, subtitle, aside }: { title: string; s
   );
 }
 
-function PortfolioMultiSummaryView({ dashboard, refreshing, onRefresh }: { dashboard: PortfolioDashboard; refreshing: boolean; onRefresh: () => void }) {
+function PortfolioMultiSummaryView({ dashboard }: { dashboard: PortfolioDashboard }) {
   const allocationItems = buildPortfolioAssetMetrics(dashboard);
   const stock = allocationItems.find((item) => item.key === "stock");
   const cash = allocationItems.find((item) => item.key === "cash");
@@ -898,11 +907,7 @@ function PortfolioMultiSummaryView({ dashboard, refreshing, onRefresh }: { dashb
   } as CSSProperties;
   return (
     <article className="portfolio-multi-page portfolio-multi-summary-page">
-      <button className="portfolio-multi-refresh" type="button" aria-label="포트폴리오 새로고침" onClick={() => void onRefresh()} disabled={refreshing}>
-        {refreshing ? <LoaderCircle className="spin" aria-hidden="true" /> : <RefreshCcw aria-hidden="true" />}
-      </button>
       <div className="portfolio-multi-summary-hero">
-        <em>Total Balance</em>
         <div>
           <strong>{formatPanelMoney(dashboard.totalValue, "USD")}</strong>
           <span className={directionClass(dashboard.totalPnl ?? dashboard.totalPnlRate)}>

@@ -4558,6 +4558,11 @@ assert.match(portfolioHoldingsPanelSource, /new Map<PortfolioHoldingsSource, Por
 assert.match(portfolioHoldingsPanelSource, /new URLSearchParams\(\{ market: "overseas", currency: "USD", source \}\)/);
 assert.match(portfolioHoldingsPanelSource, /subscribePortfolioHoldingsStore/);
 assert.match(portfolioHoldingsPanelSource, /onClick=\{\(\) => void loadHoldings\(\)\}/);
+assert.doesNotMatch(portfolioHoldingsPanelSource, /Total Balance|자산 비중 아님|배당률|배당금은 자산 구성에 포함되지/);
+assert.match(portfolioHoldingsPanelSource, /className="portfolio-multi-view-tabs" role="tablist"/);
+assert.match(portfolioHoldingsPanelSource, /\{ id: "summary", title: "자산" \}/);
+assert.doesNotMatch(portfolioHoldingsPanelSource, /portfolio-multi-page-arrow|이전 포트폴리오 화면|다음 포트폴리오 화면/);
+assert.doesNotMatch(portfolioHoldingsPanelSource, /className="portfolio-multi-refresh"/);
 
 const companySummaryPanelSource = readFileSync(fileURLToPath(new URL("../src/components/CompanySummaryPanel.tsx", import.meta.url)), "utf-8");
 assert.equal(companySummaryPanelSource.match(/preserveAspectRatio="xMidYMid meet"/g)?.length, 1);
@@ -5356,6 +5361,12 @@ assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*scroll-padding
 assert.match(frontendStylesSource, /\.portfolio-holdings-list \{[\s\S]*grid-template-rows: auto minmax\(0, 1fr\);/);
 assert.match(frontendStylesSource, /\.portfolio-holdings-table-head,[\s\S]*\.portfolio-holding-row \{[\s\S]*display: grid;/);
 assert.match(frontendStylesSource, /\.portfolio-multi-panel \{[\s\S]*display: flex;/);
+assert.match(frontendStylesSource, /\.portfolio-multi-summary-page \{[\s\S]*grid-template-rows: auto auto;[\s\S]*align-content: center;/);
+assert.match(frontendStylesSource, /--portfolio-summary-offset-y: -5cqh;[\s\S]*transform: translateY\(var\(--portfolio-summary-offset-y\)\);/);
+assert.match(frontendStylesSource, /\.portfolio-multi-summary-page \.portfolio-multi-summary-hero > div \{[\s\S]*gap: clamp\(10px, 2cqh, 14px\);/);
+assert.match(frontendStylesSource, /\.portfolio-multi-summary-page \.portfolio-multi-summary-hero > div > strong \{[\s\S]*font: var\(--type-display-xl\);/);
+assert.match(frontendStylesSource, /\.portfolio-multi-summary-page \.portfolio-multi-summary-hero > div > span \{[\s\S]*font: var\(--type-title-md\);/);
+assert.match(frontendStylesSource, /\.portfolio-multi-view-tabs \{[\s\S]*justify-content: flex-start;/);
 assert.match(frontendStylesSource, /Local dark-theme compatibility for the restored dev portfolio panels/);
 assert.match(frontendStylesSource, /\.layout-preset-dock-tail \{[\s\S]*display: inline-flex;/);
 assert.doesNotMatch(frontendStylesSource, /\.layout-preset-status/);

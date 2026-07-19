@@ -30880,10 +30880,17 @@ textarea:focus,
    Allocation geometry follows the data while labels use protected reading zones. */
 .portfolio-multi-summary-page {
   --portfolio-dividend-column: clamp(132px, 20%, 176px);
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--panel-gap);
+  --portfolio-summary-offset-y: -5cqh;
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: clamp(18px, 4cqh, 32px);
   overflow: hidden;
   padding: var(--panel-padding);
+}
+
+.portfolio-multi-summary-page > .portfolio-multi-summary-hero,
+.portfolio-multi-summary-page > .portfolio-multi-composition {
+  transform: translateY(var(--portfolio-summary-offset-y));
 }
 
 .portfolio-multi-summary-page .portfolio-multi-summary-hero {
@@ -30891,7 +30898,8 @@ textarea:focus,
   min-width: 0;
   align-content: center;
   gap: var(--panel-gap);
-  padding: calc(var(--panel-padding) + var(--panel-gap)) 52px var(--panel-padding) var(--panel-padding);
+  padding-block: var(--panel-padding);
+  padding-inline: 0;
 }
 
 .portfolio-multi-summary-page .portfolio-multi-summary-hero > em {
@@ -30909,7 +30917,7 @@ textarea:focus,
   display: grid;
   min-width: 0;
   justify-content: stretch;
-  gap: 6px;
+  gap: clamp(10px, 2cqh, 14px);
 }
 
 .portfolio-multi-summary-page .portfolio-multi-summary-hero > div > strong {
@@ -30932,9 +30940,9 @@ textarea:focus,
   gap: 4px 7px;
   overflow: hidden;
   color: var(--portfolio-multi-green);
-  font: var(--type-label-md);
-  letter-spacing: var(--type-label-md-letter-spacing);
-  text-transform: var(--type-label-md-text-transform);
+  font: var(--type-title-md);
+  letter-spacing: var(--type-title-md-letter-spacing);
+  text-transform: var(--type-title-md-text-transform);
 }
 
 .portfolio-multi-summary-page .portfolio-multi-summary-hero > div > span > small {
@@ -31085,10 +31093,6 @@ textarea:focus,
     --portfolio-dividend-column: 112px;
   }
 
-  .portfolio-multi-summary-page .portfolio-multi-summary-hero {
-    padding-right: 44px;
-  }
-
   .portfolio-multi-summary-page .portfolio-multi-composition {
     grid-template-rows: auto minmax(104px, 1fr) auto;
     gap: 8px;
@@ -31120,14 +31124,15 @@ textarea:focus,
 
 @container workspace-panel (max-height: 480px) {
   .portfolio-multi-summary-page {
-    grid-template-rows: 190px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-content: center;
+    gap: clamp(12px, 3cqh, 20px);
   }
 
   .portfolio-multi-summary-page .portfolio-multi-summary-hero {
-    align-content: end;
+    align-content: center;
     gap: var(--panel-gap);
-    padding-block-start: calc(var(--panel-padding) + var(--panel-gap) + var(--panel-gap));
-    padding-block-end: var(--panel-padding);
+    padding-block: var(--panel-padding);
   }
 
   .portfolio-multi-summary-page .portfolio-multi-composition {
@@ -31367,5 +31372,75 @@ textarea:focus,
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+/* Dual portfolio navigation: keep each existing view intact and expose the
+   three view choices as quiet, neutral tabs at the panel's upper-left. */
+.portfolio-multi-view-tabs {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: clamp(10px, 2cqh, 14px) var(--panel-padding) 0;
+}
+
+.portfolio-multi-view-tabs button {
+  min-width: 0;
+  min-height: 32px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  font: var(--type-button);
+  letter-spacing: var(--type-button-letter-spacing);
+  text-transform: var(--type-button-text-transform);
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.portfolio-multi-view-tabs button:hover,
+.portfolio-multi-view-tabs button:focus-visible {
+  background: var(--coinbase-canvas);
+  color: var(--color-text);
+}
+
+.portfolio-multi-view-tabs button:focus-visible {
+  outline: 1px solid var(--coinbase-hairline-strong);
+  outline-offset: 2px;
+}
+
+.portfolio-multi-view-tabs button.active {
+  border-color: var(--coinbase-hairline-strong);
+  background: var(--coinbase-canvas);
+  color: var(--color-text);
+}
+
+@container workspace-panel (max-width: 360px) {
+  .portfolio-multi-view-tabs {
+    gap: 2px;
+  }
+
+  .portfolio-multi-view-tabs button {
+    min-height: 30px;
+    padding-inline: 9px;
+  }
+}
+
+@container workspace-panel (max-height: 430px) {
+  .portfolio-multi-view-tabs {
+    padding-top: 8px;
+  }
+
+  .portfolio-multi-view-tabs button {
+    min-height: 28px;
   }
 }
