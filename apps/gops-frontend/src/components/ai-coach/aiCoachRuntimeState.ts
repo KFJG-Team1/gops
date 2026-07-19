@@ -94,13 +94,20 @@ export function resolveSeededPortfolioStatus(input: {
   accountLoading: boolean;
   ordersLoading: boolean;
   seedProfile?: string | null;
-  orders: Array<{ seed_profile?: string | null }>;
+  orders: Array<{
+    seed_profile?: string | null;
+    execution_mode?: "paper" | "simulation";
+    simulation?: boolean;
+  }>;
 }): SeededPortfolioStatus {
   if (input.accountLoading || input.ordersLoading) return "unknown";
+  const accountOrders = input.orders.filter((order) => (
+    order.execution_mode !== "simulation" && order.simulation !== true
+  ));
   if (
     input.seedProfile
-    && input.orders.length > 0
-    && input.orders.every((order) => Boolean(order.seed_profile))
+    && accountOrders.length > 0
+    && accountOrders.every((order) => Boolean(order.seed_profile))
   ) {
     return "eligible";
   }

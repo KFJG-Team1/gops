@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { normalizeCoachReport } from "../src/agents/agentAnalysis";
 import type { CoachReport } from "../src/components/ai-coach/types";
 import {
   aiCoachRuntimeReducer,
@@ -35,6 +36,34 @@ assert.equal(resolveSeededPortfolioStatus({
   seedProfile: "diversified-us-v3",
   orders: [{ seed_profile: null }]
 }), "ineligible");
+assert.equal(resolveSeededPortfolioStatus({
+  accountLoading: false,
+  ordersLoading: false,
+  seedProfile: "diversified-us-v3",
+  orders: [
+    { seed_profile: "diversified-us-v3", execution_mode: "paper" },
+    { seed_profile: null, execution_mode: "simulation", simulation: true }
+  ]
+}), "eligible");
+assert.equal(resolveSeededPortfolioStatus({
+  accountLoading: false,
+  ordersLoading: false,
+  seedProfile: "diversified-us-v3",
+  orders: [
+    { seed_profile: "diversified-us-v3", execution_mode: "paper" },
+    { seed_profile: null, execution_mode: "paper" }
+  ]
+}), "ineligible");
+
+const normalizedLegacyReport = normalizeCoachReport({
+  ...report("legacy-dev-demo"),
+  missingData: [],
+  warnings: [
+    "DEV DEMO · 실제 시장 일봉으로 만든 가상 진입 예시입니다.",
+    "일부 기업 뉴스가 아직 연결되지 않았습니다."
+  ]
+});
+assert.deepEqual(normalizedLegacyReport?.warnings, ["일부 기업 뉴스가 아직 연결되지 않았습니다."]);
 
 let state = createAiCoachRuntimeState("user-a");
 const fixture = report("seeded-report");

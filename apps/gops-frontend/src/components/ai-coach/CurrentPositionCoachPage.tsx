@@ -33,7 +33,7 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
     setConditionIndex(0);
   }, [page?.selectedFillId, report?.analysisId]);
 
-  if (!page) return <EmptyCoach report={report} />;
+  if (!page) return <EmptyCoach />;
   const trade = page.trades.find((item) => item.fillId === fillId) ?? page.trades[0];
   const tradeIndex = trade ? Math.max(0, page.trades.findIndex((item) => item.fillId === trade.fillId)) : 0;
   const activeReview = (trade && page.reviewsByFillId?.[trade.fillId]) ?? page;
@@ -248,7 +248,7 @@ function PortfolioImpact({ impact }: { impact: DailyTradeReview["portfolioImpact
   return <section className={styles.portfolio}><h3>포트폴리오 영향</h3>{costBasis && <p className={styles.valuationNote}>가상투자 거래원가 기준 · 실시간 평가금액이 아닙니다</p>}<div className={styles.tableWrap}><table><thead><tr><th>항목</th><th>변경 전</th><th>변경 후</th><th>변화</th><th>영향 및 리스크</th></tr></thead><tbody>{rows.map(({ label, before, after, riskFlag }) => { const a = typeof before === "number" ? before : null, b = typeof after === "number" ? after : null; return <tr key={label}><td>{label}</td><td>{percent(a)}</td><td>{percent(b)}</td><td>{a != null && b != null ? `${b - a > 0 ? "+" : ""}${(b - a).toFixed(1)}%p` : "계산되지 않음"}</td><td>{riskFlags.includes(riskFlag) ? riskFlag : a != null && b != null ? "추가 위험 신호 없음" : "계산되지 않음"}</td></tr>; })}</tbody></table></div></section>;
 }
 
-function EmptyCoach({ report }: { report: CoachReport | null }) { return <div className={styles.emptyPage}><CircleAlert /><h2>당일 거래 회고</h2><p>{report?.warnings[0] ?? "아직 오늘 회고할 거래가 없습니다."}</p><small>거래가 체결되면 판단 과정과 계좌 변화를 함께 정리해 드립니다.</small></div>; }
+function EmptyCoach() { return <div className={styles.emptyPage}><CircleAlert /><h2>당일 거래 회고</h2><p>아직 오늘 회고할 거래가 없습니다.</p><small>거래가 체결되면 판단 과정과 계좌 변화를 함께 정리해 드립니다.</small></div>; }
 function Metric({ label, value, tone: color }: { label: string; value: string; tone?: string }) { return <div className={styles.metric}><span>{label}</span><strong className={color ? styles[color] : undefined}>{value}</strong></div>; }
 function nearestPoint(points: ChartPoint[], day: number) { return points.reduce<ChartPoint | undefined>((best, point) => !best || Math.abs(point.relativeDay - day) < Math.abs(best.relativeDay - day) ? point : best, undefined); }
 function linePoints(points: ChartPoint[], key: "rsi" | "macd" | "signal", x: (v: number) => number, y: (v: number) => number) { return points.filter((p) => isNumber(p[key])).map((p) => `${x(p.relativeDay)},${y(p[key] as number)}`).join(" "); }

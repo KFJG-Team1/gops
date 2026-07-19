@@ -30978,9 +30978,9 @@ textarea:focus,
 .portfolio-multi-summary-page .portfolio-multi-summary-hero {
   display: grid;
   min-width: 0;
-  align-content: start;
-  gap: 6px;
-  padding: var(--panel-padding) 52px var(--panel-padding) var(--panel-padding);
+  align-content: center;
+  gap: var(--panel-gap);
+  padding: calc(var(--panel-padding) + var(--panel-gap)) 52px var(--panel-padding) var(--panel-padding);
 }
 
 .portfolio-multi-summary-page .portfolio-multi-summary-hero > em {
@@ -31005,11 +31005,11 @@ textarea:focus,
   min-width: 0;
   overflow: hidden;
   color: var(--portfolio-multi-ink);
-  font: var(--type-display-md);
+  font: var(--type-display-xl);
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--type-display-md-letter-spacing);
+  letter-spacing: var(--type-display-xl-letter-spacing);
   text-overflow: ellipsis;
-  text-transform: var(--type-display-md-text-transform);
+  text-transform: var(--type-display-xl-text-transform);
   white-space: nowrap;
 }
 
@@ -31208,9 +31208,15 @@ textarea:focus,
 }
 
 @container workspace-panel (max-height: 480px) {
+  .portfolio-multi-summary-page {
+    grid-template-rows: 190px minmax(0, 1fr);
+  }
+
   .portfolio-multi-summary-page .portfolio-multi-summary-hero {
-    gap: 3px;
-    padding-block: 4px;
+    align-content: end;
+    gap: var(--panel-gap);
+    padding-block-start: calc(var(--panel-padding) + var(--panel-gap) + var(--panel-gap));
+    padding-block-end: var(--panel-padding);
   }
 
   .portfolio-multi-summary-page .portfolio-multi-composition {
@@ -31225,14 +31231,13 @@ textarea:focus,
   }
 }
 
-/* Approved dual-portfolio summary: stock + cash end at the 100% boundary.
-   Dividend remains visually connected, but is labeled as a separate income metric. */
+/* Dual-portfolio summary: stock + cash and dividend remain visually connected. */
 .portfolio-multi-summary-page {
   --portfolio-dividend-column: clamp(88px, 14%, 120px);
 }
 
 .portfolio-multi-summary-page .portfolio-multi-composition {
-  grid-template-rows: auto 48px auto auto minmax(auto, 1fr);
+  grid-template-rows: auto 48px minmax(auto, 1fr);
   align-content: stretch;
   gap: 12px;
 }
@@ -31267,8 +31272,7 @@ textarea:focus,
   font-weight: 500;
 }
 
-.portfolio-multi-summary-page .portfolio-multi-composition-bar,
-.portfolio-multi-summary-page .portfolio-multi-composition-boundary {
+.portfolio-multi-summary-page .portfolio-multi-composition-bar {
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) var(--portfolio-dividend-column);
@@ -31293,33 +31297,6 @@ textarea:focus,
 
 .portfolio-multi-summary-page .portfolio-multi-composition-dividend {
   border-left: 2px solid var(--coinbase-canvas);
-}
-
-.portfolio-multi-summary-page .portfolio-multi-composition-boundary {
-  align-items: stretch;
-  margin-top: -4px;
-}
-
-.portfolio-multi-summary-page .portfolio-multi-composition-boundary > span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--portfolio-multi-body);
-  font: var(--type-caption);
-  letter-spacing: var(--type-caption-letter-spacing);
-  text-overflow: ellipsis;
-  text-transform: var(--type-caption-text-transform);
-  white-space: nowrap;
-}
-
-.portfolio-multi-summary-page .portfolio-multi-composition-boundary > span:first-child {
-  border-right: 1px solid var(--coinbase-hairline-strong);
-  padding-right: 10px;
-  text-align: right;
-}
-
-.portfolio-multi-summary-page .portfolio-multi-composition-boundary > span:last-child {
-  padding-left: 10px;
-  text-align: left;
 }
 
 .portfolio-multi-summary-page .portfolio-multi-composition-legend {
@@ -31420,7 +31397,7 @@ textarea:focus,
   }
 
   .portfolio-multi-summary-page .portfolio-multi-composition {
-    grid-template-rows: auto 44px auto auto minmax(auto, 1fr);
+    grid-template-rows: auto 44px minmax(auto, 1fr);
     gap: 8px;
   }
 
@@ -31440,14 +31417,6 @@ textarea:focus,
     gap: 8px;
   }
 
-  .portfolio-multi-summary-page .portfolio-multi-composition-boundary > span:first-child {
-    padding-right: 7px;
-  }
-
-  .portfolio-multi-summary-page .portfolio-multi-composition-boundary > span:last-child {
-    padding-left: 7px;
-  }
-
   .portfolio-multi-summary-page .portfolio-multi-composition-legend {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -31459,7 +31428,7 @@ textarea:focus,
 
 @container workspace-panel (max-height: 480px) {
   .portfolio-multi-summary-page .portfolio-multi-composition {
-    grid-template-rows: auto 40px auto auto minmax(auto, 1fr);
+    grid-template-rows: auto 40px minmax(auto, 1fr);
     gap: 6px;
   }
 
@@ -31470,7 +31439,7 @@ textarea:focus,
 
 @container workspace-panel (max-width: 430px) and (max-height: 480px) {
   .portfolio-multi-summary-page .portfolio-multi-composition {
-    grid-template-rows: auto 36px auto auto minmax(auto, 1fr);
+    grid-template-rows: auto 36px minmax(auto, 1fr);
     gap: 4px;
   }
 
