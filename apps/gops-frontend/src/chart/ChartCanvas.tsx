@@ -26,6 +26,7 @@ import { createIndicatorPointLookup, createIndicatorValueLookup } from "./indica
 import {
   buildLadder,
   ORDER_FLOW_CHART_FOOTER_HEIGHT,
+  orderFlowUnsupportedMessage,
   orderFlowWindowMinutesForInterval,
   rebinLevels,
   type OrderFlowLadder,
@@ -1368,7 +1369,7 @@ function orderFlowStateMessage(scene: ChartScene, orderFlow: ChartState["orderFl
     return "오더플로우 데이터를 불러오는 중입니다";
   }
   if (orderFlow.dataStatus === "unsupported") {
-    return unsupportedOrderFlowMessage(scene.chart.symbol, orderFlow.supportedSymbols);
+    return orderFlowUnsupportedMessage(scene.chart.symbol, orderFlow.supportedSymbols);
   }
   if (orderFlow.dataStatus === "error") {
     return "오더플로우 데이터를 불러오지 못했습니다";
@@ -1391,11 +1392,6 @@ function drawOrderFlowStateMessage(context: CanvasRenderingContext2D, scene: Cha
   context.textBaseline = "middle";
   context.fillText(message, (scene.plot.left + scene.plot.right) / 2, scene.plot.top + 30, Math.max(120, scene.plot.right - scene.plot.left - 18));
   context.restore();
-}
-
-function unsupportedOrderFlowMessage(symbol: string, supportedSymbols: string[] | undefined): string {
-  const supported = supportedSymbols?.length ? ` · 지원: ${supportedSymbols.join(", ")}` : "";
-  return `Order Flow는 아직 ${symbol.toUpperCase()}을 지원하지 않아요${supported}`;
 }
 
 function drawOrderFlowGapColumns(context: CanvasRenderingContext2D, scene: ChartScene) {

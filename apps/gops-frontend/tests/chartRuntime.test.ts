@@ -157,6 +157,7 @@ import {
   effectiveOrderFlowPriceStep,
   maxOrderFlowTargetRowsForHeight,
   orderFlowMinutesForBucket,
+  orderFlowUnsupportedMessage,
   orderFlowWindowMinutesForInterval,
   rebinLevels,
   replaceOrderFlowMinute,
@@ -2407,6 +2408,14 @@ const bidAskBucketMinutes = [
 assert.equal(orderFlowWindowMinutesForInterval("1m"), 1);
 assert.equal(orderFlowWindowMinutesForInterval("10m"), 10);
 assert.equal(orderFlowWindowMinutesForInterval("1h"), 60);
+assert.equal(
+  orderFlowUnsupportedMessage("nvda", Array.from({ length: 502 }, (_, index) => `S${index}`)),
+  "Order Flow는 아직 NVDA을 지원하지 않아요 · 지원 종목 502개"
+);
+assert.doesNotMatch(
+  orderFlowUnsupportedMessage("NVDA", ["AAPL", "MSFT"]),
+  /AAPL|MSFT/
+);
 assert.deepEqual(
   orderFlowMinutesForBucket(bidAskBucketMinutes, "2026-07-08T13:30:00.000Z", 10).map((minute) => minute.eventMinute),
   ["2026-07-08T13:30:00.000Z", "2026-07-08T13:39:00.000Z"]
@@ -5344,9 +5353,11 @@ assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.a
 assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*color: #ffffff;/);
 assert.match(frontendStylesSource, /\.treemap-panel \{[\s\S]*position: absolute;/);
 assert.match(frontendStylesSource, /\.treemap-panel \{[\s\S]*overflow: hidden;/);
-assert.match(frontendStylesSource, /\.order-flow-hover-overlay \{[\s\S]*grid-template-rows: 26px 22px;/);
+assert.match(frontendStylesSource, /\.order-flow-hover-overlay \{[\s\S]*grid-template-rows: 32px 32px;/);
 assert.match(frontendStylesSource, /\.order-flow-panel:hover \.order-flow-hover-overlay,[\s\S]*\.order-flow-panel:focus-within \.order-flow-hover-overlay/);
 assert.match(frontendStylesSource, /\.order-flow-window-grid \{[\s\S]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/);
+assert.match(frontendStylesSource, /\.order-flow-window-grid button\.active \{[\s\S]*border-bottom-color: var\(--color-signal\);[\s\S]*background: transparent;/);
+assert.match(frontendStylesSource, /\.chart-commentary-generated\.is-collapsed \.chart-commentary-inline-reference,[\s\S]*border-radius: 7px;[\s\S]*text-decoration: none;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*left: 0;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*right: 0;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*justify-content: center;/);

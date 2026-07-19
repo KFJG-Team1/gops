@@ -633,13 +633,19 @@
 }
 
 .chart-commentary-link-overview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   color: var(--color-text);
   font: var(--type-body-md);
   line-height: 1.55;
 }
 
-.chart-commentary-link-separator {
-  color: var(--color-muted);
+.chart-commentary-link-item,
+.chart-commentary-generated.is-collapsed .chart-commentary-inline-reference-wrap {
+  display: inline-flex;
+  min-width: 0;
 }
 
 .chart-commentary-disclosure {
@@ -706,25 +712,35 @@
 .chart-commentary-generated.is-collapsed .chart-commentary-inline-reference:hover:not(:disabled),
 .chart-commentary-generated.is-collapsed .chart-commentary-inline-reference:focus-visible,
 .chart-commentary-generated.is-collapsed .chart-commentary-inline-reference[aria-pressed="true"] {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid var(--coinbase-hairline);
+  border-radius: 7px;
+  padding: 3px 10px;
+  background: color-mix(in srgb, var(--color-surface-strong) 84%, transparent);
   color: var(--color-text);
-  text-decoration-color: color-mix(in srgb, var(--color-text) 62%, transparent);
+  line-height: 1.25;
+  text-decoration: none;
 }
 
 .chart-commentary-generated.is-collapsed .chart-commentary-inline-reference:hover:not(:disabled),
 .chart-commentary-generated.is-collapsed .chart-commentary-inline-reference:focus-visible {
-  text-decoration-color: var(--color-text);
-  text-decoration-thickness: 1.5px;
+  border-color: color-mix(in srgb, var(--color-text) 52%, var(--coinbase-hairline));
+  background: color-mix(in srgb, var(--color-text) 8%, var(--color-surface-strong));
 }
 
 .chart-commentary-generated.is-collapsed .chart-commentary-inline-reference[aria-pressed="true"] {
-  text-decoration-color: var(--color-text);
-  text-decoration-thickness: 2px;
+  border-color: var(--color-signal);
+  background: color-mix(in srgb, var(--color-signal) 14%, var(--color-surface-strong));
 }
 
 .chart-commentary-generated.is-collapsed .chart-commentary-inline-reference:disabled,
 .chart-commentary-generated.is-collapsed .chart-commentary-inline-reference.is-unavailable {
+  border-color: color-mix(in srgb, var(--coinbase-hairline) 64%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 64%, transparent);
   color: var(--color-muted);
-  text-decoration-color: color-mix(in srgb, var(--color-muted) 45%, transparent);
+  text-decoration: none;
 }
 
 .chart-commentary-inline-reference:focus-visible {
@@ -828,6 +844,11 @@
 .chart-commentary-scenario:hover:not(:disabled) {
   border-color: var(--color-signal);
   background: color-mix(in srgb, var(--color-signal) 9%, transparent);
+}
+
+.chart-commentary-scenario[aria-pressed="true"] {
+  border-color: var(--color-signal);
+  background: color-mix(in srgb, var(--color-signal) 12%, transparent);
 }
 
 .chart-commentary-scenario:focus-visible {
@@ -1150,10 +1171,15 @@
   outline-offset: 1px;
 }
 
-.chart-commentary-focus button.is-pinned,
+.chart-commentary-focus button[aria-pressed="true"],
 .chart-commentary-answer-focus button.is-pinned {
   border-color: var(--color-signal);
   background: color-mix(in srgb, var(--color-signal) 12%, var(--color-surface-strong));
+}
+
+.chart-commentary-focus button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 .chart-commentary-focus button strong {
@@ -1809,8 +1835,8 @@
   bottom: auto;
   left: 0;
   box-sizing: border-box;
-  grid-template-rows: 26px 22px;
-  gap: 3px;
+  grid-template-rows: 32px 32px;
+  gap: 0;
   padding: 4px;
   border-radius: 8px;
 }
@@ -1821,32 +1847,88 @@
   pointer-events: auto;
 }
 
-.order-flow-symbol-search {
-  height: 26px;
+.symbol-search.order-flow-symbol-search {
+  height: 32px;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.symbol-search.order-flow-symbol-search::after {
+  inset: auto 0 -1px;
+  height: 2px;
+  border-radius: 0;
+  background: var(--color-signal);
+  box-shadow: none;
 }
 
 .order-flow-symbol-search input {
-  height: 26px;
+  height: 32px;
+  border-radius: 0;
   padding-inline: 9px 5px;
+  color: var(--color-text);
+  font: var(--type-label-md);
 }
 
 .order-flow-symbol-search > button {
-  width: 24px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   margin-right: 2px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.order-flow-symbol-search > button:hover,
+.order-flow-symbol-search > button:focus-visible {
+  background: var(--coinbase-canvas);
+  color: var(--color-text);
+  outline: 1px solid var(--color-signal);
+  outline-offset: -1px;
 }
 
 .order-flow-window-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  height: 22px;
+  grid-template-rows: 32px;
+  height: 32px;
+  border: 0;
+  border-bottom: 1px solid var(--coinbase-hairline-strong);
+  border-radius: 0;
+  background: transparent;
 }
 
-.order-flow-window-grid button {
-  padding: 0 2px;
+.order-flow-window-grid button,
+.order-flow-window-grid button:nth-of-type(2n),
+.order-flow-window-grid button:nth-of-type(n + 3) {
+  min-height: 32px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--color-muted);
+  font: var(--type-label-md);
+  letter-spacing: var(--type-label-md-letter-spacing);
+  text-transform: var(--type-label-md-text-transform);
 }
 
-.order-flow-window-grid button:last-child {
-  border-right: 0;
+.order-flow-window-grid button:hover:not(:disabled) {
+  border-bottom-color: transparent;
+  background: var(--coinbase-canvas);
+  color: var(--color-text);
+}
+
+.order-flow-window-grid button.active,
+.order-flow-window-grid button.active:hover:not(:disabled) {
+  border-bottom-color: var(--color-signal);
+  background: transparent;
+  color: var(--color-text);
+}
+
+.order-flow-window-grid button:focus-visible {
+  border-bottom-color: var(--color-signal);
+  outline: 1px solid var(--color-signal);
+  outline-offset: -1px;
 }
 
 .chart-content-toggle {

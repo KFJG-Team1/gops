@@ -100,6 +100,12 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(storedCommentary).toHaveClass(/is-collapsed/);
   await expect(storedCommentary.locator(".chart-commentary-link-overview")).toBeVisible();
   await expect(storedCommentary.locator(".chart-commentary-full-text > p")).toHaveCount(0);
+  const collapsedReferenceButtons = storedCommentary.locator(".chart-commentary-link-overview button.chart-commentary-inline-reference");
+  await expect(collapsedReferenceButtons.first()).toBeVisible();
+  await expect.poll(() => collapsedReferenceButtons.first().evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.borderRadius, style.textDecorationLine, style.minHeight];
+  })).toEqual(["7px", "none", "28px"]);
   const commentaryDisclosure = commentaryPanel.getByRole("button", { name: "종합 해설 보기" });
   await expect(commentaryDisclosure).toHaveAttribute("aria-expanded", "false");
   await expect(commentaryPanel).toHaveScreenshot("chart-commentary-panel-collapsed.png", { timeout: 15_000 });
@@ -132,10 +138,23 @@ test("five analysis layers render independently with commentary focus and cards"
   await page.locator(".chart-commentary-source").hover();
   await expect(commentaryPanel.locator(".chart-commentary-price-head").getByRole("columnheader")).toHaveText(["제안", "가격", "현재가 대비"]);
   await expect(commentaryPanel.locator(".chart-commentary-price-table > button > span:first-child")).toHaveText(["매수 검토", "수익 실현 검토", "손실 제한 검토"]);
+  const scenarioCard = commentaryPanel.locator(".chart-commentary-scenario");
+  await expect(scenarioCard).toHaveAttribute("aria-pressed", "false");
+  await scenarioCard.click();
+  await expect(scenarioCard).toHaveAttribute("aria-pressed", "true");
+  await expect(commentaryPanel.getByRole("button", { name: "제안 분석 레이어 리모컨 끄기" })).toHaveAttribute("aria-pressed", "true");
+  await scenarioCard.click();
+  await expect(scenarioCard).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByRole("button", { name: "연결", exact: true })).toHaveCount(0);
   expect(await commentaryPanel.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await expect(commentaryPanel).toHaveScreenshot("chart-commentary-panel.png", { timeout: 15_000 });
   await expect(canvas).toBeVisible();
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+    document.documentElement.scrollLeft = 0;
+    document.body.scrollLeft = 0;
+  });
   await expect(page).toHaveScreenshot("chart-assets-layers-both.png", { fullPage: true, maxDiffPixelRatio: 0.015, timeout: 15_000 });
 
   await chart.hover();
@@ -180,21 +199,29 @@ test("five analysis layers render independently with commentary focus and cards"
   const commentarySteps = page.locator(".chart-commentary-focus button");
   const trendStep = commentarySteps.nth(1);
   const patternStep = commentarySteps.nth(2);
+  await expect(evidenceStep).toHaveAttribute("aria-pressed", "true");
+  await expect(trendStep).toHaveAttribute("aria-pressed", "true");
+  await expect(patternStep).toHaveAttribute("aria-pressed", "true");
+  await evidenceStep.hover();
+  await expect(evidenceStep).toHaveAttribute("aria-pressed", "true");
+  await evidenceStep.click();
+  await expect(evidenceStep).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("button", { name: "지지·저항 분석 레이어 리모컨 켜기" })).toHaveAttribute("aria-pressed", "false");
   await evidenceStep.click();
   await expect(evidenceStep).toHaveAttribute("aria-pressed", "true");
   await trendStep.click();
-  await expect(evidenceStep).toHaveAttribute("aria-pressed", "false");
-  await expect(trendStep).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator('.chart-commentary-focus button[aria-pressed="true"]')).toHaveCount(1);
+  await expect(evidenceStep).toHaveAttribute("aria-pressed", "true");
+  await expect(trendStep).toHaveAttribute("aria-pressed", "false");
   await patternStep.hover();
   await page.locator(".chart-commentary-summary").hover();
-  await expect(trendStep).toHaveAttribute("aria-pressed", "true");
+  await expect(trendStep).toHaveAttribute("aria-pressed", "false");
   await trendStep.click();
+  await expect(trendStep).toHaveAttribute("aria-pressed", "true");
   await patternStep.focus();
   await patternStep.press("Enter");
-  await expect(patternStep).toHaveAttribute("aria-pressed", "true");
-  await patternStep.press("Enter");
   await expect(patternStep).toHaveAttribute("aria-pressed", "false");
+  await patternStep.press("Enter");
+  await expect(patternStep).toHaveAttribute("aria-pressed", "true");
 
   const candleReference = commentaryPanel.locator("button.chart-commentary-inline-reference.is-candle").filter({ hasText: "최근 완료 봉" });
   await expect(candleReference).toBeEnabled();
@@ -290,7 +317,7 @@ test("final analysis strokes sit above their interpretation underlays", async ({
   await expect(chart).toHaveScreenshot("chart-assets-interpretation-with-final-strokes.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
 });
 
-  test("commentary focus makes the target interpretation stroke fully opaque and dims the rest", async ({ page }) => {
+test("commentary focus highlights evidence and card clicks toggle the final layer", async ({ page }) => {
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
@@ -306,8 +333,9 @@ test("final analysis strokes sit above their interpretation underlays", async ({
   await expect(chart).toHaveScreenshot("chart-assets-interpretation-focused-pattern.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
   await focusButtons.nth(2).click();
   await expect(focusButtons.nth(2)).toHaveAttribute("aria-pressed", "true");
-  await chart.hover();
-  await expect(chart).toHaveScreenshot("chart-assets-interpretation-pinned-pattern.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "패턴 분석 레이어 리모컨 끄기" })).toHaveAttribute("aria-pressed", "true");
+  await focusButtons.nth(2).click();
+  await expect(focusButtons.nth(2)).toHaveAttribute("aria-pressed", "false");
 });
 
 test("proposal toggle is disabled when the asset has no proposal drawings", async ({ page }) => {

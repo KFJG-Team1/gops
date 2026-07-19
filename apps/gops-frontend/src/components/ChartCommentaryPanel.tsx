@@ -241,7 +241,6 @@ function CurrentCommentary({
   layerVisibility: Record<AnalysisLayerKey, boolean>;
   layerDisabled: Record<AnalysisLayerKey, boolean>;
 }) {
-  const [pinnedStepId, setPinnedStepId] = useState<string | null>(null);
   const drawingIdsKey = drawingIds.join("\u0000");
   const diagnostics = useMemo(() => asset
     ? analysisAssetPresentationDiagnostics(asset, candles, drawingIds, availableAssets)
@@ -256,9 +255,6 @@ function CurrentCommentary({
   const viewModel = useMemo(() => diagnostics
     ? buildChartCommentaryViewModel(diagnostics.resolvedAsset, setup, currentPrice)
     : null, [currentPrice, diagnostics, setup]);
-  useEffect(() => {
-    setPinnedStepId(null);
-  }, [asset?.algorithmVersion, asset?.asOf, asset?.inputDigest, chartDocumentId, interval, symbol]);
   const storedCommentary = commentaryAsset?.commentary ?? asset?.commentary ?? null;
   const interactionsReady = assetLoadPhase === "ready" && Boolean(asset && diagnostics && viewModel);
   const emptyText = !sourceAvailable
@@ -294,7 +290,7 @@ function CurrentCommentary({
     );
   };
   const restorePinned = () => {
-    focusStep(pinnedStepId, pinnedStepId ? "select" : "clear");
+    focusStep(null, "clear");
   };
   return (
     <article className="chart-commentary-panel">
@@ -354,24 +350,27 @@ function CurrentCommentary({
         chartDocumentId={chartDocumentId}
         symbol={symbol}
         interval={interval}
+        active={layerVisibility.proposal}
+        unavailable={layerDisabled.proposal}
         onRestore={restorePinned}
       />}
       <section className="chart-commentary-focus" aria-label="판단 근거">
         <ol>{viewModel.evidence.map((step) => {
-          const pinned = pinnedStepId === step.id;
+          const unavailable = layerDisabled[step.id];
           return <li key={step.id}>
             <button
-              className={pinned ? "is-pinned" : undefined}
               type="button"
-              aria-pressed={pinned}
+              aria-label={`${step.title} 분석 레이어 전환`}
+              aria-pressed={unavailable ? undefined : layerVisibility[step.id]}
+              disabled={!chartDocumentId || unavailable}
               onMouseEnter={() => focusStep(step.id, "spotlight")}
               onMouseLeave={restorePinned}
               onFocus={() => focusStep(step.id, "spotlight")}
               onBlur={restorePinned}
               onClick={() => {
-                const next = pinned ? null : step.id;
-                setPinnedStepId(next);
-                focusStep(next, next ? "select" : "clear");
+                if (chartDocumentId && !unavailable) {
+                  dispatchChartAnalysisLayerToggle({ chartDocumentId, layer: step.id });
+                }
               }}
             >
               <strong><GlossaryText text={step.title} /></strong>
@@ -515,8 +514,7 @@ function StoredCommentary({ commentary, chartDocumentId, symbol, interval, candl
     data-prompt-version={commentary.promptVersion}
   >
     {!showFullCommentary && <div className="chart-commentary-link-overview" aria-label="차트 연동 핵심 근거">
-      {collapsedLinkSegments.map((segment, index) => <span className="chart-commentary-link-item" key={segment.id}>
-        {index > 0 && <span className="chart-commentary-link-separator" aria-hidden="true"> · </span>}
+      {collapsedLinkSegments.map((segment) => <span className="chart-commentary-link-item" key={segment.id}>
         {renderSegment(segment)}
       </span>)}
     </div>}
@@ -689,11 +687,13 @@ function commentaryReferenceAvailable(
   return candles.some((candle) => marketDateForTimestamp(candle.timestamp) === marketDate);
 }
 
-function CommentaryScenarioButton({ scenario, chartDocumentId, symbol, interval, onRestore }: {
+function CommentaryScenarioButton({ scenario, chartDocumentId, symbol, interval, active, unavailable, onRestore }: {
   scenario: ChartCommentaryScenario;
   chartDocumentId?: string;
   symbol: string;
   interval: ChartInterval;
+  active: boolean;
+  unavailable: boolean;
   onRestore: () => void;
 }) {
   const pointerActiveRef = useRef(false);
@@ -706,7 +706,8 @@ function CommentaryScenarioButton({ scenario, chartDocumentId, symbol, interval,
     type="button"
     className="chart-commentary-scenario"
     aria-label={`${scenario.status} 제안 레이어 전환`}
-    disabled={!chartDocumentId}
+    aria-pressed={unavailable ? undefined : active}
+    disabled={!chartDocumentId || unavailable}
     onPointerEnter={() => {
       pointerActiveRef.current = true;
       spotlight();

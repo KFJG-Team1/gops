@@ -580,6 +580,16 @@ test("order-flow panels stay intraday-only and keep the lower canvas wheelable",
   await firstPanel.getByRole("button", { name: "1h", exact: true }).click();
   await expect(firstPanel).toHaveAttribute("data-order-flow-window", "1h");
   await expect(secondPanel).toHaveAttribute("data-order-flow-window", "session");
+  await expect.poll(() => firstPanel.getByRole("button", { name: "1h", exact: true }).evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.backgroundColor, style.borderBottomWidth, style.borderBottomColor, style.borderRadius];
+  })).toEqual(["rgba(0, 0, 0, 0)", "2px", "rgb(0, 153, 255)", "0px"]);
+  await expect.poll(() => firstPanel.getByLabel("Symbol search").evaluate((element) => {
+    const root = element.closest(".order-flow-symbol-search");
+    if (!root) return null;
+    const style = getComputedStyle(root);
+    return [style.height, style.borderRadius, style.backgroundColor];
+  })).toEqual(["32px", "0px", "rgba(0, 0, 0, 0)"]);
 
   const panelBox = await firstPanel.boundingBox();
   const overlayBox = await firstPanel.locator(".order-flow-hover-overlay").boundingBox();

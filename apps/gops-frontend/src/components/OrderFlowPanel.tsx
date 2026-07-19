@@ -12,6 +12,7 @@ import {
   ORDER_FLOW_WINDOWS,
   effectiveOrderFlowPriceStep,
   maxOrderFlowTargetRowsForHeight,
+  orderFlowUnsupportedMessage,
   rebinLevels,
   replaceOrderFlowMinute,
   resolveOrderFlowTargetRows,
@@ -626,8 +627,7 @@ function emptyPanelMessage(loading: boolean, error: boolean, supported: boolean,
     return "오더플로우 데이터를 불러오지 못했습니다";
   }
   if (!supported) {
-    const supportedText = supportedSymbols.length ? ` · 지원: ${supportedSymbols.join(", ")}` : "";
-    return `Order Flow는 아직 ${symbol}을 지원하지 않아요${supportedText}`;
+    return orderFlowUnsupportedMessage(symbol, supportedSymbols);
   }
   return "아직 수집된 오더플로우 데이터가 없어요";
 }
