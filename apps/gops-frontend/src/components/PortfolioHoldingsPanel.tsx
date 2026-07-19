@@ -6,6 +6,7 @@ import { usePaperAccount } from "../orders/PaperAccountProvider";
 import type { PaperAccountSnapshot } from "../orders/paperTradingClient";
 import { PortfolioHoldingsApiError, parsePortfolioHoldingsApiResponse, validPortfolioCash, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
 import {
+  buildPortfolioPrincipalBands,
   fetchPortfolioPerformance,
   type PortfolioPerformanceRange,
   type PortfolioPerformanceResponse
@@ -1367,6 +1368,9 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
   const displayedPortfolioPoints = hasMoneyHistory ? portfolioValuePoints : reportedReturnPoints;
   const displayedPrincipalPoints = hasMoneyHistory ? principalPoints : [];
   const displayedBenchmarkPoints = hasMoneyHistory ? benchmarkValuePoints : benchmarkReturnPoints;
+  const principalBands = hasMoneyHistory
+    ? buildPortfolioPrincipalBands(displayedPortfolioPoints, displayedPrincipalPoints)
+    : [];
   const allPoints = [...displayedPortfolioPoints, ...displayedPrincipalPoints, ...displayedBenchmarkPoints];
   const portfolioBaseValue = portfolioValuePoints[0]?.value;
   const portfolioPeriodReturn = portfolioBaseValue != null && portfolioBaseValue !== 0 && portfolioValuePoints.at(-1)
@@ -1400,6 +1404,13 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
     const y = yFor(point.value).toFixed(1);
     return index === 0 ? `M ${x} ${y}` : `H ${x} V ${y}`;
   }).join(" ");
+  const bandPathFor = (band: (typeof principalBands)[number]) => [
+    `M ${xFor(band.start.time).toFixed(1)} ${yFor(band.start.portfolioValue).toFixed(1)}`,
+    `L ${xFor(band.end.time).toFixed(1)} ${yFor(band.end.portfolioValue).toFixed(1)}`,
+    `L ${xFor(band.end.time).toFixed(1)} ${yFor(band.end.principalValue).toFixed(1)}`,
+    `L ${xFor(band.start.time).toFixed(1)} ${yFor(band.start.principalValue).toFixed(1)}`,
+    "Z"
+  ].join(" ");
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => maxValue - valueSpan * ratio);
   const xTicks = timestamps.length
     ? [0, 0.25, 0.5, 0.75, 1].map((ratio) => minTime + (maxTime - minTime) * ratio)
@@ -1478,6 +1489,14 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
             {!hasMoneyHistory && (
               <line x1={padding.left} x2={width - padding.right} y1={yFor(0)} y2={yFor(0)} className="portfolio-terminal-zero-line" />
             )}
+            {principalBands.map((band, index) => (
+              <path
+                key={`${band.start.time}-${band.end.time}-${band.tone}-${index}`}
+                d={bandPathFor(band)}
+                className={`portfolio-performance-principal-band is-${band.tone}`}
+                aria-hidden="true"
+              />
+            ))}
             <path d={smoothPathFor(displayedPortfolioPoints)} className="portfolio-performance-return-line portfolio" />
             {displayedPrincipalPoints.length >= 2 && <path d={stepPathFor(displayedPrincipalPoints)} className="portfolio-performance-return-line principal" />}
             {displayedBenchmarkPoints.length >= 2 && <path d={smoothPathFor(displayedBenchmarkPoints)} className="portfolio-performance-return-line benchmark" />}

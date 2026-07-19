@@ -7118,24 +7118,35 @@ h2 {
 .company-journal-analyst-opinion {
   display: grid;
   min-width: 0;
-  gap: 8px;
-  padding: 15px 0 4px;
+  min-height: 104px;
+  align-content: center;
+  justify-items: start;
+  gap: 10px;
+  padding: 18px 12px 12px;
+  text-align: left;
 }
 
 .company-journal-analyst-opinion h3 {
+  width: 100%;
+  justify-self: start;
   margin: 0;
+  text-align: left;
   color: var(--color-text);
   font: var(--type-title-sm);
+  font-size: clamp(18px, 1.2cqw, 21px);
 }
 
 .company-journal-analyst-opinion p {
   min-width: 0;
+  max-width: 100%;
+  justify-self: start;
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--color-text);
   font: var(--type-body-lg);
-  font-size: clamp(18px, 1.45cqw, 22px);
-  line-height: 1.6;
+  font-size: clamp(21px, 1.55cqw, 26px);
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 .company-earnings-heading h3 {
@@ -27573,9 +27584,9 @@ textarea:focus,
 
 .company-journal-quote {
   box-sizing: border-box;
-  width: 92%;
+  width: 96%;
   min-width: 0;
-  max-width: 1200px;
+  max-width: 1660px;
   margin: 0 auto;
   padding: 0;
   color: var(--color-text);
@@ -27584,9 +27595,9 @@ textarea:focus,
   text-transform: var(--type-body-lg-text-transform);
   letter-spacing: var(--type-body-lg-letter-spacing);
   font: var(--type-body-lg);
-  font-size: clamp(24px, 1.65cqw, 30px);
+  font-size: clamp(23px, 1.45cqw, 30px);
   font-weight: 600;
-  line-height: 1.48;
+  line-height: 1.42;
 }
 
 .company-journal-quote::before {
@@ -27646,7 +27657,7 @@ textarea:focus,
 }
 
 .company-journal-tabs button.is-positive { --company-journal-tab-signal: var(--color-up); }
-.company-journal-tabs button.is-appropriate { --company-journal-tab-signal: var(--coinbase-primary); }
+.company-journal-tabs button.is-appropriate { --company-journal-tab-signal: var(--color-muted); }
 .company-journal-tabs button.is-caution { --company-journal-tab-signal: var(--color-caution); }
 .company-journal-tabs button.is-negative { --company-journal-tab-signal: var(--color-down); }
 .company-journal-tabs button.is-insufficient { --company-journal-tab-signal: var(--color-muted); }
@@ -27708,8 +27719,8 @@ textarea:focus,
 }
 
 .company-journal-period-toggle button[aria-pressed="true"] {
-  background: var(--coinbase-primary);
-  color: var(--coinbase-on-primary);
+  background: color-mix(in srgb, white 10%, var(--color-surface));
+  color: var(--color-text);
 }
 
 .company-journal-period-toggle button:focus-visible {
@@ -27721,7 +27732,7 @@ textarea:focus,
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: minmax(0, 1.72fr) minmax(340px, 0.88fr);
+  grid-template-columns: minmax(0, 2fr) minmax(340px, 1fr);
   overflow: hidden;
 }
 
@@ -28188,7 +28199,7 @@ textarea:focus,
   align-content: start;
   overflow: auto;
   gap: 0;
-  padding: 34px 20px 24px 10px;
+  padding: 30px 12px 20px 14px;
   scrollbar-gutter: stable;
 }
 
@@ -28460,9 +28471,13 @@ textarea:focus,
 }
 
 .company-journal-insight[data-insight-kind="comparison"] .company-journal-insight-tags > button {
+  min-height: 42px;
   justify-content: flex-start;
   border-radius: 10px;
-  padding: 8px 11px;
+  padding: 10px 14px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .company-journal-insight-detail {

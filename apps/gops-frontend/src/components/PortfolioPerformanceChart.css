@@ -105,6 +105,19 @@
   min-height: 0;
 }
 
+.portfolio-performance-chart-v2 .portfolio-performance-principal-band {
+  stroke: none;
+  pointer-events: none;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-principal-band.is-principal-above {
+  fill: color-mix(in srgb, var(--color-signal) 22%, transparent);
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-principal-band.is-portfolio-above {
+  fill: color-mix(in srgb, var(--color-down) 18%, transparent);
+}
+
 .portfolio-performance-chart-v2 .portfolio-performance-return-line.portfolio {
   stroke-width: 3.25;
 }

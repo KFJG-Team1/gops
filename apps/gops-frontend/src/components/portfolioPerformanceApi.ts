@@ -8,6 +8,27 @@ export type PortfolioPerformancePoint = {
   netInvestedPrincipal?: number;
 };
 
+export type PortfolioPerformanceBandPoint = {
+  time: string;
+  value: number;
+};
+
+export type PortfolioPrincipalBandTone = "principal-above" | "portfolio-above";
+
+export type PortfolioPrincipalBandSegment = {
+  tone: PortfolioPrincipalBandTone;
+  start: {
+    time: string;
+    portfolioValue: number;
+    principalValue: number;
+  };
+  end: {
+    time: string;
+    portfolioValue: number;
+    principalValue: number;
+  };
+};
+
 export type PortfolioPerformanceResponse = {
   status: "ready" | "insufficient_history";
   range: PortfolioPerformanceRange;
@@ -37,6 +58,60 @@ export async function fetchPortfolioPerformance(
     throw new Error(`성과 API 오류 ${response.status}`);
   }
   return normalizePortfolioPerformanceResponse(await response.json(), range);
+}
+
+export function buildPortfolioPrincipalBands(
+  portfolioPoints: readonly PortfolioPerformanceBandPoint[],
+  principalPoints: readonly PortfolioPerformanceBandPoint[]
+): PortfolioPrincipalBandSegment[] {
+  const portfolio = normalizeBandPoints(portfolioPoints);
+  const principal = normalizeBandPoints(principalPoints);
+  if (portfolio.length < 2 || principal.length === 0) return [];
+
+  let principalIndex = 0;
+  let currentPrincipal: PortfolioPerformanceBandPoint | null = null;
+  const aligned = portfolio.flatMap((point) => {
+    const timestamp = Date.parse(point.time);
+    while (principalIndex < principal.length && Date.parse(principal[principalIndex].time) <= timestamp) {
+      currentPrincipal = principal[principalIndex];
+      principalIndex += 1;
+    }
+    return currentPrincipal == null ? [] : [{
+      time: point.time,
+      portfolioValue: point.value,
+      principalValue: currentPrincipal.value
+    }];
+  });
+  const result: PortfolioPrincipalBandSegment[] = [];
+  for (let index = 1; index < aligned.length; index += 1) {
+    const start = aligned[index - 1];
+    const end = aligned[index];
+    const startDifference = start.principalValue - start.portfolioValue;
+    const endDifference = end.principalValue - end.portfolioValue;
+    if (startDifference === 0 && endDifference === 0) continue;
+    const startTone = bandTone(startDifference || endDifference);
+    const endTone = bandTone(endDifference || startDifference);
+    if (startTone === endTone) {
+      result.push({ tone: startTone, start, end });
+      continue;
+    }
+    const crossingRatio = Math.abs(startDifference) / (Math.abs(startDifference) + Math.abs(endDifference));
+    const startTime = Date.parse(start.time);
+    const endTime = Date.parse(end.time);
+    const crossingTime = new Date(startTime + (endTime - startTime) * crossingRatio).toISOString();
+    const crossingPortfolio = start.portfolioValue
+      + (end.portfolioValue - start.portfolioValue) * crossingRatio;
+    const crossingPrincipal = start.principalValue
+      + (end.principalValue - start.principalValue) * crossingRatio;
+    const crossing = {
+      time: crossingTime,
+      portfolioValue: crossingPortfolio,
+      principalValue: crossingPrincipal
+    };
+    result.push({ tone: startTone, start, end: crossing });
+    result.push({ tone: endTone, start: crossing, end });
+  }
+  return result;
 }
 
 export function normalizePortfolioPerformanceResponse(
@@ -92,6 +167,19 @@ function normalizePoints(value: unknown): PortfolioPerformancePoint[] {
     })
     .filter((item): item is PortfolioPerformancePoint => item != null)
     .sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
+}
+
+function normalizeBandPoints(
+  points: readonly PortfolioPerformanceBandPoint[]
+): PortfolioPerformanceBandPoint[] {
+  return points
+    .filter((point) => Number.isFinite(Date.parse(point.time)) && Number.isFinite(point.value))
+    .map((point) => ({ time: new Date(Date.parse(point.time)).toISOString(), value: point.value }))
+    .sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
+}
+
+function bandTone(difference: number): PortfolioPrincipalBandTone {
+  return difference > 0 ? "principal-above" : "portfolio-above";
 }
 
 function isPerformanceRange(value: unknown): value is PortfolioPerformanceRange {

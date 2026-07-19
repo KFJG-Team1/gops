@@ -202,7 +202,7 @@ function JournalChartAnnotation({
 
 export function CompanySummaryPanel({ symbol, item, items = [], view, onEvidenceChange, disableRemoteFetch = false, valuationContent = "combined", valuationPriceSeries = emptyValuationPriceSeries, stabilityContent = "stability", journalPresentation = false, focusedValuationMetric = null, focusedStabilityMetric = null, focusedFinancialMetric = null, focusedFinancialYear = null, comparisonFinancialYear = null, financialPeriodMode: controlledFinancialPeriodMode, onFinancialPeriodModeChange, onFinancialSelectionChange, analystActions = emptyAnalystActions, showAnalystOpinion = true }: CompanySummaryPanelProps) {
   const [earningsMetric, setEarningsMetric] = useState<EarningsMetric>("eps");
-  const [internalFinancialPeriodMode, setInternalFinancialPeriodMode] = useState<FinancialPeriodMode>(journalPresentation ? "annual" : "quarterly");
+  const [internalFinancialPeriodMode, setInternalFinancialPeriodMode] = useState<FinancialPeriodMode>("quarterly");
   const financialPeriodMode = controlledFinancialPeriodMode ?? internalFinancialPeriodMode;
   const [selectedFinancialPeriod, setSelectedFinancialPeriod] = useState<string | null>(null);
   const [financialSeries, setFinancialSeries] = useState<CompanyFinancialSeriesPoint[] | null>(null);

@@ -275,7 +275,7 @@ export function CompanyJournalPanel({
   const [focusedFinancialMetric, setFocusedFinancialMetric] = useState<string | null>(null);
   const [focusedFinancialYear, setFocusedFinancialYear] = useState<number | null>(null);
   const [comparisonFinancialYear, setComparisonFinancialYear] = useState<number | null>(null);
-  const [financialPeriodMode, setFinancialPeriodMode] = useState<FinancialPeriodMode>("annual");
+  const [financialPeriodMode, setFinancialPeriodMode] = useState<FinancialPeriodMode>("quarterly");
   const [selectedInsightId, setSelectedInsightId] = useState("");
   const [journalReport, setJournalReport] = useState<CompanyJournalReport | null>(null);
   const [journalStatus, setJournalStatus] = useState<CompanyJournalStatus>(
@@ -393,6 +393,7 @@ export function CompanyJournalPanel({
   }, [clearMetricFocus]);
   const selectView = useCallback((view: CompanyJournalView) => {
     setActiveView(view);
+    if (view === "earnings") setFinancialPeriodMode("quarterly");
     clearMetricFocus();
     setSelectedInsightId("");
   }, [clearMetricFocus]);
@@ -532,10 +533,12 @@ export function CompanyJournalPanel({
             );
           })}
         </div>
-        <div className="company-journal-period-toggle" role="group" aria-label="재무 표시 기간">
-          <button type="button" aria-pressed={financialPeriodMode === "annual"} onClick={() => changeFinancialPeriodMode("annual")}>연간</button>
-          <button type="button" aria-pressed={financialPeriodMode === "quarterly"} onClick={() => changeFinancialPeriodMode("quarterly")}>분기</button>
-        </div>
+        {activeView !== "earnings" && (
+          <div className="company-journal-period-toggle" role="group" aria-label="재무 표시 기간">
+            <button type="button" aria-pressed={financialPeriodMode === "annual"} onClick={() => changeFinancialPeriodMode("annual")}>연간</button>
+            <button type="button" aria-pressed={financialPeriodMode === "quarterly"} onClick={() => changeFinancialPeriodMode("quarterly")}>분기</button>
+          </div>
+        )}
       </div>
 
       <div className="company-journal-body">
