@@ -1,9 +1,17 @@
 export type SimulatorMode = "live" | "simulation";
 export type SimulatorState = "idle" | "ready" | "running" | "paused" | "completed";
-export type SimulatorSpeed = 1 | 5 | 20 | 60;
+export type SimulatorSpeed = 1 | 2 | 5 | 10;
 export type SimulatorAction = "start" | "pause" | "resume" | "restart";
 
-export const simulatorSpeeds: readonly SimulatorSpeed[] = [1, 5, 20, 60];
+export const simulatorSpeeds: readonly SimulatorSpeed[] = [1, 2, 5, 10];
+
+export function normalizeSimulatorSpeed(value: unknown): SimulatorSpeed {
+  const numeric = Number(value);
+  if (simulatorSpeeds.includes(numeric as SimulatorSpeed)) {
+    return numeric as SimulatorSpeed;
+  }
+  return numeric === 20 || numeric === 60 || numeric === 300 ? 10 : 1;
+}
 
 export type SimulatorSymbolStatus = {
   symbol: string;
@@ -153,7 +161,7 @@ export function simulationAwareNowMs(
 }
 
 export async function fetchSimulatorStatus(signal?: AbortSignal): Promise<SimulatorStatus> {
-  return requestJson<SimulatorStatus>("/api/simulator/status", { signal });
+  return normalizeSimulatorStatus(await requestJson<SimulatorStatus>("/api/simulator/status", { signal }));
 }
 
 export async function fetchSimulatorQuote(symbol: string, signal?: AbortSignal): Promise<SimulatorQuote> {
@@ -162,27 +170,27 @@ export async function fetchSimulatorQuote(symbol: string, signal?: AbortSignal):
 }
 
 export async function setSimulatorMode(mode: SimulatorMode): Promise<SimulatorStatus> {
-  return requestJson<SimulatorStatus>("/api/simulator/mode", {
+  return normalizeSimulatorStatus(await requestJson<SimulatorStatus>("/api/simulator/mode", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode })
-  });
+  }));
 }
 
 export async function runSimulatorAction(action: SimulatorAction): Promise<SimulatorStatus> {
-  return requestJson<SimulatorStatus>("/api/simulator/action", {
+  return normalizeSimulatorStatus(await requestJson<SimulatorStatus>("/api/simulator/action", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action })
-  });
+  }));
 }
 
 export async function setSimulatorSpeed(speed: SimulatorSpeed): Promise<SimulatorStatus> {
-  return requestJson<SimulatorStatus>("/api/simulator/speed", {
+  return normalizeSimulatorStatus(await requestJson<SimulatorStatus>("/api/simulator/speed", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ speed })
-  });
+  }));
 }
 
 export function publishSimulatorStatus(status: SimulatorStatus): void {
@@ -193,6 +201,13 @@ export function publishSimulatorStatus(status: SimulatorStatus): void {
 
 export function latestSimulatorStatus(): SimulatorStatus | null {
   return latestPublishedSimulatorStatus;
+}
+
+function normalizeSimulatorStatus(status: SimulatorStatus): SimulatorStatus {
+  return {
+    ...status,
+    requestedSpeed: normalizeSimulatorSpeed(status.requestedSpeed)
+  };
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {

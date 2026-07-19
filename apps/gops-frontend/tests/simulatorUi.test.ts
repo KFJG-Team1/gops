@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   formatSimulatorVirtualTime,
+  normalizeSimulatorSpeed,
   requestPortfolioRefresh,
   simulationHeatmapItems,
   simulatorPrimaryAction,
@@ -20,7 +21,13 @@ import { shouldReloadMarketIndicesForSimulatorStatus } from "../src/market/useMa
 import { relatedIndicesSimulatorContextKey } from "../src/market/relatedIndicesApi";
 
 
-assert.deepEqual(simulatorSpeeds, [1, 5, 20, 60]);
+assert.deepEqual(simulatorSpeeds, [1, 2, 5, 10]);
+assert.equal(normalizeSimulatorSpeed(2), 2);
+assert.equal(normalizeSimulatorSpeed(10), 10);
+assert.equal(normalizeSimulatorSpeed(20), 10);
+assert.equal(normalizeSimulatorSpeed(60), 10);
+assert.equal(normalizeSimulatorSpeed(300), 10);
+assert.equal(normalizeSimulatorSpeed("unexpected"), 1);
 assert.equal(formatSimulatorVirtualTime("2026-07-14T15:00:00Z"), "07/15 00:00:00");
 assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "simulation", state: "running" }), 1_000);
 assert.equal(simulatorStatusPollIntervalMs({ available: true, mode: "live", state: "idle" }), 30_000);
