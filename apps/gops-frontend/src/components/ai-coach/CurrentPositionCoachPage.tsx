@@ -46,6 +46,7 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
     || selectedCase.symbol
     || "기업명 확인 불가";
   const assessment = activeReview.decisionAssessment;
+  const assessmentSummary = quotedCoachCopy(assessment.summary);
   const narrativeItems = [
     { label: "그때의 실수", value: selectedCase.mistakeSummary ?? "확인 기록 없음" },
     { label: "오늘과 같은 점", value: selectedCase.sameAsToday ?? "계산되지 않음" },
@@ -105,7 +106,7 @@ export function CurrentPositionCoachPage({ report, onOpenAlertCenter }: Props) {
       </section>
 
       <section className={styles.assessment} aria-label="오늘 거래 판단 요약">
-        <strong>{assessment.summary ?? "판단 데이터 부족"}</strong>
+        <strong>{assessmentSummary ?? "판단 데이터 부족"}</strong>
       </section>
 
       <section className={styles.chartSection}>
@@ -165,7 +166,6 @@ function ChecklistGroup({ category, items, emptyLabel }: { category: keyof typeo
         <span className={styles.checkCopy}>
           <strong>{item.label}</strong>
           <span>{item.evidence ?? "근거 데이터 부족"}</span>
-          <small>{item.source ?? "출처 없음"} · {item.sourceAsOf ?? "기준시각 없음"}</small>
         </span>
         <span className={styles.checkStatus}>{statusLabel(item.status)}</span>
       </li>) : <li className={styles.checkRow} data-status="insufficient_data"><span className={styles.checkIndicator} aria-hidden="true"><Minus /></span><span className={styles.checkCopy}><strong>{emptyLabel}</strong></span><span className={styles.checkStatus}>데이터 부족</span></li>}
@@ -231,8 +231,7 @@ function ReviewChart({ current, selected }: { current: TradeCase; selected: Trad
       <polyline points={linePoints(series, "macd", x, (v) => scale(v, -macdMax, macdMax, macdTop, macdBottom))} className={styles.macdLine} /><polyline points={linePoints(series, "signal", x, (v) => scale(v, -macdMax, macdMax, macdTop, macdBottom))} className={styles.signalLine} />
       {selected.missedChecks.map((marker, index) => <g key={marker.id ?? `${marker.type}-${index}`} tabIndex={0} role="button" aria-label={`${marker.label}: ${valueText(marker.value)}, 기준 ${valueText(marker.threshold)}`} onFocus={() => setActiveMarker(marker)} onBlur={() => setActiveMarker(null)} onMouseEnter={() => setActiveMarker(marker)} onMouseLeave={() => setActiveMarker(null)}><line x1={x(marker.relativeDay ?? 0)} x2={x(marker.relativeDay ?? 0)} y1={Math.max(priceTop, markerY(marker) - 18)} y2={Math.min(macdBottom, markerY(marker) + 18)} className={styles.markerGuide} /><circle cx={x(marker.relativeDay ?? 0)} cy={markerY(marker)} r="6" className={styles.markerDot} /></g>)}
     </svg>
-    {activeMarker && <div className={styles.tooltip} role="status"><strong>{activeMarker.label}</strong><span>당시 {valueText(activeMarker.value)} · 기준 {valueText(activeMarker.threshold)}</span><p>{activeMarker.reason ?? "확인이 필요했던 조건입니다."}</p><small>{activeMarker.source ?? "출처 없음"} · {activeMarker.sourceAsOf ?? "기준시각 없음"}</small></div>}
-    <div className={styles.legend}><span>캔들: 선택 사례</span><span>파란선: 오늘 경로</span><span>빨간점: 놓친 확인</span><span>미래 예측 없음</span></div>
+    {activeMarker && <div className={styles.tooltip} role="status"><strong>{activeMarker.label}</strong><span>당시 {valueText(activeMarker.value)} · 기준 {valueText(activeMarker.threshold)}</span><p>{activeMarker.reason ?? "확인이 필요했던 조건입니다."}</p></div>}
   </div>;
 }
 
@@ -249,6 +248,12 @@ function PortfolioImpact({ impact }: { impact: DailyTradeReview["portfolioImpact
 }
 
 function EmptyCoach() { return <div className={styles.emptyPage}><CircleAlert /><h2>당일 거래 회고</h2><p>아직 오늘 회고할 거래가 없습니다.</p><small>거래가 체결되면 판단 과정과 계좌 변화를 함께 정리해 드립니다.</small></div>; }
+function quotedCoachCopy(value?: string | null) {
+  const copy = value?.trim();
+  if (!copy) return null;
+  const unquoted = copy.replace(/^["“”]+/, "").replace(/["“”]+$/, "").trim();
+  return unquoted ? `"${unquoted}"` : null;
+}
 function Metric({ label, value, tone: color }: { label: string; value: string; tone?: string }) { return <div className={styles.metric}><span>{label}</span><strong className={color ? styles[color] : undefined}>{value}</strong></div>; }
 function nearestPoint(points: ChartPoint[], day: number) { return points.reduce<ChartPoint | undefined>((best, point) => !best || Math.abs(point.relativeDay - day) < Math.abs(best.relativeDay - day) ? point : best, undefined); }
 function linePoints(points: ChartPoint[], key: "rsi" | "macd" | "signal", x: (v: number) => number, y: (v: number) => number) { return points.filter((p) => isNumber(p[key])).map((p) => `${x(p.relativeDay)},${y(p[key] as number)}`).join(" "); }

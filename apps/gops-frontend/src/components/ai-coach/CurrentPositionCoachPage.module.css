@@ -99,10 +99,8 @@
 .markerDot { fill: var(--red); stroke: var(--text); stroke-width: 1.5; }
 .tooltip { position: absolute; top: 12px; right: 12px; z-index: 2; display: flex; max-width: 310px; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: #272727; }
 .tooltip strong { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
-.tooltip span,
-.tooltip small { color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
+.tooltip span { color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
 .tooltip p { margin: 0; font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); text-transform: var(--type-label-md-text-transform); }
-.legend { display: flex; gap: 16px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--line); color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
 .caseStats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 12px; overflow: hidden; }
 .caseStats .metric { flex-direction: row; align-items: baseline; justify-content: center; gap: 8px; white-space: nowrap; }
 .reviewCarousel { margin-top: 12px; }
@@ -128,7 +126,6 @@
 .checkCopy { display: grid; min-width: 0; gap: 3px; }
 .checkCopy > strong { font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); overflow-wrap: anywhere; text-transform: var(--type-label-md-text-transform); }
 .checkCopy > span { color: var(--text); font: var(--type-label-md); letter-spacing: var(--type-label-md-letter-spacing); overflow-wrap: anywhere; text-transform: var(--type-label-md-text-transform); }
-.checkCopy > small,
 .checkStatus { color: var(--muted); font: var(--type-caption); letter-spacing: var(--type-caption-letter-spacing); text-transform: var(--type-caption-text-transform); }
 .checkStatus { padding-right: 4px; white-space: nowrap; }
 .checkRow[data-status="checked"] .checkStatus { color: var(--green); }

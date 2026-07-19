@@ -92,6 +92,14 @@ for (const role of ["type-title-sm", "type-label-md", "type-caption"]) assert.ok
 assert.doesNotMatch(page, />결과 손익</);
 assert.doesNotMatch(page, />과정 평가</);
 assert.doesNotMatch(page, /근거 기준시각/);
+assert.match(page, /const assessmentSummary = quotedCoachCopy\(assessment\.summary\)/);
+assert.match(page, /<strong>\{assessmentSummary \?\? "판단 데이터 부족"\}<\/strong>/);
+assert.match(page, /return unquoted \? `"\$\{unquoted\}"` : null/);
+for (const removedMetadata of ["캔들: 선택 사례", "파란선: 오늘 경로", "빨간점: 놓친 확인", "미래 예측 없음", "출처 없음", "기준시각 없음"]) {
+  assert.ok(!page.includes(removedMetadata), `page 1 must not render redundant chart or source metadata: ${removedMetadata}`);
+}
+assert.doesNotMatch(page, /item\.source|item\.sourceAsOf|activeMarker\.source|activeMarker\.sourceAsOf/);
+assert.doesNotMatch(pageStyles, /\.legend\b|\.checkCopy > small|\.tooltip small/);
 assert.doesNotMatch(page, /Metric label="종목 비중"/);
 assert.match(page, /className=\{styles\.ticker\}>\{trade\.symbol\}/);
 assert.doesNotMatch(page, /Metric label="다음 실적"/);
