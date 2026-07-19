@@ -1276,7 +1276,6 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
       })
       .catch((caught) => {
         if (controller.signal.aborted) return;
-        setResponse(null);
         setError(caught instanceof Error ? caught.message : "성과 데이터를 불러오지 못했습니다.");
       })
       .finally(() => {
@@ -1320,6 +1319,8 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
   const benchmarkPeriodReturn = benchmarkReturnPoints.at(-1)?.value ?? null;
   const latestPortfolioValue = portfolioValuePoints.at(-1)?.value ?? null;
   const latestNetPrincipal = principalPoints.at(-1)?.value ?? null;
+  const displayRange = response?.range ?? range;
+  const visibleWarning = response?.warnings[0] ?? "";
   const width = 720;
   const height = 300;
   const padding = { top: 16, right: 18, bottom: 34, left: 64 };
@@ -1351,11 +1352,14 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
   const hasChart = response?.status === "ready" && displayedPortfolioPoints.length >= 2;
 
   return (
-    <div className="portfolio-terminal-chart portfolio-performance-chart portfolio-performance-chart-v2">
-      {loading ? (
-        <div className="portfolio-chart-empty"><LoaderCircle size={18} className="spin" /><span>성과 추이를 불러오는 중입니다</span></div>
-      ) : error ? (
-        <div className="portfolio-chart-empty portfolio-error-inline"><span>{error}</span></div>
+    <div className="portfolio-terminal-chart portfolio-performance-chart portfolio-performance-chart-v2" aria-busy={loading || undefined}>
+      {loading && response == null ? (
+        <div className="portfolio-state-row portfolio-performance-state-row" role="status">
+          <LoaderCircle size={14} className="spin" />
+          <span>성과 추이를 불러오는 중입니다</span>
+        </div>
+      ) : error && response == null ? (
+        <div className="portfolio-state-row portfolio-performance-state-row portfolio-error-inline" role="alert"><span>{error}</span></div>
       ) : !hasChart ? (
         <div className="portfolio-chart-empty"><span>성과 이력이 두 시점 이상 쌓이면 표시합니다</span></div>
       ) : (
@@ -1379,22 +1383,34 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
                 <strong className={directionClass(benchmarkPeriodReturn)}>{formatSignedPercentPlain(benchmarkPeriodReturn)}</strong>
               </span>
             </div>
-            <div className="portfolio-performance-range-tabs" role="tablist" aria-label="성과 기간">
-              {portfolioPerformanceRanges.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={range === item.value}
-                  className={range === item.value ? "active" : ""}
-                  onClick={() => setRange(item.value)}
+            <div className="portfolio-performance-controls">
+              {(loading || error || visibleWarning) && (
+                <span
+                  className={`portfolio-performance-inline-state ${error ? "is-error" : visibleWarning && !loading ? "is-warning" : ""}`}
+                  role={error ? "alert" : "status"}
+                  title={error || visibleWarning || undefined}
                 >
-                  {item.label}
-                </button>
-              ))}
+                  {loading && <LoaderCircle size={13} className="spin" />}
+                  {loading ? "업데이트 중" : error || visibleWarning}
+                </span>
+              )}
+              <div className="portfolio-performance-range-tabs" role="tablist" aria-label="성과 기간">
+                {portfolioPerformanceRanges.map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={range === item.value}
+                    className={range === item.value ? "active" : ""}
+                    onClick={() => setRange(item.value)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-          <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={hasMoneyHistory ? `${range} 평가금, 투자 원금과 S&P 500 비교 평가금` : `${range} 포트폴리오와 S&P 500 수익률`}>
+          <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={hasMoneyHistory ? `${displayRange} 평가금, 투자 원금과 S&P 500 비교 평가금` : `${displayRange} 포트폴리오와 S&P 500 수익률`}>
             {yTicks.map((tick) => {
               const y = yFor(tick);
               return (
@@ -1427,7 +1443,7 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
             )}
             {xTicks.map((tick, index) => (
               <text key={`${tick}-${index}`} x={padding.left + chartWidth * (index / Math.max(xTicks.length - 1, 1))} y={height - 9} textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"} className="portfolio-terminal-axis-label">
-                {formatPerformanceDate(tick, range)}
+                {formatPerformanceDate(tick, displayRange)}
               </text>
             ))}
           </svg>

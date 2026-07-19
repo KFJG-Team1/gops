@@ -22,7 +22,7 @@ const renderer = read("../src/components/PanelContentRenderer.tsx");
 const panelLayout = read("../src/layout/panelLayout.ts");
 const frontendStyles = read("../src/styles.css");
 for (const label of ["당일 거래 회고", "장기 습관", "효과·보완 조건", "실행·알람 관리"]) assert.ok(shell.includes(label));
-assert.match(shell, /page === 0 \? "당일 거래" : PAGES\[page\]/);
+assert.match(shell, /page === 0 \? "최근 거래" : PAGES\[page\]/);
 assert.doesNotMatch(shell, />POST MARKET</);
 assert.doesNotMatch(shell, />AI 투자 코치</);
 assert.doesNotMatch(shell, /DEV FIXTURE<\/em>/);

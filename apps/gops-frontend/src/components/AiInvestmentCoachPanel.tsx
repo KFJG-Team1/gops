@@ -82,7 +82,7 @@ export function AiInvestmentCoachPanel({ runtimeId }: { runtimeId: string }) {
 
   return (
     <section className={styles.shell} aria-label="AI 투자 코치" data-page={page + 1}>
-      <header><strong>{page === 0 ? "당일 거래" : PAGES[page]}</strong></header>
+      <header><strong>{page === 0 ? "최근 거래" : PAGES[page]}</strong></header>
       <main ref={mainRef}><div className={styles.pageContent}>{content}</div></main>
       <footer>
         <button type="button" onClick={() => move(-1)} aria-label="이전 코칭"><ChevronLeft /></button>
