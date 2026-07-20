@@ -520,7 +520,7 @@ assert.match(patternPanelSource, /패턴 종목 검색/);
 assert.match(patternPanelSource, /활성 패턴이 있는 종목이 없습니다/);
 assert.match(patternPanelSource, /필터와 일치하는 종목이 없습니다/);
 const toggleSource = readFileSync(fileURLToPath(new URL("../src/components/ChartAnalysisLayerToggles.tsx", import.meta.url)), "utf-8");
-assert.match(toggleSource, /label="해석"/);
+assert.match(toggleSource, /label="근거"/);
 assert.match(toggleSource, /label="저항"/);
 assert.match(toggleSource, /accessibleLabel="지지·저항"/);
 assert.match(toggleSource, /label="추세"/);
