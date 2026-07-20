@@ -476,6 +476,8 @@ assert.match(semanticCatalogSource, /상승 페넌트/);
 assert.match(opsSource, /<th>감지 패턴<\/th>/);
 assert.match(opsSource, /formatDetectedPattern\(item\.primaryPattern\)/);
 const commentarySource = readFileSync(fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)), "utf-8");
+assert.match(commentarySource, /<StockLogo symbol=\{normalizedSymbol\}[^>]*className="chart-commentary-source-logo"/);
+assert.match(commentarySource, /className="chart-commentary-source-identity"/);
 assert.match(commentarySource, /buildChartCommentaryViewModel/);
 assert.match(commentarySource, /aria-pressed=\{pinned\}/);
 assert.match(commentarySource, /수치 근거 자세히/);
