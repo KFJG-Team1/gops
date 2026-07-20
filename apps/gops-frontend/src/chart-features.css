@@ -177,6 +177,7 @@
 }
 
 .chart-holding-price-marker {
+  appearance: none;
   position: absolute;
   z-index: 7;
   top: var(--chart-holding-price-y);
@@ -186,8 +187,13 @@
   width: var(--chart-holding-axis-width);
   height: 22px;
   align-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   transform: translateY(-50%);
-  cursor: help;
+  cursor: pointer;
   pointer-events: auto;
 }
 
