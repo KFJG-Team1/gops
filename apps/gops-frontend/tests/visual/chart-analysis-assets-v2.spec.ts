@@ -733,7 +733,7 @@ test("average purchase price marker stays in the right-side scale lane", async (
   showPaperHolding = true;
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel").first();
-  const marker = chart.locator(".chart-holding-price-marker");
+  const marker = chart.getByRole("button", { name: /NVDA 평균 매입가 \$164\.80 · 8주 주문창에 적용/ });
   await expect(marker).toBeVisible();
   await expect(marker).toHaveCSS("left", /px/);
   await expect(marker).toHaveCSS("width", /px/);
@@ -752,6 +752,10 @@ test("average purchase price marker stays in the right-side scale lane", async (
   const tooltip = marker.locator(".chart-holding-price-tooltip");
   await expect(tooltip).toBeVisible();
   await expect(tooltip).toHaveCSS("opacity", "1");
+  await marker.press("Enter");
+  const quickOrder = page.locator(".quick-order-panel");
+  await expect(quickOrder.getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("164.80");
+  await expect(quickOrder.getByLabel("주문 수량 직접 입력")).toHaveValue("3");
   await chart.screenshot({ path: testInfo.outputPath("average-purchase-price-marker.png") });
 });
 
