@@ -701,6 +701,11 @@ export function isLikelyPresetLoadPrompt(
   });
 }
 
+export function directAgentPresetIdForPrompt(prompt: string): DefaultPresetId | null {
+  const normalizedPrompt = compactPresetPrompt(prompt).replace(/[.!?。！？]+$/g, "");
+  return normalizedPrompt === "오늘의추천종목보여줘" ? "market" : null;
+}
+
 export function applyLayoutLoadProposalToPresets(
   proposal: AgentLayoutProposal,
   presets: readonly LayoutPreset[],
