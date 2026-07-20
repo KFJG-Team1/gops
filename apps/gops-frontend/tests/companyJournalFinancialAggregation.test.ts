@@ -123,7 +123,6 @@ assert.deepEqual(
   ],
   "stored evidence must supplement, not truncate, the full valuation price history"
 );
-
 const marketCandles = [
   { timestamp: "2024-07-01T00:00:00.000Z", open: 100, high: 101, low: 99, close: 100, volume: 10, isClosed: true },
   { timestamp: "2024-07-02T00:00:00.000Z", open: 100, high: 103, low: 99, close: 102, volume: 12, isClosed: true },
@@ -329,6 +328,16 @@ for (const glossaryId of ["current_ratio", "interest_coverage", "net_debt", "bps
 const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 const journalPanelSource = await readFile(new URL("../src/components/CompanyJournalPanel.tsx", import.meta.url), "utf8");
 const journalSummarySource = await readFile(new URL("../src/components/CompanyJournalSummaryPanel.tsx", import.meta.url), "utf8");
+assert.match(
+  journalPanelSource,
+  /mergeCompanyJournalValuationPrices\([\s\S]*?storedEvidence\?\.valuationPriceSeries \?\? \[\][\s\S]*?storedPerformanceSeries/,
+  "SIM valuation must merge fiscal period-end prices with the two-year performance series"
+);
+assert.match(
+  journalPanelSource,
+  /companyJournalPreviewEnabled\(\) && simulatorMode !== "simulation"/,
+  "SIM must never render DEV preview financial fixtures"
+);
 assert.match(styles, /\.company-journal-body \{[\s\S]*?grid-template-columns: minmax\(0, 2fr\) minmax\(340px, 1fr\)/);
 assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-body[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
 assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-reading[\s\S]*?overflow: visible/);

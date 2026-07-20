@@ -1318,7 +1318,7 @@ function PortfolioAllocationDonut({ slices }: { slices: AllocationSlice[] }) {
 }
 
 function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | number }) {
-  const [range, setRange] = useState<PortfolioPerformanceRange>("1M");
+  const [range, setRange] = useState<PortfolioPerformanceRange>("ALL");
   const [response, setResponse] = useState<PortfolioPerformanceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

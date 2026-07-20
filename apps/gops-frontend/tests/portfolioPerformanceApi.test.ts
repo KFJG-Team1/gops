@@ -47,7 +47,9 @@ const componentSource = await readFile(new URL("../src/components/PortfolioHoldi
 const styles = await readFile(new URL("../src/components/PortfolioPerformanceChart.css", import.meta.url), "utf8");
 assert.match(componentSource, /buildPortfolioPrincipalBands\(displayedPortfolioPoints, displayedPrincipalPoints\)/);
 assert.match(componentSource, /portfolio-performance-principal-band is-\$\{band\.tone\}/);
-assert.match(styles, /\.portfolio-performance-principal-band\.is-principal-above[\s\S]*?var\(--color-signal\) 22%/);
-assert.match(styles, /\.portfolio-performance-principal-band\.is-portfolio-above[\s\S]*?var\(--color-down\) 18%/);
+assert.match(componentSource, /useState<PortfolioPerformanceRange>\("ALL"\)/);
+assert.match(styles, /\.portfolio-performance-panel-v2 \.portfolio-split-header strong \{[\s\S]*?font: var\(--type-title-sm\)/);
+assert.match(styles, /\.portfolio-performance-principal-band\.is-principal-above[\s\S]*?var\(--color-down\) 18%/);
+assert.match(styles, /\.portfolio-performance-principal-band\.is-portfolio-above[\s\S]*?var\(--color-up\) 18%/);
 
 console.log("portfolio performance API tests passed");

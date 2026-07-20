@@ -14,6 +14,7 @@ import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } fro
 import {
   CompanyJournalAnalystOpinionPanel,
   CompanySummaryPanel,
+  mergeCompanyJournalValuationPrices,
   type CompanyJournalEvidence,
   type CompanyPanelView,
   type FinancialPeriodMode,
@@ -234,9 +235,9 @@ export function CompanyJournalPanel({
   items = []
 }: CompanyJournalPanelProps) {
   const normalizedSymbol = symbol.trim().toUpperCase();
-  const previewEnabled = companyJournalPreviewEnabled();
   const [simulatorStatus, setSimulatorStatus] = useState<SimulatorStatus | null>(() => latestSimulatorStatus());
   const simulatorMode = simulatorStatus?.mode ?? "live";
+  const previewEnabled = companyJournalPreviewEnabled() && simulatorMode !== "simulation";
   const journalRequestKey = companyJournalRequestKey(simulatorStatus);
   const resolvedItem = useMemo(
     () => previewEnabled
@@ -264,11 +265,14 @@ export function CompanyJournalPanel({
     })).filter((series) => series.symbol === normalizedSymbol || series.symbol === "SPY" || series.symbol === sectorSymbol);
   }, [effectiveItem?.industry, effectiveItem?.sector, normalizedSymbol, storedEvidence?.performanceSeries]);
   const storedValuationPrices = useMemo<ValuationPricePoint[]>(() => (
-    storedPerformanceSeries.find((series) => series.symbol === normalizedSymbol)?.candles.map((candle) => ({
-      timestamp: candle.timestamp,
-      close: candle.close
-    })) ?? []
-  ), [normalizedSymbol, storedPerformanceSeries]);
+    mergeCompanyJournalValuationPrices(
+      storedEvidence?.valuationPriceSeries ?? [],
+      storedPerformanceSeries.find((series) => series.symbol === normalizedSymbol)?.candles.map((candle) => ({
+        timestamp: candle.timestamp,
+        close: candle.close
+      })) ?? []
+    )
+  ), [normalizedSymbol, storedEvidence?.valuationPriceSeries, storedPerformanceSeries]);
   const [activeView, setActiveView] = useState<CompanyJournalView>("earnings");
   const [focusedValuationMetric, setFocusedValuationMetric] = useState<string | null>(null);
   const [focusedStabilityMetric, setFocusedStabilityMetric] = useState<string | null>(null);
