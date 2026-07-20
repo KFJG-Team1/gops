@@ -59,6 +59,7 @@ try {
       financialSeries: [],
       earningsSeries: [],
       performanceSeries: [],
+      valuationPriceSeries: [{ timestamp: "2021-12-30", close: 29.41 }],
       analystSummary,
       missingData: []
     }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -66,6 +67,7 @@ try {
   const response = await fetchCompanyJournalEvidence("NVDA", ["SPY", "XLK"]);
   assert.deepEqual(response.analystSummary, analystSummary);
   assert.equal(response.contractVersion, "company-journal-evidence.v1");
+  assert.deepEqual(response.valuationPriceSeries, [{ timestamp: "2021-12-30", close: 29.41 }]);
   assert.equal("currentProjectionSources" in response, false);
 } finally {
   globalThis.fetch = originalFetch;

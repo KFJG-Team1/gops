@@ -176,6 +176,98 @@ const watchAsset: ChartAnalysisAsset = {
 };
 assert.deepEqual(buildTradeTimingDrawings(watchAsset, candles), []);
 
+const simulationDemoCandles = [
+  { timestamp: "2026-07-11T04:00:00.000Z", open: 188, high: 191, low: 187, close: 190, volume: 1_000, isClosed: true },
+  { timestamp: "2026-07-14T04:00:00.000Z", open: 191, high: 209, low: 190, close: 208, volume: 500, isClosed: false }
+];
+const simulationDemoPattern = {
+  id: "1D:pattern:nvda-demo-wedge",
+  kind: "falling_wedge" as const,
+  state: "confirmed" as const,
+  bias: "bullish" as const,
+  breakoutDirection: "up" as const,
+  score: .8,
+  touches: 5,
+  geometryHash: "nvda-demo-wedge",
+  upper: {
+    start: { timestamp: simulationDemoCandles[0].timestamp, price: 220 },
+    end: { timestamp: simulationDemoCandles[1].timestamp, price: 190 }
+  },
+  lower: {
+    start: { timestamp: simulationDemoCandles[0].timestamp, price: 200 },
+    end: { timestamp: simulationDemoCandles[1].timestamp, price: 180 }
+  }
+};
+const simulationDemoPatternDrawingIds = ["upper", "lower"].map(
+  (boundary) => `chart-asset:NVDA:1D:nvda-demo-wedge-${boundary}`
+);
+const simulationDemoAsset: ChartAnalysisAsset = {
+  ...asset,
+  symbol: "NVDA",
+  interval: "1D",
+  sourceInterval: "1D",
+  asOf: simulationDemoCandles[1].timestamp,
+  generatedAt: simulationDemoCandles[1].timestamp,
+  geometry: {
+    ...asset.geometry,
+    drawings: simulationDemoPatternDrawingIds.map((id, index) => ({
+      id,
+      type: "trendLine" as const,
+      anchors: index === 0
+        ? [simulationDemoPattern.upper.start, simulationDemoPattern.upper.end]
+        : [simulationDemoPattern.lower.start, simulationDemoPattern.lower.end],
+      symbol: "NVDA",
+      interval: "1D" as const,
+      sourceInterval: "1D" as const,
+      style: {},
+      visible: true,
+      createdBy: "system" as const,
+      sourceProposalId: "chart-asset:NVDA:1D:geometry",
+      createdAt: simulationDemoCandles[1].timestamp,
+      updatedAt: simulationDemoCandles[1].timestamp
+    })),
+    supports: [],
+    resistances: [],
+    patterns: [simulationDemoPattern],
+    primaryPattern: simulationDemoPattern,
+    drawingGroups: { levels: [], trend: [], pattern: simulationDemoPatternDrawingIds },
+    tradePlan: {
+      ...asset.geometry.tradePlan!,
+      symbol: "NVDA",
+      interval: "1D",
+      patternId: simulationDemoPattern.id,
+      patternKind: "falling_wedge",
+      signalAt: simulationDemoCandles[1].timestamp,
+      entryPrice: 208,
+      entryTrigger: 190,
+      stopPrice: 180,
+      targetPrice: 210,
+      rewardRiskRatio: .0714,
+      minimumRewardRisk: .0714,
+      reasons: ["confirmed_upward_breakout", "simulation_demo_reward_risk_override"]
+    }
+  }
+};
+assert.equal(
+  buildTradeTimingDrawings(simulationDemoAsset, simulationDemoCandles).length,
+  2,
+  "the scoped NVDA simulator demo can project its proposal on the active replay candle"
+);
+assert.deepEqual(
+  buildTradeTimingDrawings({
+    ...simulationDemoAsset,
+    geometry: {
+      ...simulationDemoAsset.geometry,
+      tradePlan: {
+        ...simulationDemoAsset.geometry.tradePlan!,
+        reasons: ["confirmed_upward_breakout"]
+      }
+    }
+  }, simulationDemoCandles),
+  [],
+  "ordinary confirmed plans still require a completed signal candle"
+);
+
 const levelAsset: ChartAnalysisAsset = {
   ...watchAsset,
   interval: "1D",

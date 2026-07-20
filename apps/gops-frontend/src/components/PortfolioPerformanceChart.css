@@ -16,8 +16,9 @@
 }
 
 .portfolio-performance-panel-v2 .portfolio-split-header strong {
-  font-size: clamp(22px, 3.2cqw, 30px);
-  line-height: 1.1;
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
 }
 
 .portfolio-performance-chart.portfolio-performance-chart-v2 {
@@ -111,11 +112,11 @@
 }
 
 .portfolio-performance-chart-v2 .portfolio-performance-principal-band.is-principal-above {
-  fill: color-mix(in srgb, var(--color-signal) 22%, transparent);
+  fill: color-mix(in srgb, var(--color-down) 18%, transparent);
 }
 
 .portfolio-performance-chart-v2 .portfolio-performance-principal-band.is-portfolio-above {
-  fill: color-mix(in srgb, var(--color-down) 18%, transparent);
+  fill: color-mix(in srgb, var(--color-up) 18%, transparent);
 }
 
 .portfolio-performance-chart-v2 .portfolio-performance-return-line.portfolio {

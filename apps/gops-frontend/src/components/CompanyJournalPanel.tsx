@@ -14,6 +14,7 @@ import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } fro
 import {
   CompanyJournalAnalystOpinionPanel,
   CompanySummaryPanel,
+  mergeCompanyJournalValuationPrices,
   type CompanyJournalEvidence,
   type CompanyPanelView,
   type FinancialPeriodMode,
@@ -234,9 +235,9 @@ export function CompanyJournalPanel({
   items = []
 }: CompanyJournalPanelProps) {
   const normalizedSymbol = symbol.trim().toUpperCase();
-  const previewEnabled = companyJournalPreviewEnabled();
   const [simulatorStatus, setSimulatorStatus] = useState<SimulatorStatus | null>(() => latestSimulatorStatus());
   const simulatorMode = simulatorStatus?.mode ?? "live";
+  const previewEnabled = companyJournalPreviewEnabled() && simulatorMode !== "simulation";
   const journalRequestKey = companyJournalRequestKey(simulatorStatus);
   const resolvedItem = useMemo(
     () => previewEnabled
@@ -264,18 +265,21 @@ export function CompanyJournalPanel({
     })).filter((series) => series.symbol === normalizedSymbol || series.symbol === "SPY" || series.symbol === sectorSymbol);
   }, [effectiveItem?.industry, effectiveItem?.sector, normalizedSymbol, storedEvidence?.performanceSeries]);
   const storedValuationPrices = useMemo<ValuationPricePoint[]>(() => (
-    storedPerformanceSeries.find((series) => series.symbol === normalizedSymbol)?.candles.map((candle) => ({
-      timestamp: candle.timestamp,
-      close: candle.close
-    })) ?? []
-  ), [normalizedSymbol, storedPerformanceSeries]);
+    mergeCompanyJournalValuationPrices(
+      storedEvidence?.valuationPriceSeries ?? [],
+      storedPerformanceSeries.find((series) => series.symbol === normalizedSymbol)?.candles.map((candle) => ({
+        timestamp: candle.timestamp,
+        close: candle.close
+      })) ?? []
+    )
+  ), [normalizedSymbol, storedEvidence?.valuationPriceSeries, storedPerformanceSeries]);
   const [activeView, setActiveView] = useState<CompanyJournalView>("earnings");
   const [focusedValuationMetric, setFocusedValuationMetric] = useState<string | null>(null);
   const [focusedStabilityMetric, setFocusedStabilityMetric] = useState<string | null>(null);
   const [focusedFinancialMetric, setFocusedFinancialMetric] = useState<string | null>(null);
   const [focusedFinancialYear, setFocusedFinancialYear] = useState<number | null>(null);
   const [comparisonFinancialYear, setComparisonFinancialYear] = useState<number | null>(null);
-  const [financialPeriodMode, setFinancialPeriodMode] = useState<FinancialPeriodMode>("quarterly");
+  const financialPeriodMode: FinancialPeriodMode = activeView === "earnings" ? "quarterly" : "annual";
   const [selectedInsightId, setSelectedInsightId] = useState("");
   const [journalReport, setJournalReport] = useState<CompanyJournalReport | null>(null);
   const [journalStatus, setJournalStatus] = useState<CompanyJournalStatus>(
@@ -376,10 +380,15 @@ export function CompanyJournalPanel({
     [activeView, diagnosis, effectiveItem, evidence]
   );
   const selectedInsight = readingInsights.find((insight) => insight.id === selectedInsightId);
-  const hasExplicitFocus = Boolean(focusedFinancialMetric || focusedValuationMetric || focusedStabilityMetric);
-  const activeEvidenceTargets = hasExplicitFocus || !selectedInsight
-    ? []
-    : readingEvidenceTargets(activeView, selectedInsight.id);
+  const focusedEvidenceTargets = journalMetricEvidenceTargets(
+    activeView,
+    focusedFinancialMetric ?? focusedValuationMetric ?? focusedStabilityMetric
+  );
+  const activeEvidenceTargets = focusedEvidenceTargets.length > 0
+    ? focusedEvidenceTargets
+    : selectedInsight
+      ? readingEvidenceTargets(activeView, selectedInsight)
+      : [];
   const clearMetricFocus = useCallback(() => {
     setFocusedValuationMetric(null);
     setFocusedStabilityMetric(null);
@@ -387,13 +396,8 @@ export function CompanyJournalPanel({
     setFocusedFinancialYear(null);
     setComparisonFinancialYear(null);
   }, []);
-  const changeFinancialPeriodMode = useCallback((mode: FinancialPeriodMode) => {
-    clearMetricFocus();
-    setFinancialPeriodMode(mode);
-  }, [clearMetricFocus]);
   const selectView = useCallback((view: CompanyJournalView) => {
     setActiveView(view);
-    if (view === "earnings") setFinancialPeriodMode("quarterly");
     clearMetricFocus();
     setSelectedInsightId("");
   }, [clearMetricFocus]);
@@ -407,7 +411,6 @@ export function CompanyJournalPanel({
     setFocusedFinancialMetric(target.financialMetric ?? target.stabilityMetric ?? target.valuationMetric ?? null);
     setFocusedFinancialYear(years[0] ?? null);
     setComparisonFinancialYear(years[1] ?? null);
-    if (years.length > 0) setFinancialPeriodMode("annual");
     return true;
   }, []);
   const selectReadingTarget = useCallback((target: CompanyJournalReadingTarget, insightId: string) => {
@@ -418,14 +421,13 @@ export function CompanyJournalPanel({
     setFocusedFinancialMetric(target.metric);
     setFocusedFinancialYear(target.years[0] ?? null);
     setComparisonFinancialYear(target.years[1] ?? null);
-    if (target.years.length > 0) setFinancialPeriodMode("annual");
     setSelectedInsightId(insightId);
   }, []);
   const highlightInsight = useCallback((insight: CompanyJournalReadingSection) => {
     const opening = selectedInsightId !== insight.id;
     setSelectedInsightId(opening ? insight.id : "");
     if (!opening) return;
-    const primaryTarget = readingEvidenceTargets(activeView, insight.id)[0];
+    const primaryTarget = readingEvidenceTargets(activeView, insight)[0];
     if (!primaryTarget) return;
     window.requestAnimationFrame(() => {
       const target = evidencePanelRef.current?.querySelector(`[data-journal-mark="${primaryTarget}"]`);
@@ -533,12 +535,6 @@ export function CompanyJournalPanel({
             );
           })}
         </div>
-        {activeView !== "earnings" && (
-          <div className="company-journal-period-toggle" role="group" aria-label="재무 표시 기간">
-            <button type="button" aria-pressed={financialPeriodMode === "annual"} onClick={() => changeFinancialPeriodMode("annual")}>연간</button>
-            <button type="button" aria-pressed={financialPeriodMode === "quarterly"} onClick={() => changeFinancialPeriodMode("quarterly")}>분기</button>
-          </div>
-        )}
       </div>
 
       <div className="company-journal-body">
@@ -564,6 +560,7 @@ export function CompanyJournalPanel({
                 disableRemoteFetch={simulatorMode === "simulation"}
               />
               <CompanySummaryPanel
+                key={`${journalRequestKey}:${normalizedSymbol}:earnings`}
                 symbol={normalizedSymbol}
                 item={effectiveItem}
                 items={simulatorMode === "simulation" ? [] : items}
@@ -577,7 +574,6 @@ export function CompanyJournalPanel({
                 focusedFinancialYear={focusedFinancialYear}
                 comparisonFinancialYear={comparisonFinancialYear}
                 financialPeriodMode={financialPeriodMode}
-                onFinancialPeriodModeChange={setFinancialPeriodMode}
                 onFinancialSelectionChange={clearMetricFocus}
                 analystActions={displayedAnalystActions}
                 showAnalystOpinion={false}
@@ -585,6 +581,7 @@ export function CompanyJournalPanel({
             </div>
           ) : (
             <CompanySummaryPanel
+              key={`${journalRequestKey}:${normalizedSymbol}:${activeView}`}
               symbol={normalizedSymbol}
               item={effectiveItem}
               items={simulatorMode === "simulation" ? [] : items}
@@ -601,7 +598,6 @@ export function CompanyJournalPanel({
               focusedFinancialYear={focusedFinancialYear}
               comparisonFinancialYear={comparisonFinancialYear}
               financialPeriodMode={financialPeriodMode}
-              onFinancialPeriodModeChange={setFinancialPeriodMode}
               onFinancialSelectionChange={clearMetricFocus}
             />
           )}
@@ -845,16 +841,46 @@ export function financialYearsForContext(context: GlossarySelectionContext): num
   return Array.from(new Set(matches.map((match) => match.year))).slice(0, 2);
 }
 
-function readingEvidenceTargets(view: CompanyJournalView, insightId: string): JournalEvidenceTarget[] {
+export function readingEvidenceTargets(
+  view: CompanyJournalView,
+  insight: Pick<CompanyJournalReadingSection, "id" | "links">
+): JournalEvidenceTarget[] {
   if (view === "earnings") {
-    if (insightId === "current-flow" || insightId === "judgment") return ["earnings-latest", "market-latest"];
-    if (insightId === "strengths") return ["earnings-latest", "profitability-latest"];
-    if (insightId === "risks") return ["valuation-latest", "stability-ratios-latest"];
+    if (insight.id === "current-flow" || insight.id === "judgment") return ["earnings-latest", "market-latest"];
+    if (insight.id === "strengths") return ["earnings-latest", "profitability-latest"];
+    if (insight.id === "risks") return ["valuation-latest", "stability-ratios-latest"];
     return [];
   }
-  if (view === "valuation") return insightId === "judgment" ? ["per-share-latest", "valuation-latest"] : ["valuation-latest"];
-  if (view === "profitability") return insightId === "judgment" ? ["profitability-latest", "returns-latest"] : ["profitability-latest"];
-  return insightId === "judgment" ? ["stability-capital-latest", "stability-ratios-latest"] : ["stability-ratios-latest"];
+  const linkedTargets = Array.from(new Set(
+    insight.links.flatMap((link) => journalMetricEvidenceTargets(link.view, link.metric))
+  ));
+  if (linkedTargets.length > 0) return linkedTargets;
+  if (view === "valuation") return insight.id === "judgment" ? ["per-share-latest", "valuation-latest"] : ["valuation-latest"];
+  if (view === "profitability") return insight.id === "judgment" ? ["profitability-latest", "returns-latest"] : ["profitability-latest"];
+  return insight.id === "judgment" ? ["stability-capital-latest", "stability-ratios-latest"] : ["stability-ratios-latest"];
+}
+
+export function journalMetricEvidenceTargets(
+  view: CompanyJournalView,
+  metric: string | null | undefined
+): JournalEvidenceTarget[] {
+  if (!metric) return [];
+  if (view === "valuation") {
+    return ["eps", "bps", "sps", "cps"].includes(metric)
+      ? ["per-share-latest"]
+      : ["valuation-latest"];
+  }
+  if (view === "profitability") {
+    return ["revenue", "operating-margin", "net-margin"].includes(metric)
+      ? ["profitability-latest"]
+      : ["returns-latest"];
+  }
+  if (view === "stability") {
+    return ["equity", "liabilities", "debt-ratio"].includes(metric)
+      ? ["stability-capital-latest"]
+      : ["stability-ratios-latest"];
+  }
+  return metric === "market" ? ["market-latest"] : ["earnings-latest"];
 }
 
 export function buildJournalInsights({

@@ -34,6 +34,7 @@ const poleTargetKinds = new Set<GeometryPatternKind>([
   "bearish_pennant"
 ]);
 const defaultProjectionBars = 10;
+const simulationDemoRewardRiskOverrideReason = "simulation_demo_reward_risk_override";
 
 export type ChartTradeSetupPriceSource = {
   label: string;
@@ -109,10 +110,11 @@ export function projectChartTradeSetup(
   if (!asset || asset.sourceInterval !== asset.interval) return null;
   const latestLogicalIndex = latestClosedCandleIndex(candles);
   const latest = latestLogicalIndex >= 0 ? candles[latestLogicalIndex] : undefined;
-  const asOfIndex = findCandleIndex(candles, asset.asOf, asset.interval);
+  const allowOpenDemoCandle = isNvdaSimulationDemoPlan(asset);
+  const asOfIndex = findCandleIndex(candles, asset.asOf, asset.interval, allowOpenDemoCandle);
   if (!latest || !positive(latest.close) || asOfIndex < 0) return null;
 
-  return patternSetup(asset, candles, latest.close, asOfIndex)
+  return patternSetup(asset, candles, latest.close, asOfIndex, allowOpenDemoCandle)
     ?? levelSetup(asset, latest.close, latestLogicalIndex)
     ?? channelSetup(asset, candles, latest.close, latestLogicalIndex)
     ?? referenceSetup(asset, candles, latest.close, latestLogicalIndex);
@@ -122,7 +124,8 @@ function patternSetup(
   asset: ChartAnalysisAsset,
   candles: CandleDto[],
   currentPrice: number,
-  asOfIndex: number
+  asOfIndex: number,
+  allowOpenDemoCandle: boolean
 ): ChartTradeSetup | null {
   const pattern = primaryPattern(asset);
   if (!pattern || (pattern.state !== "forming" && pattern.state !== "confirmed")) return null;
@@ -139,7 +142,7 @@ function patternSetup(
     if (!plan || !completeDisplayedPlan(plan) || !planMatchesPattern(plan, pattern, asset) || plan.action !== action) {
       return null;
     }
-    signalIndex = findCandleIndex(candles, plan.signalAt, asset.interval);
+    signalIndex = findCandleIndex(candles, plan.signalAt, asset.interval, allowOpenDemoCandle);
     if (signalIndex < 0) return null;
     sourceKind = "confirmed";
     signalAt = candles[signalIndex]?.timestamp ?? null;
@@ -671,12 +674,24 @@ function completeDisplayedPlan(plan: GeometryTradePlan): plan is GeometryTradePl
     && [plan.entryTrigger, plan.entryPrice, plan.stopPrice, plan.targetPrice, plan.rewardRiskRatio].every(positive);
 }
 
-function findCandleIndex(candles: CandleDto[], timestamp: string, interval: AnalysisAssetInterval): number {
-  const exact = candles.findIndex((candle) => candle.timestamp === timestamp && candle.isClosed !== false);
+function findCandleIndex(
+  candles: CandleDto[],
+  timestamp: string,
+  interval: AnalysisAssetInterval,
+  allowOpenCandle = false
+): number {
+  const eligible = (candle: CandleDto) => allowOpenCandle || candle.isClosed !== false;
+  const exact = candles.findIndex((candle) => candle.timestamp === timestamp && eligible(candle));
   if (exact >= 0) return exact;
   if (interval !== "1D" && interval !== "1W") return -1;
   const date = timestamp.slice(0, 10);
-  return candles.findIndex((candle) => candle.isClosed !== false && candle.timestamp.slice(0, 10) === date);
+  return candles.findIndex((candle) => eligible(candle) && candle.timestamp.slice(0, 10) === date);
+}
+
+function isNvdaSimulationDemoPlan(asset: ChartAnalysisAsset): boolean {
+  return asset.symbol.trim().toUpperCase() === "NVDA"
+    && asset.interval === "1D"
+    && asset.geometry.tradePlan?.reasons.includes(simulationDemoRewardRiskOverrideReason) === true;
 }
 
 function latestClosedCandleIndex(candles: CandleDto[]): number {

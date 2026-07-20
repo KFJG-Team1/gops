@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fetchStockRecommendations, suggestScoreProfile } from "../src/recommendations/recommendationApi";
+import { fetchScoreProfiles, fetchStockRecommendations, suggestScoreProfile } from "../src/recommendations/recommendationApi";
 import { suggestionRationaleSummary } from "../src/recommendations/ScoreProfileManager";
 
 const item = {
@@ -92,6 +92,16 @@ assert.deepEqual(normalized.items[0].explanation?.provenance.usedCompanyRefs, ["
 responsePayload = { status: "ready", items: [{ ...item, cautions: undefined }] };
 const compatible = await fetchStockRecommendations();
 assert.deepEqual(compatible.items[0].cautions, []);
+
+responsePayload = {
+  presets: [
+    { type: "preset", name: "균형", presetStyle: "balanced" },
+    { type: "preset", name: "안정", presetStyle: "stable" }
+  ],
+  customProfiles: []
+};
+const scoreProfiles = await fetchScoreProfiles();
+assert.equal(scoreProfiles.active.presetStyle, "stable");
 
 responsePayload = {
   status: "ready",

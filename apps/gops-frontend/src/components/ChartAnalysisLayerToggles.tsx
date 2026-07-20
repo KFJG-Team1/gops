@@ -24,7 +24,7 @@ export function ChartAnalysisLayerToggles({
   return (
     <div className={`chart-analysis-layer-controls is-${variant}`} aria-label="차트 분석 레이어">
       <div className="chart-analysis-layer-buttons">
-        <LayerButton layer="interpretation" label="해석" visibility={visibility} disabled={disabled} onToggle={onToggle} interpretationMode={interpretationMode} remote={variant === "remote"} />
+        <LayerButton layer="interpretation" label="근거" visibility={visibility} disabled={disabled} onToggle={onToggle} interpretationMode={interpretationMode} remote={variant === "remote"} />
         <LayerButton layer="levels" label="저항" accessibleLabel="지지·저항" visibility={visibility} disabled={disabled} onToggle={onToggle} remote={variant === "remote"} />
         <LayerButton layer="trend" label="추세" visibility={visibility} disabled={disabled} onToggle={onToggle} remote={variant === "remote"} />
         <LayerButton layer="pattern" label="패턴" visibility={visibility} disabled={disabled} onToggle={onToggle} remote={variant === "remote"} />
@@ -33,7 +33,7 @@ export function ChartAnalysisLayerToggles({
       {showMeta && (loadError ? <span className="chart-analysis-asof is-error" role="status">{loadError}</span> : asOf ? <span className={`chart-analysis-asof ${freshness?.state === "source_invalid" ? "is-stale" : freshness?.state === "outdated_snapshot" ? "is-outdated" : ""}`}>
         {contextLabel} {formatAnalysisAssetAsOf(asOf)}
         {freshness?.state === "source_invalid" ? " · 데이터 불일치" : freshness?.state === "outdated_snapshot" ? ` · ${freshness.lagBars}봉 전` : ""}
-        {interpretationMode === "complete" ? " · 해석 유력 후보" : interpretationMode === "bounded" ? " · 해석 일부 후보" : interpretationMode === "legacy" ? " · 해석 근거만 · 재생성 필요" : ""}
+        {interpretationMode === "complete" ? " · 근거 유력 후보" : interpretationMode === "bounded" ? " · 근거 일부 후보" : interpretationMode === "legacy" ? " · 근거만 · 재생성 필요" : ""}
         {interpretationMode === "complete" && candidateCounts ? ` · 유력 후보 ${candidateCounts.visible}/${candidateCounts.total} · 전체 ${candidateCounts.stored}` : ""}
       </span> : <span className="chart-analysis-asof" role="status">{emptyStatus ?? analysisAssetLoadStatusText(loadPhase)}</span>)}
     </div>

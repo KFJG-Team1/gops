@@ -58,8 +58,8 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(chart.locator(".chart-analysis-layer-controls")).toBeVisible();
   await expect(chart.locator(".chart-analysis-layer-controls svg")).toHaveCount(0);
   await expect(page.locator(".chart-analysis-layer-state")).toHaveCount(0);
-  await expect(chart.locator(".chart-analysis-asof")).toContainText(/해석 유력 후보 · 유력 후보 \d+\/2 · 전체 4/);
-  const interpretationToggle = page.getByRole("button", { name: "해석 분석 레이어 켜기" });
+  await expect(page.locator(".chart-analysis-asof")).toContainText(/근거 유력 후보 · 유력 후보 \d+\/2 · 전체 4/);
+  const interpretationToggle = page.getByRole("button", { name: "근거 분석 레이어 켜기" });
   const levelsToggle = page.getByRole("button", { name: /^지지·저항 분석 레이어 (?:켜기|끄기)$/ });
   const trendToggle = page.getByRole("button", { name: /^추세 분석 레이어 (?:켜기|끄기)$/ });
   const patternToggle = page.getByRole("button", { name: /^패턴 분석 레이어 (?:켜기|끄기)$/ });
@@ -181,7 +181,7 @@ test("five analysis layers render independently with commentary focus and cards"
   await page.getByRole("button", { name: "제안 분석 레이어 끄기" }).click();
 
   await interpretationToggle.click();
-  await expect(page.getByRole("button", { name: "해석 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "근거 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
 
   await evidenceStep.hover();
   await evidenceStep.focus();
@@ -294,8 +294,8 @@ test("interpretation alone keeps broad final underlays and shortlisted candidate
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
   await chart.hover();
-  await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
-  await expect(page.getByRole("button", { name: "해석 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "근거 분석 레이어 켜기" }).click();
+  await expect(page.getByRole("button", { name: "근거 분석 레이어 끄기" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "제안 분석 레이어 켜기" })).toHaveAttribute("aria-pressed", "false");
   await expect(chart.locator(".chart-primary-pattern-badge")).toHaveCount(0);
   await expect(chart).toHaveScreenshot("chart-assets-interpretation-only-underlays.png", { maxDiffPixelRatio: 0.015, timeout: 15_000 });
@@ -306,7 +306,7 @@ test("final analysis strokes sit above their interpretation underlays", async ({
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
   await chart.hover();
-  await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
+  await page.getByRole("button", { name: "근거 분석 레이어 켜기" }).click();
   await page.getByRole("button", { name: "지지·저항 분석 레이어 켜기" }).click();
   await page.getByRole("button", { name: "추세 분석 레이어 켜기" }).click();
   await page.getByRole("button", { name: "패턴 분석 레이어 켜기" }).click();
@@ -322,7 +322,7 @@ test("commentary focus highlights evidence and card clicks toggle the final laye
   const chart = page.locator(".chart-panel");
   await expect(chart).toHaveAttribute("data-chart-candle-count", "140");
   await chart.hover();
-  await page.getByRole("button", { name: "해석 분석 레이어 켜기" }).click();
+  await page.getByRole("button", { name: "근거 분석 레이어 켜기" }).click();
   const focusButtons = page.locator(".chart-commentary-focus button");
   await expect(focusButtons).toHaveCount(3);
   await focusButtons.nth(0).hover();
