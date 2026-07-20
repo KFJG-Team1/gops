@@ -97,6 +97,7 @@ assert.equal(annual[0]?.sharesOutstanding, 5);
 assert.equal(annual[0]?.debtRatio, 0.6);
 assert.equal(annual[0]?.currentRatio, 3);
 assert.equal(annual[0]?.netDebt, 5);
+
 assert.equal(
   totalLiabilitiesFor({ period: "2025FY", totalAssets: 211_429, totalEquity: 114_281 }),
   97_148,
@@ -398,9 +399,9 @@ assert.match(journalPanelSource, /focusedFinancialYear/);
 assert.match(journalPanelSource, /comparisonFinancialYear/);
 assert.match(journalPanelSource, /selectReadingTarget/);
 assert.match(journalPanelSource, /onFinancialSelectionChange=\{clearMetricFocus\}/);
-assert.match(journalPanelSource, /useState<FinancialPeriodMode>\("quarterly"\)/);
-assert.match(journalPanelSource, /if \(view === "earnings"\) setFinancialPeriodMode\("quarterly"\)/);
-assert.match(journalPanelSource, /activeView !== "earnings" &&/);
+assert.match(journalPanelSource, /financialPeriodMode: FinancialPeriodMode = activeView === "earnings" \? "quarterly" : "annual"/);
+assert.doesNotMatch(journalPanelSource, /company-journal-period-toggle/);
+assert.doesNotMatch(journalPanelSource, /setFinancialPeriodMode/);
 assert.doesNotMatch(journalPanelSource, /previewEnabled \|\| hasStoredCompanyEvidence/);
 assert.match(journalSummarySource, /data-journal-stability-focus/);
 assert.match(journalSummarySource, /data-journal-financial-metric/);
@@ -409,9 +410,30 @@ assert.match(journalSummarySource, /focus\?\.periods\.includes/);
 assert.match(journalSummarySource, /comparisonPeriod/);
 assert.match(journalSummarySource, /onFinancialSelectionChange\?\.\(\)/);
 assert.match(journalSummarySource, /focusedMetric === "fcf-yield"/);
+assert.match(journalSummarySource, /const barGap = Math\.max\(2, Math\.min\(5, barWidth \* 0\.28\)\)/);
+assert.match(journalSummarySource, /const barStep = barWidth \+ barGap/);
+assert.match(journalSummarySource, /definition\.offset \* barStep - barWidth \/ 2/);
 assert.match(journalSummarySource, /title=\{<GlossaryText text="가치배수 추이" \/>\}/);
 assert.match(journalSummarySource, /<h3><GlossaryText text="현재 가치배수" \/><\/h3>/);
-assert.match(journalSummarySource, /<GlossaryText text="PER · PBR · PSR · FCF Yield" \/>/);
+assert.doesNotMatch(journalSummarySource, /company-historical-valuation-legend/);
+assert.match(journalSummarySource, /aria-label="현재 가치배수 색상 범례"/);
+assert.match(journalSummarySource, /company-valuation-metric-swatch/);
+assert.match(journalSummarySource, /is-\$\{metricKey\}/);
+assert.match(styles, /\.company-valuation-metric-row\.is-per[\s\S]*?--company-valuation-metric-color: var\(--coinbase-primary\)/);
+assert.match(styles, /\.company-valuation-metric-row\.is-pbr[\s\S]*?--company-valuation-metric-color: var\(--company-negative-strong\)/);
+assert.match(styles, /\.company-valuation-metric-row\.is-psr[\s\S]*?--company-valuation-metric-color: var\(--company-positive-strong\)/);
+assert.match(styles, /\.company-valuation-metric-row\.is-fcf-yield[\s\S]*?--company-valuation-metric-color: var\(--company-brass\)/);
+assert.match(styles, /\.company-journal-evidence \.company-financial-metric-block \{\s*gap: 2px/);
+assert.match(styles, /\.company-valuation-panel \.company-section-heading h3 \.glossary-term[\s\S]*?font-size: clamp\(19px, 1\.35cqw, 22px\)/);
+assert.match(
+  styles,
+  /data-evidence-targets~="stability-ratios-latest"[\s\S]*?box-shadow:[\s\S]*?var\(--coinbase-primary\)/,
+  "selected explanations must illuminate the full related chart card in blue"
+);
+assert.match(styles, /data-evidence-targets~="profitability-latest"\] \.company-financial-static-card:has/);
+assert.match(styles, /data-evidence-targets~="returns-latest"\] \.company-financial-static-card:has/);
+assert.doesNotMatch(styles, /data-evidence-targets~="profitability-latest"\] \.company-financial-chart-card:has/);
+assert.doesNotMatch(styles, /data-evidence-targets~="returns-latest"\] \.company-financial-chart-card:has/);
 assert.match(journalSummarySource, /company-stability-money-dot/);
 assert.match(journalSummarySource, /formatUsdCompactTable\(point\.revenue\)/);
 assert.match(journalSummarySource, /formatUsdCompactTable\(point\.netIncome\)/);
