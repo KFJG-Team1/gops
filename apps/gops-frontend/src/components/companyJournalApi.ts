@@ -65,6 +65,10 @@ export type CompanyJournalEvidenceResponse = {
     symbol: string;
     candles: import("../chart/types").CandleDto[];
   }>;
+  valuationPriceSeries?: Array<{
+    timestamp: string;
+    close: number;
+  }>;
   analystSummary: CompanyJournalAnalystSummary | null;
   missingData: string[];
   simulation?: boolean;
