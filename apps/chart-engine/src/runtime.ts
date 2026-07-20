@@ -1,7 +1,9 @@
 import { applyCandleEvent, applySnapshotToCandles, candleKey } from "./candleStore";
-import { createChartDocument } from "./chartDocuments";
-import { normalizeChartInterval } from "./intervals";
+import { createChartDocument, normalizeChartDocument } from "./chartDocuments";
+import { normalizeChartInterval, type ChartInterval } from "./intervals";
 import { DEFAULT_CHART_SYMBOL } from "./symbols";
+import { canonicalTimestamp } from "./time";
+import { latestCandleRightOffset } from "./viewport";
 import {
   executeChartCommand,
   executeChartCommandGroup,
@@ -12,21 +14,25 @@ import {
   validateChartProposal
 } from "./commands";
 import type {
+  CandleData,
   CandleEvent,
   CandleSnapshot,
   ChartCommand,
-  ChartCommandType,
   ChartCommandJournalEntry,
   ChartDataStatus,
   ChartDocument,
   ChartPendingPreview,
   ChartProposal,
+  RealtimeLayerEvent,
   ChartRuntimeError,
   ChartRuntimeState,
-  StreamStatus
+  StreamStatus,
+  TradeTickData
 } from "./types";
 
 export type { ChartRuntimeState } from "./types";
+
+export const maxInactiveCandleCacheKeys = 8;
 
 export type ChartRuntimePanel = {
   id: string;
@@ -37,6 +43,7 @@ export type ChartRuntimePanel = {
 
 export type ChartRuntimeAction =
   | { kind: "chart.ensureDocuments"; panels: ChartRuntimePanel[] }
+  | { kind: "chart.marketData.reset" }
   | { kind: "chart.snapshot.loaded"; snapshot: CandleSnapshot }
   | { kind: "chart.snapshot.failed"; symbol: string; interval: string; message: string }
   | { kind: "chart.command"; command: ChartCommand }
@@ -45,6 +52,7 @@ export type ChartRuntimeAction =
   | { kind: "chart.proposal.accept"; proposalId: string }
   | { kind: "chart.proposal.reject"; proposalId: string }
   | { kind: "chart.live"; event: CandleEvent }
+  | { kind: "chart.layer.live"; event: RealtimeLayerEvent }
   | { kind: "chart.data.status"; symbol: string; interval: string; status: Omit<ChartDataStatus, "updatedAt"> }
   | { kind: "chart.stream.status"; symbol: string; interval: string; status: StreamStatus; message?: string }
   | { kind: "chart.error"; message: string; chartDocumentId?: string };
@@ -53,6 +61,9 @@ export function createInitialChartRuntimeState(): ChartRuntimeState {
   return {
     documents: {},
     candlesByKey: {},
+    candleKeyAccessOrder: [],
+    liveTradesBySymbol: {},
+    liveQuotesBySymbol: {},
     dataStatusByKey: {},
     streamStatusByKey: {},
     streamMessageByKey: {},
@@ -67,6 +78,8 @@ export function chartRuntimeReducer(state: ChartRuntimeState, action: ChartRunti
   switch (action.kind) {
     case "chart.ensureDocuments":
       return ensureChartDocuments(state, action.panels);
+    case "chart.marketData.reset":
+      return resetMarketData(state);
     case "chart.snapshot.loaded":
       return applySnapshot(state, action.snapshot);
     case "chart.snapshot.failed":
@@ -87,6 +100,8 @@ export function chartRuntimeReducer(state: ChartRuntimeState, action: ChartRunti
       return rejectProposal(state, action.proposalId);
     case "chart.live":
       return applyLiveEvent(state, action.event);
+    case "chart.layer.live":
+      return applyRealtimeLayerEvent(state, action.event);
     case "chart.data.status":
       return setDataStatus(state, action.symbol, action.interval, {
         ...action.status,
@@ -101,9 +116,32 @@ export function chartRuntimeReducer(state: ChartRuntimeState, action: ChartRunti
   }
 }
 
+function resetMarketData(state: ChartRuntimeState): ChartRuntimeState {
+  return {
+    ...state,
+    candlesByKey: {},
+    candleKeyAccessOrder: [],
+    liveTradesBySymbol: {},
+    liveQuotesBySymbol: {},
+    dataStatusByKey: {},
+    streamStatusByKey: {},
+    streamMessageByKey: {},
+    journal: addJournal(
+      state.journal,
+      "chart.market-data.reset",
+      "system",
+      "applied",
+      "Market data cleared before reconnecting to the live feed."
+    )
+  };
+}
+
 export function getChartDocumentForPanel(state: ChartRuntimeState, panel: ChartRuntimePanel): ChartDocument {
   const chartDocumentId = getChartDocumentId(panel);
-  return state.documents[chartDocumentId] ?? createChartDocument(chartDocumentId, readPanelSymbol(panel), readPanelTimeframe(panel));
+  const document = state.documents[chartDocumentId];
+  return document
+    ? normalizeChartDocument(document)
+    : createChartDocument(chartDocumentId, readPanelSymbol(panel), readPanelTimeframe(panel));
 }
 
 export function getChartDocumentId(panel: ChartRuntimePanel): string {
@@ -130,6 +168,14 @@ export function getStreamMessageForDocument(state: ChartRuntimeState, document: 
   return state.streamMessageByKey?.[candleKey(document.symbol, document.timeframe)];
 }
 
+export function getLiveTradeForSymbol(state: ChartRuntimeState, symbol: string) {
+  return state.liveTradesBySymbol?.[symbol.toUpperCase()] ?? state.liveTradesBySymbol?.[symbol];
+}
+
+export function getLiveQuoteForSymbol(state: ChartRuntimeState, symbol: string) {
+  return state.liveQuotesBySymbol?.[symbol.toUpperCase()] ?? state.liveQuotesBySymbol?.[symbol];
+}
+
 function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePanel[]): ChartRuntimeState {
   const chartPanels = panels.filter((panel) => panel.type === "chart");
   const activeDocumentIds = new Set(chartPanels.map(getChartDocumentId));
@@ -138,22 +184,37 @@ function ensureChartDocuments(state: ChartRuntimeState, panels: ChartRuntimePane
 
   for (const panel of chartPanels) {
     const id = getChartDocumentId(panel);
-    const document = state.documents[id] ?? createChartDocument(id, readPanelSymbol(panel), readPanelTimeframe(panel));
+    const current = state.documents[id];
+    const document = current
+      ? normalizeChartDocument(current)
+      : createChartDocument(id, readPanelSymbol(panel), readPanelTimeframe(panel));
     documents[id] = document;
-    if (!state.documents[id]) {
+    if (!current || document !== current) {
       changed = true;
     }
   }
 
   const pendingPreviewByDocumentId = Object.fromEntries(
-    Object.entries(state.pendingPreviewByDocumentId).filter(([documentId]) => activeDocumentIds.has(documentId))
+    Object.entries(state.pendingPreviewByDocumentId)
+      .filter(([documentId]) => activeDocumentIds.has(documentId))
+      .map(([documentId, preview]): [string, ChartPendingPreview] => [documentId, sanitizeRemovedPointPreview(preview)])
+      .filter(([, preview]) => preview.drawings.length > 0 || preview.comparisons.length > 0)
   );
-  if (Object.keys(pendingPreviewByDocumentId).length !== Object.keys(state.pendingPreviewByDocumentId).length) {
+  if (
+    Object.keys(pendingPreviewByDocumentId).length !== Object.keys(state.pendingPreviewByDocumentId).length ||
+    Object.entries(pendingPreviewByDocumentId).some(([documentId, preview]) => preview !== state.pendingPreviewByDocumentId[documentId])
+  ) {
     changed = true;
   }
 
-  const pendingProposals = state.pendingProposals.filter((proposal) => activeDocumentIds.has(proposal.target.chartDocumentId));
-  if (pendingProposals.length !== state.pendingProposals.length) {
+  const pendingProposals = state.pendingProposals
+    .filter((proposal) => activeDocumentIds.has(proposal.target.chartDocumentId))
+    .map(sanitizeRemovedPointProposal)
+    .filter((proposal): proposal is ChartProposal => Boolean(proposal));
+  if (
+    pendingProposals.length !== state.pendingProposals.length ||
+    pendingProposals.some((proposal, index) => proposal !== state.pendingProposals[index])
+  ) {
     changed = true;
   }
 
@@ -169,9 +230,10 @@ function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): Char
   const key = candleKey(snapshot.symbol, snapshot.interval);
   const dataState = snapshot.dataStatus ?? (snapshot.candles.length ? "ready" : "empty");
   const current = state.candlesByKey[key] ?? [];
+  const candleCache = boundedCandleCache(state, key, applySnapshotToCandles(snapshot, current));
   return {
     ...state,
-    candlesByKey: { ...state.candlesByKey, [key]: applySnapshotToCandles(snapshot, current) },
+    ...candleCache,
     dataStatusByKey: {
       ...state.dataStatusByKey,
       [key]: {
@@ -179,8 +241,8 @@ function applySnapshot(state: ChartRuntimeState, snapshot: CandleSnapshot): Char
         message: snapshot.message ?? (dataState === "empty" ? "No candle data" : undefined),
         source: snapshot.source,
         feed: snapshot.feed,
-        backfillStatus: snapshot.backfillStatus ?? "not_requested",
-        canBackfill: snapshot.canBackfill ?? false,
+        feedProfile: snapshot.feedProfile,
+        marketSession: snapshot.marketSession,
         sourceInterval: snapshot.sourceInterval,
         requestedLimit: snapshot.requestedLimit,
         returnedCount: snapshot.returnedCount,
@@ -215,19 +277,30 @@ function applyLiveEvent(state: ChartRuntimeState, event: CandleEvent): ChartRunt
   }
 
   const appendedCount = Math.max(0, result.candles.length - current.length);
+  const candleCache = boundedCandleCache(state, key, result.candles);
 
   return {
     ...state,
-    candlesByKey: { ...state.candlesByKey, [key]: result.candles },
+    ...candleCache,
     documents: appendedCount > 0
-      ? freezeDetachedViewports(state.documents, event.symbol, event.interval, appendedCount)
+      ? reconcileViewportsAfterLiveAppend(
+          state.documents,
+          event.symbol,
+          event.interval,
+          current.length,
+          result.candles.length
+        )
       : state.documents,
     dataStatusByKey: {
       ...state.dataStatusByKey,
       [key]: {
-        state: "ready",
+        ...previousStatus,
+        state: previousStatus?.state === "partial" && previousStatus.coverage?.renderable !== true ? "partial" : "ready",
         source: event.source ?? previousStatus?.source,
         feed: event.feed ?? previousStatus?.feed,
+        feedProfile: event.feedProfile ?? event.data.feedProfile ?? previousStatus?.feedProfile,
+        marketSession: event.marketSession ?? event.data.marketSession ?? previousStatus?.marketSession,
+        sourceInterval: event.sourceInterval ?? event.data.sourceInterval ?? previousStatus?.sourceInterval,
         updatedAt: now()
       }
     },
@@ -236,19 +309,243 @@ function applyLiveEvent(state: ChartRuntimeState, event: CandleEvent): ChartRunt
   };
 }
 
-function freezeDetachedViewports(
+function boundedCandleCache(
+  state: ChartRuntimeState,
+  touchedKey: string,
+  touchedCandles: ChartRuntimeState["candlesByKey"][string]
+): Pick<ChartRuntimeState, "candlesByKey" | "candleKeyAccessOrder"> {
+  const nextCandles = { ...state.candlesByKey, [touchedKey]: touchedCandles };
+  const accessOrder = [
+    ...(state.candleKeyAccessOrder ?? Object.keys(state.candlesByKey)).filter((key) => key !== touchedKey),
+    touchedKey
+  ];
+  const activeKeys = new Set(
+    Object.values(state.documents).map((document) => candleKey(document.symbol, document.timeframe))
+  );
+  const retainedInactive = accessOrder
+    .slice()
+    .reverse()
+    .filter((key) => !activeKeys.has(key) && Object.prototype.hasOwnProperty.call(nextCandles, key))
+    .slice(0, maxInactiveCandleCacheKeys);
+  const retainedKeys = new Set([...activeKeys, ...retainedInactive, touchedKey]);
+  return {
+    candlesByKey: Object.fromEntries(
+      Object.entries(nextCandles).filter(([key]) => retainedKeys.has(key))
+    ),
+    candleKeyAccessOrder: accessOrder.filter((key) => retainedKeys.has(key))
+  };
+}
+
+function applyRealtimeLayerEvent(state: ChartRuntimeState, event: RealtimeLayerEvent): ChartRuntimeState {
+  const symbol = event.symbol.toUpperCase();
+  if (event.type === "LIVE_TRADE_UPDATE") {
+    const candlePatch = applyTradeTickToLiveCandles(state.candlesByKey, symbol, event.data);
+    const documents = candlePatch.appendedIntervals.reduce(
+      (current, interval) => {
+        const previousCount = state.candlesByKey[candleKey(symbol, interval)]?.length ?? 0;
+        return reconcileViewportsAfterLiveAppend(current, symbol, interval, previousCount, previousCount + 1);
+      },
+      state.documents
+    );
+    return {
+      ...state,
+      candlesByKey: candlePatch.changed ? candlePatch.candlesByKey : state.candlesByKey,
+      documents,
+      liveTradesBySymbol: { ...(state.liveTradesBySymbol ?? {}), [symbol]: event.data },
+      journal: addJournal(state.journal, "chart.layer.trade", "system", "applied", `${symbol} live trade updated.`)
+    };
+  }
+  return {
+    ...state,
+    liveQuotesBySymbol: { ...(state.liveQuotesBySymbol ?? {}), [symbol]: event.data },
+    journal: addJournal(state.journal, "chart.layer.quote", "system", "applied", `${symbol} live quote updated.`)
+  };
+}
+
+function applyTradeTickToLiveCandles(
+  candlesByKey: ChartRuntimeState["candlesByKey"],
+  symbol: string,
+  trade: TradeTickData
+): { candlesByKey: ChartRuntimeState["candlesByKey"]; appendedIntervals: string[]; changed: boolean } {
+  const price = trade.price;
+  const tradeTime = trade.timestamp ? Date.parse(trade.timestamp) : Number.NaN;
+  if (typeof price !== "number" || !Number.isFinite(price) || !Number.isFinite(tradeTime)) {
+    return { candlesByKey, appendedIntervals: [], changed: false };
+  }
+
+  const prefix = `${symbol}::`;
+  let changed = false;
+  const appendedIntervals: string[] = [];
+  const nextByKey: ChartRuntimeState["candlesByKey"] = {};
+
+  Object.entries(candlesByKey).forEach(([key, candles]) => {
+    if (!key.startsWith(prefix)) {
+      nextByKey[key] = candles;
+      return;
+    }
+    const interval = normalizeChartInterval(key.slice(prefix.length));
+    if (!interval) {
+      nextByKey[key] = candles;
+      return;
+    }
+    const result = applyTradeTickToCandleSeries(candles, interval, trade, tradeTime, price);
+    nextByKey[key] = result.candles;
+    if (result.changed) {
+      changed = true;
+    }
+    if (result.appended) {
+      appendedIntervals.push(interval);
+    }
+  });
+
+  return {
+    candlesByKey: changed ? nextByKey : candlesByKey,
+    appendedIntervals,
+    changed
+  };
+}
+
+function applyTradeTickToCandleSeries(
+  candles: CandleData[],
+  interval: ChartInterval,
+  trade: TradeTickData,
+  tradeTime: number,
+  price: number
+): { candles: CandleData[]; appended: boolean; changed: boolean } {
+  if (!candles.length) {
+    return { candles, appended: false, changed: false };
+  }
+
+  const bucketTimestamp = tradeBucketTimestamp(tradeTime, interval);
+  const bucketTime = Date.parse(bucketTimestamp);
+  const last = candles[candles.length - 1];
+  const lastTimestamp = canonicalTimestamp(last.timestamp);
+  const lastTime = lastTimestamp ? Date.parse(lastTimestamp) : Number.NaN;
+  if (!lastTimestamp || !Number.isFinite(lastTime)) {
+    return { candles, appended: false, changed: false };
+  }
+
+  if (bucketTimestamp === lastTimestamp) {
+    if (last.isClosed) {
+      return { candles, appended: false, changed: false };
+    }
+    const next = patchLiveCandleWithTrade(last, price, trade);
+    if (
+      next.close === last.close &&
+      next.high === last.high &&
+      next.low === last.low &&
+      next.updatedAt === last.updatedAt
+    ) {
+      return { candles, appended: false, changed: false };
+    }
+    const patched = candles.slice();
+    patched[patched.length - 1] = next;
+    return { candles: patched, appended: false, changed: true };
+  }
+
+  if (bucketTime > lastTime) {
+    return {
+      candles: [...candles, provisionalCandleFromTrade(bucketTimestamp, price, trade)],
+      appended: true,
+      changed: true
+    };
+  }
+
+  return { candles, appended: false, changed: false };
+}
+
+function patchLiveCandleWithTrade(candle: CandleData, price: number, trade: TradeTickData): CandleData {
+  const high = typeof candle.high === "number" && Number.isFinite(candle.high)
+    ? Math.max(candle.high, price)
+    : price;
+  const low = typeof candle.low === "number" && Number.isFinite(candle.low)
+    ? Math.min(candle.low, price)
+    : price;
+  return {
+    ...candle,
+    high,
+    low,
+    close: price,
+    isClosed: false,
+    updatedAt: trade.updatedAt ?? trade.timestamp ?? candle.updatedAt
+  };
+}
+
+function provisionalCandleFromTrade(timestamp: string, price: number, trade: TradeTickData): CandleData {
+  return {
+    timestamp,
+    open: price,
+    high: price,
+    low: price,
+    close: price,
+    volume: 0,
+    isClosed: false,
+    updatedAt: trade.updatedAt ?? trade.timestamp
+  };
+}
+
+function tradeBucketTimestamp(tradeTime: number, interval: ChartInterval): string {
+  const bucket = new Date(tradeTime);
+  bucket.setUTCSeconds(0, 0);
+  switch (interval) {
+    case "1m":
+      break;
+    case "5m":
+      bucket.setUTCMinutes(Math.floor(bucket.getUTCMinutes() / 5) * 5);
+      break;
+    case "10m":
+      bucket.setUTCMinutes(Math.floor(bucket.getUTCMinutes() / 10) * 10);
+      break;
+    case "1h":
+      bucket.setUTCMinutes(0);
+      break;
+    case "4h":
+      bucket.setUTCHours(Math.floor(bucket.getUTCHours() / 4) * 4, 0, 0, 0);
+      break;
+    case "1D":
+      bucket.setUTCHours(0, 0, 0, 0);
+      break;
+    case "1W": {
+      bucket.setUTCHours(0, 0, 0, 0);
+      const day = bucket.getUTCDay();
+      const mondayOffset = day === 0 ? 6 : day - 1;
+      bucket.setUTCDate(bucket.getUTCDate() - mondayOffset);
+      break;
+    }
+    case "1M":
+      bucket.setUTCDate(1);
+      bucket.setUTCHours(0, 0, 0, 0);
+      break;
+  }
+  return bucket.toISOString();
+}
+
+function reconcileViewportsAfterLiveAppend(
   documents: ChartRuntimeState["documents"],
   symbol: string,
   interval: string,
-  appendedCount: number
+  previousCandleCount: number,
+  nextCandleCount: number
 ): ChartRuntimeState["documents"] {
+  const appendedCount = Math.max(0, nextCandleCount - previousCandleCount);
   let changed = false;
   const next: ChartRuntimeState["documents"] = {};
   Object.entries(documents).forEach(([id, document]) => {
     if (
       document.symbol !== symbol ||
-      document.timeframe !== interval ||
-      document.viewport.rightOffset <= 0
+      document.timeframe !== interval
+    ) {
+      next[id] = document;
+      return;
+    }
+    const followsLatest = document.viewport.rightOffset <= 0;
+    const visibleCount = document.viewport.visibleCount;
+    const rightOffset = followsLatest
+      ? latestCandleRightOffset(visibleCount)
+      : document.viewport.rightOffset + appendedCount;
+    if (
+      visibleCount === document.viewport.visibleCount &&
+      rightOffset === document.viewport.rightOffset
     ) {
       next[id] = document;
       return;
@@ -257,8 +554,8 @@ function freezeDetachedViewports(
     next[id] = {
       ...document,
       viewport: {
-        ...document.viewport,
-        rightOffset: document.viewport.rightOffset + appendedCount
+        visibleCount,
+        rightOffset
       },
       updatedAt: now()
     };
@@ -330,6 +627,11 @@ function applyCommandGroup(
 }
 
 function receiveProposal(state: ChartRuntimeState, proposal: ChartProposal, autoApply: boolean): ChartRuntimeState {
+  const sanitizedProposal = sanitizeRemovedPointProposal(proposal);
+  if (!sanitizedProposal) {
+    return fail(state, "Chart proposal did not include any supported commands.", proposal.target.chartDocumentId);
+  }
+  proposal = sanitizedProposal;
   const validation = validateChartProposal(proposal);
   if (validation) {
     return fail(state, validation, proposal.target.chartDocumentId);
@@ -348,6 +650,48 @@ function receiveProposal(state: ChartRuntimeState, proposal: ChartProposal, auto
   }
 
   return applyProposal(state, proposal, "applied");
+}
+
+function sanitizeRemovedPointPreview(preview: ChartPendingPreview): ChartPendingPreview {
+  const drawings = preview.drawings.filter((drawing) => (drawing as { type?: unknown }).type !== "pointMarker");
+  return drawings.length === preview.drawings.length ? preview : { ...preview, drawings };
+}
+
+function sanitizeRemovedPointProposal(proposal: ChartProposal): ChartProposal | null {
+  const commands = proposal.commands
+    .map(sanitizeRemovedPointCommand)
+    .filter((command): command is ChartCommand => Boolean(command));
+  if (!commands.length) {
+    return null;
+  }
+  return commands.length === proposal.commands.length ? proposal : { ...proposal, commands };
+}
+
+function sanitizeRemovedPointCommand(command: ChartCommand): ChartCommand | null {
+  const payload = command.payload;
+  if (payload.drawingType === "pointMarker") {
+    return null;
+  }
+  const drawing = payload.drawing;
+  if (drawing && typeof drawing === "object" && !Array.isArray(drawing) && (drawing as { type?: unknown }).type === "pointMarker") {
+    return null;
+  }
+  const preview = payload.preview;
+  if (preview && typeof preview === "object" && !Array.isArray(preview)) {
+    const previewRecord = preview as { drawings?: unknown; comparisons?: unknown };
+    const previewDrawings = previewRecord.drawings;
+    if (Array.isArray(previewDrawings)) {
+      const drawings = previewDrawings.filter((item) => !item || typeof item !== "object" || (item as { type?: unknown }).type !== "pointMarker");
+      if (drawings.length !== previewDrawings.length) {
+        const comparisons = Array.isArray(previewRecord.comparisons) ? previewRecord.comparisons : [];
+        if (!drawings.length && !comparisons.length) {
+          return null;
+        }
+        return { ...command, payload: { ...payload, preview: { ...preview, drawings } } };
+      }
+    }
+  }
+  return command;
 }
 
 function acceptProposal(state: ChartRuntimeState, proposalId: string): ChartRuntimeState {
@@ -576,8 +920,7 @@ function normalizePreviewPayload(
 
 function isPreviewFirstCommand(command: ChartCommand): boolean {
   return command.type.startsWith("chart.drawing.") ||
-    command.type.startsWith("chart.comparison.") ||
-    command.type === "chart.measurement.add";
+    command.type.startsWith("chart.comparison.");
 }
 
 function setDataStatus(

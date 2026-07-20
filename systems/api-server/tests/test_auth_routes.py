@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import types
@@ -24,15 +25,17 @@ sys.modules.setdefault(
     ),
 )
 
+from app.auth.config import AuthConfig, _load_auth_secret_values
+from app.auth.models import AuthenticatedUser
+from app.auth.session_store import MemorySessionStore
+
 try:
     from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
 
-    from app.auth.config import AuthConfig
-    from app.auth.models import AuthenticatedUser
-    from app.auth.session_store import MemorySessionStore
     from app.main import create_app
     from kis_trader.persistence.memory import InMemoryOrderRepository
-    from tests.kis_trader.fixtures.orders import sample_order_request
+    from systems.order.tests.kis_trader.fixtures.orders import sample_order_request
 
     FASTAPI_TESTCLIENT_AVAILABLE = True
 except Exception:
@@ -50,6 +53,73 @@ class FakeGoogleOAuthClient:
             email_verified=True,
             name="Example User",
         )
+
+
+class AuthConfigSecretManagerTest(unittest.TestCase):
+    ENV_KEYS = (
+        "AUTH_ENABLED",
+        "AUTH_SESSION_SECRET",
+        "GOOGLE_OAUTH_CLIENT_ID",
+        "GOOGLE_OAUTH_CLIENT_SECRET",
+        "GOOGLE_OAUTH_SECRET_NAME",
+        "AUTH_SECRET_NAME",
+        "AWS_REGION",
+        "AWS_DEFAULT_REGION",
+    )
+
+    def setUp(self):
+        self.original_env = {key: os.environ.get(key) for key in self.ENV_KEYS}
+        self.had_boto3_module = "boto3" in sys.modules
+        self.original_boto3_module = sys.modules.get("boto3")
+        for key in self.ENV_KEYS:
+            os.environ.pop(key, None)
+        _load_auth_secret_values.cache_clear()
+
+    def tearDown(self):
+        for key, value in self.original_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        if self.had_boto3_module:
+            sys.modules["boto3"] = self.original_boto3_module
+        else:
+            sys.modules.pop("boto3", None)
+        _load_auth_secret_values.cache_clear()
+
+    def test_loads_google_oauth_settings_from_secret_manager(self):
+        os.environ["AUTH_ENABLED"] = "true"
+        os.environ["GOOGLE_OAUTH_SECRET_NAME"] = "oauth/google"
+        os.environ["AWS_REGION"] = "ap-northeast-2"
+
+        class FakeSecretsManagerClient:
+            def get_secret_value(self, SecretId: str) -> dict[str, str]:
+                assert SecretId == "oauth/google"
+                return {
+                    "SecretString": json.dumps(
+                        {
+                            "web": {
+                                "client_id": "secret-client-id",
+                                "client_secret": "secret-client-secret",
+                            },
+                            "AUTH_SESSION_SECRET": "secret-session",
+                        }
+                    )
+                }
+
+        def fake_client(service_name: str, region_name: str):
+            assert service_name == "secretsmanager"
+            assert region_name == "ap-northeast-2"
+            return FakeSecretsManagerClient()
+
+        sys.modules["boto3"] = types.SimpleNamespace(client=fake_client)
+
+        config = AuthConfig.from_env()
+
+        self.assertEqual(config.google_client_id, "secret-client-id")
+        self.assertEqual(config.google_client_secret, "secret-client-secret")
+        self.assertEqual(config.session_secret, "secret-session")
+        config.require_oauth_settings()
 
 
 @unittest.skipUnless(FASTAPI_TESTCLIENT_AVAILABLE, "FastAPI TestClient is not available")
@@ -112,6 +182,55 @@ class AuthRoutesTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["status"], "RECEIVED")
+
+    def test_order_and_event_reads_hide_foreign_order_existence(self):
+        owner_cookie = self.store.create_session(AuthenticatedUser("owner-sub", "owner@example.com", True))
+        self.client.cookies.set(self.config.session_cookie_name, owner_cookie)
+        created = self.client.post(
+            "/api/orders",
+            json=sample_order_request(),
+            headers={"Idempotency-Key": "owner-order"},
+        )
+        self.assertEqual(created.status_code, 202)
+        order_id = created.json()["order_id"]
+
+        attacker_cookie = self.store.create_session(AuthenticatedUser("attacker-sub", "attacker@example.com", True))
+        self.client.cookies.set(self.config.session_cookie_name, attacker_cookie)
+
+        foreign_order = self.client.get(f"/api/orders/{order_id}")
+        missing_order = self.client.get("/api/orders/ord_missing")
+        self.assertEqual(foreign_order.status_code, 404)
+        self.assertEqual(foreign_order.json(), missing_order.json())
+
+        foreign_events = self.client.get(f"/api/orders/{order_id}/events")
+        missing_events = self.client.get("/api/orders/ord_missing/events")
+        self.assertEqual(foreign_events.status_code, 404)
+        self.assertEqual(foreign_events.json(), missing_events.json())
+
+    def test_order_websocket_hides_foreign_order_existence(self):
+        owner_cookie = self.store.create_session(AuthenticatedUser("owner-sub", "owner@example.com", True))
+        self.client.cookies.set(self.config.session_cookie_name, owner_cookie)
+        created = self.client.post(
+            "/api/orders",
+            json=sample_order_request(),
+            headers={"Idempotency-Key": "owner-websocket-order"},
+        )
+        self.assertEqual(created.status_code, 202)
+        order_id = created.json()["order_id"]
+
+        attacker_cookie = self.store.create_session(AuthenticatedUser("attacker-sub", "attacker@example.com", True))
+        self.client.cookies.set(self.config.session_cookie_name, attacker_cookie)
+
+        observations = []
+        for target in (order_id, "ord_missing"):
+            with self.client.websocket_connect(f"/ws/orders/{target}") as websocket:
+                message = websocket.receive_json()
+                with self.assertRaises(WebSocketDisconnect) as closed:
+                    websocket.receive_json()
+            observations.append((message, closed.exception.code))
+
+        self.assertEqual(observations[0], observations[1])
+        self.assertEqual(observations[0], ({"type": "error", "detail": "order not found"}, 1008))
 
     def test_protected_order_websocket_requires_session(self):
         with self.client.websocket_connect("/ws/orders/ord_missing") as websocket:

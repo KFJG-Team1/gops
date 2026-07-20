@@ -1,16 +1,20 @@
 import { defaultVisibleBarsForInterval, normalizeChartInterval, type ChartInterval } from "./intervals";
-import type { ChartDocument, ChartDocumentSnapshot } from "./types";
+import type { ChartDocument, ChartDocumentSnapshot, DrawingEntity } from "./types";
 import { DEFAULT_CHART_SYMBOL } from "./symbols";
+import { getDefaultChartStyle, normalizeChartStyle } from "./theme";
+import { latestCandleRightOffset } from "./viewport";
 
 export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, timeframe: ChartInterval | string = "1m"): ChartDocument {
   const resolvedTimeframe = normalizeChartInterval(timeframe) ?? "1m";
+  const visibleCount = defaultVisibleBarsForInterval(resolvedTimeframe);
   return {
     id,
     symbol,
+    chartType: "candle",
     timeframe: resolvedTimeframe,
     viewport: {
-      rightOffset: 0,
-      visibleCount: defaultVisibleBarsForInterval(resolvedTimeframe)
+      rightOffset: latestCandleRightOffset(visibleCount),
+      visibleCount
     },
     panes: [
       { id: "price", heightRatio: 0.74 },
@@ -19,24 +23,28 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
     layers: {
       candles: true,
       volume: true,
-      ma5: true,
+      ma5: false,
       ma20: true,
-      ma60: true
+      ma60: true,
+      "sma:5": false,
+      "sma:20": true,
+      "sma:60": true,
+      "sma:120": false,
+      "ema:20": false,
+      "wma:20": false,
+      "bollinger:20:2": false,
+      "rsi:14": false,
+      "stochastic:14:3:3": false,
+      "macd:12:26:9": false,
+      "volume-profile": false,
+      "events:earnings": true,
+      "events:news": true
     },
-    style: {
-      background: "#ffffff",
-      grid: "#e3e3e3",
-      text: "#2a2a2a",
-      bullish: "#0f8a4b",
-      bearish: "#b33a3a",
-      ma5: "#2563eb",
-      ma20: "#d97706",
-      ma60: "#7c3aed",
-      volume: "#9ca3af"
-    },
+    style: getDefaultChartStyle(),
     interactionState: {
       mode: "pan",
-      trendLineExtension: "segment"
+      trendLineExtension: "segment",
+      parallelLineCount: 3
     },
     drawings: [],
     comparisons: [],
@@ -46,23 +54,45 @@ export function createChartDocument(id: string, symbol = DEFAULT_CHART_SYMBOL, t
   };
 }
 
+export function normalizeChartDocument(document: ChartDocument): ChartDocument {
+  const interactionState = normalizeChartInteractionState(document.interactionState);
+  const drawings = sanitizeRemovedDrawings(document.drawings);
+  const layers = withEventLayerDefaults(document.layers);
+  const history = document.history.map(normalizeHistoryEntry);
+  const future = document.future.map(normalizeHistoryEntry);
+  const selectedDrawingId = document.selectedDrawingId && drawings.some((drawing) => drawing.id === document.selectedDrawingId)
+    ? document.selectedDrawingId
+    : undefined;
+  const changed = interactionState !== document.interactionState ||
+    layers !== document.layers ||
+    drawings !== document.drawings ||
+    history.some((entry, index) => entry !== document.history[index]) ||
+    future.some((entry, index) => entry !== document.future[index]) ||
+    selectedDrawingId !== document.selectedDrawingId;
+  return changed ? { ...document, layers, interactionState, drawings, history, future, selectedDrawingId } : document;
+}
+
 export function cloneChartDocument(document: ChartDocument): ChartDocument {
-  return structuredClone(document) as ChartDocument;
+  return structuredClone(normalizeChartDocument(document)) as ChartDocument;
 }
 
 export function snapshotChartDocument(document: ChartDocument): ChartDocumentSnapshot {
+  const drawings = sanitizeRemovedDrawings(document.drawings);
   return {
     id: document.id,
     symbol: document.symbol,
+    chartType: document.chartType ?? "candle",
     timeframe: document.timeframe,
     viewport: { ...document.viewport },
     panes: structuredClone(document.panes) as ChartDocument["panes"],
     layers: { ...document.layers },
-    style: { ...document.style },
-    interactionState: { ...document.interactionState },
-    drawings: structuredClone(document.drawings) as ChartDocument["drawings"],
+    style: normalizeChartStyle(document.style),
+    interactionState: { ...normalizeChartInteractionState(document.interactionState) },
+    drawings: structuredClone(drawings) as ChartDocument["drawings"],
     comparisons: structuredClone(document.comparisons) as ChartDocument["comparisons"],
-    selectedDrawingId: document.selectedDrawingId,
+    selectedDrawingId: document.selectedDrawingId && drawings.some((drawing) => drawing.id === document.selectedDrawingId)
+      ? document.selectedDrawingId
+      : undefined,
     updatedAt: document.updatedAt
   };
 }
@@ -71,18 +101,72 @@ export function restoreChartDocumentSnapshot(
   current: ChartDocument,
   snapshot: ChartDocumentSnapshot
 ): ChartDocument {
+  const normalizedSnapshot = normalizeSnapshotDrawings(snapshot);
   return {
     ...current,
-    symbol: snapshot.symbol,
-    timeframe: snapshot.timeframe,
-    viewport: { ...snapshot.viewport },
-    panes: structuredClone(snapshot.panes) as ChartDocument["panes"],
-    layers: { ...snapshot.layers },
-    style: { ...snapshot.style },
-    interactionState: { ...snapshot.interactionState },
-    drawings: structuredClone(snapshot.drawings) as ChartDocument["drawings"],
-    comparisons: structuredClone(snapshot.comparisons) as ChartDocument["comparisons"],
-    selectedDrawingId: snapshot.selectedDrawingId,
+    symbol: normalizedSnapshot.symbol,
+    chartType: normalizedSnapshot.chartType ?? "candle",
+    timeframe: normalizedSnapshot.timeframe,
+    viewport: { ...normalizedSnapshot.viewport },
+    panes: structuredClone(normalizedSnapshot.panes) as ChartDocument["panes"],
+    layers: { ...normalizedSnapshot.layers },
+    style: normalizeChartStyle(normalizedSnapshot.style),
+    interactionState: { ...normalizeChartInteractionState(normalizedSnapshot.interactionState) },
+    drawings: structuredClone(normalizedSnapshot.drawings) as ChartDocument["drawings"],
+    comparisons: structuredClone(normalizedSnapshot.comparisons) as ChartDocument["comparisons"],
+    selectedDrawingId: normalizedSnapshot.selectedDrawingId,
     updatedAt: new Date().toISOString()
   };
+}
+
+function normalizeChartInteractionState(
+  interactionState: ChartDocument["interactionState"]
+): ChartDocument["interactionState"] {
+  const legacyMode = (interactionState as { mode?: unknown }).mode;
+  const mode = legacyMode === "draw-pointMarker" ? "pan" : interactionState.mode;
+  const current = interactionState.parallelLineCount;
+  const parallelLineCount = normalizeParallelLineCount(current);
+  return current === parallelLineCount && mode === interactionState.mode
+    ? interactionState
+    : { ...interactionState, mode, parallelLineCount };
+}
+
+function sanitizeRemovedDrawings(drawings: DrawingEntity[]): DrawingEntity[] {
+  const filtered = drawings.filter((drawing) => (drawing as { type?: unknown }).type !== "pointMarker");
+  return filtered.length === drawings.length ? drawings : filtered;
+}
+
+function normalizeHistoryEntry(entry: ChartDocument["history"][number]): ChartDocument["history"][number] {
+  const before = normalizeSnapshotDrawings(entry.before);
+  const after = normalizeSnapshotDrawings(entry.after);
+  return before === entry.before && after === entry.after ? entry : { ...entry, before, after };
+}
+
+function normalizeSnapshotDrawings(snapshot: ChartDocumentSnapshot): ChartDocumentSnapshot {
+  const drawings = sanitizeRemovedDrawings(snapshot.drawings);
+  const layers = withEventLayerDefaults(snapshot.layers);
+  const selectedDrawingId = snapshot.selectedDrawingId && drawings.some((drawing) => drawing.id === snapshot.selectedDrawingId)
+    ? snapshot.selectedDrawingId
+    : undefined;
+  return drawings === snapshot.drawings && layers === snapshot.layers && selectedDrawingId === snapshot.selectedDrawingId
+    ? snapshot
+    : { ...snapshot, layers, drawings, selectedDrawingId };
+}
+
+function withEventLayerDefaults(layers: ChartDocument["layers"]): ChartDocument["layers"] {
+  const hasEarnings = Object.prototype.hasOwnProperty.call(layers, "events:earnings");
+  const hasNews = Object.prototype.hasOwnProperty.call(layers, "events:news");
+  return hasEarnings && hasNews
+    ? layers
+    : {
+        ...layers,
+        ...(hasEarnings ? {} : { "events:earnings": true }),
+        ...(hasNews ? {} : { "events:news": true })
+      };
+}
+
+function normalizeParallelLineCount(value: unknown): number {
+  return Math.max(2, Math.min(10, Math.round(
+    typeof value === "number" && Number.isFinite(value) ? value : 3
+  )));
 }

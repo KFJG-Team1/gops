@@ -9,11 +9,21 @@ from typing import Any
 from uuid import uuid4
 
 from kis_trader.domain.commands import OrderCommand
-from kis_trader.domain.envelope import build_order_status_envelope
+from kis_trader.domain.envelope import build_order_fill_envelope, build_order_status_envelope
 from kis_trader.domain.status import OrderStatus, assert_transition_allowed, is_terminal_status
-from kis_trader.domain.topics import ORDER_EVENTS_TOPIC, ORDERS_COMMANDS_TOPIC, ORDERS_DLQ_TOPIC, SUBMIT_RESULTS_TOPIC, build_order_message_key
+from kis_trader.domain.topics import (
+    ORDER_EVENTS_TOPIC,
+    ORDERS_COMMANDS_TOPIC,
+    ORDERS_DLQ_TOPIC,
+    ORDERS_FILLS_TOPIC,
+    SUBMIT_RESULTS_TOPIC,
+    build_order_message_key,
+)
+
+FILL_STATUSES = {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}
 from kis_trader.security.redaction import redact_sensitive
 
+from .fills import canonical_fill_observation
 from .repository import IdempotencyConflictError, OrderCreationResult, OrderNotFoundError, SubmissionIntent, utc_now_iso
 
 
@@ -27,6 +37,7 @@ class InMemoryOrderRepository:
         self.broker_submissions_by_request: dict[str, dict[str, Any]] = {}
         self.broker_submissions_by_client: dict[str, dict[str, Any]] = {}
         self.executions: dict[str, dict[str, Any]] = {}
+        self.order_coach_fill_history: list[dict[str, Any]] = []
         self.dlq_events: list[dict[str, Any]] = []
         self.audit_logs: list[dict[str, Any]] = []
 
@@ -36,6 +47,7 @@ class InMemoryOrderRepository:
         idempotency_key_hash: str,
         body_hash: str,
         command: OrderCommand,
+        user_sub: str | None = None,
     ) -> OrderCreationResult:
         with self._lock:
             existing = self.idempotency_requests.get(idempotency_key_hash)
@@ -64,6 +76,7 @@ class InMemoryOrderRepository:
                 "reason": None,
                 "occurred_at": command.occurred_at,
                 "updated_at": utc_now_iso(),
+                "user_sub": user_sub,
             }
             self.orders[command.order_id] = order
             self._append_order_event(command.order_id, OrderStatus.RECEIVED, None, command)
@@ -116,6 +129,13 @@ class InMemoryOrderRepository:
             }
             self._append_order_event(command.order_id, OrderStatus.PUBLISHED, "reconstructed from command", command)
 
+    def find_idempotent_response(self, idempotency_key_hash: str, body_hash: str) -> dict[str, Any] | None:
+        with self._lock:
+            existing = self.idempotency_requests.get(idempotency_key_hash)
+            if existing is None or existing["body_hash"] != body_hash:
+                return None
+            return dict(existing["response"])
+
     def get_order(self, order_id: str) -> dict[str, Any] | None:
         with self._lock:
             row = self.orders.get(order_id)
@@ -135,7 +155,17 @@ class InMemoryOrderRepository:
             self.orders[order_id]["status"] = status.value
             self.orders[order_id]["reason"] = reason
             self.orders[order_id]["updated_at"] = utc_now_iso()
-            return self._append_order_event(order_id, status, reason)
+            event_id = self._append_order_event(order_id, status, reason)
+            if status in FILL_STATUSES:
+                order = self.orders[order_id]
+                self._insert_outbox_event(
+                    ORDERS_FILLS_TOPIC,
+                    order_id,
+                    status,
+                    build_order_fill_envelope(order, reason=reason),
+                    message_key=build_order_message_key(order["account_alias"], order["symbol"]),
+                )
+            return event_id
 
     def fetch_pending_outbox(self, limit: int | None = None, topic: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
@@ -276,6 +306,21 @@ class InMemoryOrderRepository:
                 self.executions[execution_id] = redact_sensitive(payload or {})
             self.update_order_status(order_id, status, reason)
             order = self.orders[order_id]
+            observation = canonical_fill_observation(
+                order, payload, execution_id=execution_id
+            )
+            if observation is not None:
+                previous = [
+                    row for row in self.order_coach_fill_history
+                    if row["fill_id"] == observation["fill_id"]
+                ]
+                latest = previous[-1] if previous else None
+                if latest is None or latest["cumulative_filled_qty"] < observation["cumulative_filled_qty"]:
+                    self.order_coach_fill_history.append({
+                        **observation,
+                        "id": len(self.order_coach_fill_history) + 1,
+                        "observation_version": int(latest["observation_version"]) + 1 if latest else 1,
+                    })
             envelope = build_order_status_envelope(
                 order,
                 event_type="order.broker.event.reconciled",

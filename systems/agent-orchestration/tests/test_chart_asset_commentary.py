@@ -1,0 +1,1036 @@
+from __future__ import annotations
+
+import copy
+import io
+import json
+import sys
+import unittest
+import urllib.error
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[3]
+for path in (ROOT / "systems" / "market-data" / "shared", ROOT / "systems" / "agent-orchestration" / "shared"):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+
+from alfaka.analytics.analysis_candles import AnalysisCandleBundle  # noqa: E402
+from gops_agents.chart_assets import commentary as commentary_module  # noqa: E402
+from gops_agents.chart_assets.builder import ChartAssetBuilder  # noqa: E402
+from gops_agents.chart_assets.commentary import (  # noqa: E402
+    ChartCommentaryGenerationError,
+    ClickHouseChartCommentaryContextLoader,
+    OpenAIChartCommentaryWriter,
+    build_chart_commentary_fact_pack,
+    generate_chart_commentary,
+)
+from gops_agents.chart_assets.envelope import ChartAssetBuildEnvelope  # noqa: E402
+from gops_agents.chart_assets.progress import InMemoryChartAssetProgressStore  # noqa: E402
+from gops_agents.chart_assets.storage import _validate_asset_schema  # noqa: E402
+
+
+class ChartAssetCommentaryTest(unittest.TestCase):
+    def test_fact_pack_is_deterministic_and_has_bounded_real_candles(self):
+        rows = _rows(160)
+        geometry = _geometry()
+        context = {
+            "news": [{
+                "id": "news:NVDA:2025-06-10", "type": "news", "marketDate": "2025-06-10",
+                "summary": "저장 뉴스", "keyPoints": [], "impactDirection": "neutral",
+                "sentiment": "neutral", "articleCount": 1, "generatedAt": "2025-06-10T20:00:00.000Z",
+            }],
+            "earnings": [],
+            "missingData": ["earnings"],
+        }
+
+        first = build_chart_commentary_fact_pack(
+            symbol="NVDA", interval="1D", candles=rows, geometry=geometry,
+            geometry_input_digest="sha256:geometry", context=context,
+        )
+        second = build_chart_commentary_fact_pack(
+            symbol="NVDA", interval="1D", candles=copy.deepcopy(rows), geometry=copy.deepcopy(geometry),
+            geometry_input_digest="sha256:geometry", context=copy.deepcopy(context),
+        )
+
+        self.assertEqual(first, second)
+        self.assertLessEqual(len(first["majorCandles"]), 6)
+        self.assertTrue(all(item["timestamp"] in {row["timestamp"] for row in rows} for item in first["majorCandles"]))
+        self.assertEqual(first["indicators"]["rsi14"]["period"], 14)
+        self.assertNotIn("requestedBy", first)
+        self.assertNotIn("user", str(first).lower())
+        self.assertNotIn("portfolio", str(first).lower())
+
+    def test_pattern_proposal_facts_use_one_final_pattern_geometry(self):
+        rows = _rows(160)
+        geometry = _geometry()
+        signal_at = rows[-2]["timestamp"]
+        upper_id = "chart-asset:NVDA:1D:pattern-triangle-1-upper"
+        lower_id = "chart-asset:NVDA:1D:pattern-triangle-1-lower"
+        geometry.update({
+            "drawings": [
+                _trend_drawing(upper_id, rows, 115.0),
+                _trend_drawing(lower_id, rows, 110.0),
+            ],
+            "patterns": [{
+                "id": "triangle-1", "geometryHash": "triangle-1",
+                "kind": "ascending_triangle", "state": "confirmed",
+            }],
+            "primaryPattern": {
+                "id": "triangle-1", "geometryHash": "triangle-1",
+                "kind": "ascending_triangle", "state": "confirmed",
+            },
+            "tradePlan": {
+                "patternId": "triangle-1", "patternKind": "ascending_triangle",
+                "patternState": "confirmed", "action": "buy_candidate", "direction": "long",
+                "signalAt": signal_at, "entryTrigger": 115.0, "entryPrice": 115.0,
+                "targetPrice": 120.0, "stopPrice": 110.0, "rewardRiskRatio": 1.0,
+                "reasons": [],
+            },
+            "drawingGroups": {"levels": [], "trend": [], "pattern": [upper_id, lower_id]},
+        })
+
+        fact_pack = build_chart_commentary_fact_pack(
+            symbol="NVDA", interval="1D", candles=rows, geometry=geometry,
+            geometry_input_digest="sha256:geometry", context={},
+        )
+
+        proposal = fact_pack["geometry"]["proposal"]
+        self.assertEqual((proposal["entryPrice"], proposal["targetPrice"], proposal["stopPrice"]), (115.0, 120.0, 110.0))
+        self.assertEqual(proposal["sources"]["entry"]["drawingIds"], [upper_id])
+        self.assertEqual(proposal["sources"]["stop"]["drawingIds"], [lower_id])
+        self.assertEqual(set(proposal["sources"]["target"]["drawingIds"]), {upper_id, lower_id})
+
+    def test_level_proposal_facts_require_three_final_h_lines(self):
+        rows = _rows(160)
+        geometry = _geometry()
+        geometry.update(_level_geometry(rows, support_prices=[110.0], resistance_prices=[118.0, 125.0]))
+
+        fact_pack = build_chart_commentary_fact_pack(
+            symbol="NVDA", interval="1D", candles=rows, geometry=geometry,
+            geometry_input_digest="sha256:geometry", context={},
+        )
+
+        proposal = fact_pack["geometry"]["proposal"]
+        self.assertEqual((proposal["entryPrice"], proposal["targetPrice"], proposal["stopPrice"]), (118.0, 125.0, 110.0))
+        self.assertEqual(proposal["sources"]["entry"]["label"], "저항선")
+        self.assertEqual(proposal["sources"]["target"]["label"], "다음 저항선")
+        self.assertEqual(proposal["sources"]["stop"]["label"], "지지선")
+
+        insufficient = _geometry()
+        insufficient.update(_level_geometry(rows, support_prices=[110.0], resistance_prices=[118.0]))
+        insufficient_pack = build_chart_commentary_fact_pack(
+            symbol="NVDA", interval="1D", candles=rows, geometry=insufficient,
+            geometry_input_digest="sha256:geometry", context={},
+        )
+        self.assertIsNone(insufficient_pack["geometry"]["proposal"])
+
+    def test_context_loader_excludes_sources_after_build_cutoff(self):
+        rows = _rows(160)
+        cutoff = "2025-06-10T21:00:00.000Z"
+        provider = ContextProvider([
+            {"date": "2025-06-10", "summary": "accepted", "generatedAt": "2025-06-10T20:00:00.000Z"},
+            {"date": "2025-06-10", "summary": "future", "generatedAt": "2025-06-10T22:00:00.000Z"},
+        ], [
+            {"eventAt": "2025-06-01T12:00:00.000Z", "actualValue": 1.0, "sourceAsOf": "2025-06-10T20:00:00.000Z"},
+            {"eventAt": "2025-06-08T12:00:00.000Z", "actualValue": 2.0, "sourceAsOf": "2025-06-10T22:00:00.000Z"},
+        ])
+
+        context = ClickHouseChartCommentaryContextLoader(provider).load(
+            symbol="NVDA", interval="1D", candles=rows,
+            as_of=rows[-1]["timestamp"], build_cutoff=cutoff,
+        )
+
+        self.assertEqual([item["summary"] for item in context["news"]], ["accepted"])
+        self.assertEqual(len(context["earnings"]), 1)
+        self.assertEqual(context["earnings"][0]["eps"]["actual"], 1.0)
+
+    def test_output_validation_rejects_unknown_fact_and_personal_language(self):
+        fact_pack = _fact_pack()
+        writer = FixtureWriter()
+        ready, _latency = generate_chart_commentary(
+            fact_pack=fact_pack, writer=writer, generated_at="2025-06-11T00:00:00.000Z",
+        )
+        self.assertEqual(ready["status"], "ready")
+        self.assertEqual(ready["version"], "chart-commentary.v2")
+        self.assertEqual(len(ready["paragraphs"]), 3)
+        self.assertEqual(ready["sourceIdentity"]["contextDigest"], fact_pack["contextDigest"])
+        self.assertLessEqual(sum(ref["type"] == "candle" for ref in ready["references"]), 1)
+
+        bad_reference = FixtureWriter(mutation="reference")
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "unknown evidence"):
+            generate_chart_commentary(
+                fact_pack=fact_pack, writer=bad_reference, generated_at="2025-06-11T00:00:00.000Z",
+            )
+
+        personal = FixtureWriter(mutation="personal")
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "personal account"):
+            generate_chart_commentary(
+                fact_pack=fact_pack, writer=personal, generated_at="2025-06-11T00:00:00.000Z",
+            )
+
+        invented_number = FixtureWriter(mutation="number")
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "unsupported numeric"):
+            generate_chart_commentary(
+                fact_pack=fact_pack, writer=invented_number, generated_at="2025-06-11T00:00:00.000Z",
+            )
+
+        generic_user = FixtureWriter().generate(fact_pack)
+        generic_user["paragraphs"][0]["segments"][0]["text"] = generic_user["paragraphs"][0]["segments"][0]["text"].replace(
+            "현재 가격 구조", "사용자가 확인하는 가격 구조",
+        )
+        generic_ready = commentary_module.validate_chart_commentary_output(
+            generic_user,
+            fact_pack=fact_pack,
+            generated_at="2025-06-11T00:00:00.000Z",
+            model="fixture-model",
+        )
+        self.assertEqual(generic_ready["status"], "ready")
+
+        wrong_type = FixtureWriter(mutation="type")
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "type does not match"):
+            generate_chart_commentary(
+                fact_pack=fact_pack, writer=wrong_type, generated_at="2025-06-11T00:00:00.000Z",
+            )
+
+        markup = FixtureWriter(mutation="markup")
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "continuous prose"):
+            generate_chart_commentary(
+                fact_pack=fact_pack, writer=markup, generated_at="2025-06-11T00:00:00.000Z",
+            )
+
+        sentence_link = FixtureWriter(mutation="sentence_link")
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "concise noun phrase"):
+            generate_chart_commentary(
+                fact_pack=fact_pack, writer=sentence_link, generated_at="2025-06-11T00:00:00.000Z",
+            )
+
+    def test_v2_inline_links_trace_final_drawing_candle_indicator_and_event(self):
+        rows = _rows(160)
+        geometry = _geometry()
+        geometry.update(_level_geometry(rows, support_prices=[110.0], resistance_prices=[118.0, 125.0]))
+        fact_pack = build_chart_commentary_fact_pack(
+            symbol="NVDA", interval="1D", candles=rows, geometry=geometry,
+            geometry_input_digest="sha256:geometry",
+            context={
+                "news": [{
+                    "id": "news:NVDA:2025-06-10", "type": "news", "marketDate": "2025-06-10",
+                    "summary": "저장 뉴스", "keyPoints": [], "impactDirection": "neutral",
+                    "sentiment": "neutral", "articleCount": 1, "generatedAt": "2025-06-10T20:00:00.000Z",
+                }],
+                "earnings": [],
+                "missingData": ["earnings"],
+            },
+        )
+
+        ready, _latency = generate_chart_commentary(
+            fact_pack=fact_pack, writer=FixtureWriter(), generated_at="2025-06-11T00:00:00.000Z",
+        )
+
+        links = [
+            segment["link"]
+            for paragraph in ready["paragraphs"]
+            for segment in paragraph["segments"]
+            if segment.get("link")
+        ]
+        self.assertEqual({link["kind"] for link in links}, {"drawing", "candle", "indicator", "news"})
+        self.assertEqual(ready["indicatorRecommendations"][0]["layer"], "rsi:14")
+        self.assertEqual(len({reference["id"] for reference in ready["references"]}), len(ready["references"]))
+
+    def test_v2_allows_indicator_evidence_to_share_a_candle_reference(self):
+        fact_pack = _fact_pack()
+
+        ready, _latency = generate_chart_commentary(
+            fact_pack=fact_pack,
+            writer=FixtureWriter(mutation="shared_reference"),
+            generated_at="2025-06-11T00:00:00.000Z",
+        )
+
+        links = [
+            segment["link"]
+            for paragraph in ready["paragraphs"]
+            for segment in paragraph["segments"]
+            if segment.get("link")
+        ]
+        candle_link = next(link for link in links if link["kind"] == "candle")
+        indicator_link = next(link for link in links if link["kind"] == "indicator")
+        self.assertEqual(indicator_link["referenceIds"], [candle_link["referenceId"]])
+
+    def test_v4_rejects_more_than_one_major_candle_reference(self):
+        fact_pack = _fact_pack()
+        raw = FixtureWriter().generate(fact_pack)
+        candle_references = [item["id"] for item in fact_pack["references"] if item["type"] == "candle"]
+        raw["paragraphs"][1]["segments"][3]["link"]["referenceIds"] = [candle_references[1]]
+        raw["indicatorRecommendations"][0]["referenceIds"] = [candle_references[1]]
+
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "more than one major candle"):
+            commentary_module.validate_chart_commentary_output(
+                raw,
+                fact_pack=fact_pack,
+                generated_at="2025-06-11T00:00:00.000Z",
+                model="fixture-model",
+            )
+
+    def test_v5_defaults_to_two_and_accepts_one_distinct_third_indicator(self):
+        fact_pack = _fact_pack()
+        raw = FixtureWriter().generate(fact_pack)
+        candle_reference = next(item["id"] for item in fact_pack["references"] if item["type"] == "candle")
+        self.assertEqual([item["layer"] for item in raw["indicatorRecommendations"]], ["rsi:14", "volume-profile"])
+        raw["paragraphs"][1]["segments"].insert(-1, {
+            "id": "confirmation-indicator-third",
+            "text": "볼린저 밴드",
+            "link": {"kind": "indicator", "layer": "bollinger:20:2", "referenceIds": [candle_reference]},
+        })
+        raw["indicatorRecommendations"].append({
+            "layer": "bollinger:20:2",
+            "label": "볼린저 밴드",
+            "reason": "가격 분포와 다른 변동성 근거를 보완합니다.",
+            "referenceIds": [candle_reference],
+        })
+
+        ready = commentary_module.validate_chart_commentary_output(
+            raw,
+            fact_pack=fact_pack,
+            generated_at="2025-06-11T00:00:00.000Z",
+            model="fixture-model",
+        )
+        self.assertEqual(len(ready["indicatorRecommendations"]), 3)
+        self.assertLessEqual(commentary_module.commentary_output_metrics(ready)["linkCount"], 6)
+
+        fourth = copy.deepcopy(raw)
+        fourth["paragraphs"][1]["segments"].insert(-1, {
+            "id": "confirmation-indicator-fourth",
+            "text": "SMA20",
+            "link": {"kind": "indicator", "layer": "sma:20", "referenceIds": [candle_reference]},
+        })
+        fourth["indicatorRecommendations"].append({
+            "layer": "sma:20", "label": "SMA20", "reason": "추세 근거를 보완합니다.",
+            "referenceIds": [candle_reference],
+        })
+
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "indicator recommendations are invalid"):
+            commentary_module.validate_chart_commentary_output(
+                fourth,
+                fact_pack=fact_pack,
+                generated_at="2025-06-11T00:00:00.000Z",
+                model="fixture-model",
+            )
+
+    def test_v5_rejects_redundant_third_indicator_and_volume_recommendation(self):
+        fact_pack = _fact_pack()
+        candle_reference = next(item["id"] for item in fact_pack["references"] if item["type"] == "candle")
+        redundant = FixtureWriter().generate(fact_pack)
+        redundant["paragraphs"][1]["segments"].insert(-1, {
+            "id": "confirmation-indicator-redundant",
+            "text": "MACD",
+            "link": {"kind": "indicator", "layer": "macd:12:26:9", "referenceIds": [candle_reference]},
+        })
+        redundant["indicatorRecommendations"].append({
+            "layer": "macd:12:26:9", "label": "MACD", "reason": "모멘텀을 다시 확인합니다.",
+            "referenceIds": [candle_reference],
+        })
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "distinct confirmation basis"):
+            commentary_module.validate_chart_commentary_output(
+                redundant, fact_pack=fact_pack,
+                generated_at="2025-06-11T00:00:00.000Z", model="fixture-model",
+            )
+
+        volume = FixtureWriter().generate(fact_pack)
+        volume["paragraphs"][1]["segments"][3]["link"]["layer"] = "volume"
+        volume["indicatorRecommendations"][0]["layer"] = "volume"
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "indicator link is unavailable"):
+            commentary_module.validate_chart_commentary_output(
+                volume, fact_pack=fact_pack,
+                generated_at="2025-06-11T00:00:00.000Z", model="fixture-model",
+            )
+
+    def test_v5_allows_one_or_zero_recommendations_when_eligible_layers_are_limited(self):
+        one_layer = _fact_pack()
+        one_layer["indicators"] = {
+            **one_layer["indicators"],
+            "volumeProfile120": {}, "macd": {}, "bollinger20x2": {}, "movingAverages": {},
+        }
+        one_ready, _latency = generate_chart_commentary(
+            fact_pack=one_layer, writer=FixtureWriter(), generated_at="2025-06-11T00:00:00.000Z",
+        )
+        self.assertEqual([item["layer"] for item in one_ready["indicatorRecommendations"]], ["rsi:14"])
+
+        no_layers = copy.deepcopy(one_layer)
+        no_layers["indicators"]["rsi14"] = {}
+        no_ready, _latency = generate_chart_commentary(
+            fact_pack=no_layers, writer=FixtureWriter(), generated_at="2025-06-11T00:00:00.000Z",
+        )
+        self.assertEqual(no_ready["indicatorRecommendations"], [])
+
+    def test_v4_rejects_more_than_one_news_or_earnings_reference(self):
+        rows = _rows(160)
+        fact_pack = build_chart_commentary_fact_pack(
+            symbol="NVDA",
+            interval="1D",
+            candles=rows,
+            geometry=_geometry(),
+            geometry_input_digest="sha256:geometry",
+            context={
+                "news": [{
+                    "id": "news:NVDA:2025-06-10", "type": "news", "marketDate": "2025-06-10",
+                    "summary": "저장 뉴스", "keyPoints": [], "impactDirection": "neutral",
+                    "sentiment": "neutral", "articleCount": 1, "generatedAt": "2025-06-10T20:00:00.000Z",
+                }],
+                "earnings": [{
+                    "id": "earnings:NVDA:2025-06-09T20:00:00.000Z", "type": "earnings",
+                    "eventAt": "2025-06-09T20:00:00.000Z", "sourceAsOf": "2025-06-10T19:00:00.000Z",
+                }],
+                "missingData": [],
+            },
+        )
+        raw = FixtureWriter().generate(fact_pack)
+        second_event = next(
+            item for item in fact_pack["references"]
+            if item["type"] in {"news", "earnings"}
+            and item["id"] != raw["paragraphs"][2]["segments"][1]["link"]["referenceId"]
+        )
+        raw["paragraphs"][2]["segments"].insert(2, {
+            "id": "context-second-event",
+            "text": "추가 이벤트",
+            "link": {"kind": second_event["type"], "referenceId": second_event["id"]},
+        })
+
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "more than one stored event"):
+            commentary_module.validate_chart_commentary_output(
+                raw,
+                fact_pack=fact_pack,
+                generated_at="2025-06-11T00:00:00.000Z",
+                model="fixture-model",
+            )
+
+    def test_v2_downgrades_a_repeated_inline_action_to_plain_text(self):
+        fact_pack = _fact_pack()
+
+        ready, _latency = generate_chart_commentary(
+            fact_pack=fact_pack,
+            writer=FixtureWriter(mutation="duplicate_candle_link"),
+            generated_at="2025-06-11T00:00:00.000Z",
+        )
+
+        repeated_segment = next(
+            segment
+            for paragraph in ready["paragraphs"]
+            for segment in paragraph["segments"]
+            if segment["id"] == "context-open"
+        )
+        self.assertNotIn("link", repeated_segment)
+
+    def test_v5_target_fixture_is_concise_without_reducing_fact_pack(self):
+        fact_pack = _fact_pack()
+        before_digest = fact_pack["contextDigest"]
+
+        ready, _latency = generate_chart_commentary(
+            fact_pack=fact_pack,
+            writer=FixtureWriter(),
+            generated_at="2025-06-11T00:00:00.000Z",
+        )
+
+        article = "\n\n".join(
+            "".join(segment["text"] for segment in paragraph["segments"])
+            for paragraph in ready["paragraphs"]
+        )
+        metrics = commentary_module.commentary_output_metrics(ready)
+        self.assertEqual(ready["promptVersion"], "chart-commentary.ko.v5")
+        self.assertEqual(fact_pack["contextDigest"], before_digest)
+        self.assertIsNotNone(fact_pack["indicators"]["volume"]["current"])
+        self.assertNotIn("volume", {item["layer"] for item in ready["indicatorRecommendations"]})
+        self.assertEqual(metrics["characterCount"], len(article))
+        self.assertGreaterEqual(len(article), 280)
+        self.assertLessEqual(len(article), 360)
+        self.assertEqual(metrics["sentenceCount"], 4)
+        self.assertLessEqual(metrics["linkCount"], 6)
+        self.assertEqual(metrics["indicatorCount"], 2)
+        self.assertLessEqual(sum(ref["type"] == "candle" for ref in ready["references"]), 1)
+        self.assertLessEqual(sum(ref["type"] in {"news", "earnings"} for ref in ready["references"]), 1)
+
+    def test_v5_style_target_deviation_inside_safe_range_does_not_trigger_repair(self):
+        fact_pack = _fact_pack()
+        ready, _latency = generate_chart_commentary(
+            fact_pack=fact_pack,
+            writer=FixtureWriter(mutation="three_sentences"),
+            generated_at="2025-06-11T00:00:00.000Z",
+        )
+        article = "\n\n".join(
+            "".join(segment["text"] for segment in paragraph["segments"])
+            for paragraph in ready["paragraphs"]
+        )
+        self.assertEqual(ready["status"], "ready")
+        self.assertEqual(len(commentary_module.SENTENCE_PATTERN.findall(article)), 3)
+        self.assertGreaterEqual(len(article), 220)
+        self.assertLessEqual(len(article), 500)
+
+    def test_v5_rejects_output_outside_safe_length(self):
+        with self.assertRaisesRegex(ChartCommentaryGenerationError, "safe storage range"):
+            generate_chart_commentary(
+                fact_pack=_fact_pack(),
+                writer=FixtureWriter(mutation="expanded_style"),
+                generated_at="2025-06-11T00:00:00.000Z",
+            )
+
+    def test_v2_macd_period_tuple_is_valid_fact_pack_numeric_content(self):
+        ready, _latency = generate_chart_commentary(
+            fact_pack=_fact_pack(),
+            writer=FixtureWriter(mutation="macd_periods"),
+            generated_at="2025-06-11T00:00:00.000Z",
+        )
+
+        article = " ".join(
+            segment["text"]
+            for paragraph in ready["paragraphs"]
+            for segment in paragraph["segments"]
+        )
+        self.assertIn("MACD(12,26,9)", article)
+
+    def test_v2_link_budget_preserves_required_categories(self):
+        paragraphs = [{
+            "id": "one",
+            "segments": [
+                {
+                    "id": f"segment-{index}",
+                    "text": f"근거 {index}",
+                    "link": {"kind": "candle", "referenceId": f"candle:{index}"},
+                }
+                for index in range(8)
+            ] + [
+                {
+                    "id": "drawing",
+                    "text": "최종 작도",
+                    "link": {"kind": "drawing", "referenceIds": ["drawing:one"]},
+                },
+                {
+                    "id": "event",
+                    "text": "최근 뉴스",
+                    "link": {"kind": "news", "referenceId": "news:one"},
+                },
+            ],
+        }]
+
+        commentary_module._limit_commentary_inline_links(paragraphs, max_links=5)
+
+        links = [segment["link"] for segment in paragraphs[0]["segments"] if segment.get("link")]
+        self.assertEqual(len(links), 5)
+        self.assertIn("drawing", {link["kind"] for link in links})
+        self.assertIn("news", {link["kind"] for link in links})
+
+    def test_openai_writer_uses_store_false_and_deterministic_strict_request(self):
+        fact_pack = _fact_pack()
+        fixture_output = FixtureWriter().generate(fact_pack)
+        requests = []
+        writer = OpenAIChartCommentaryWriter(
+            read_config=lambda key: {"CHART_COMMENTARY_MODEL": "fixture-openai-model"}.get(key),
+            response_requester=lambda request: requests.append(copy.deepcopy(request)) or fixture_output,
+        )
+
+        self.assertEqual(writer.generate(fact_pack), fixture_output)
+        self.assertEqual(writer.generate(copy.deepcopy(fact_pack)), fixture_output)
+
+        self.assertEqual(requests[0], requests[1])
+        self.assertEqual(requests[0]["model"], "fixture-openai-model")
+        self.assertIs(requests[0]["store"], False)
+        self.assertEqual(requests[0]["text"]["format"]["type"], "json_schema")
+        self.assertIs(requests[0]["text"]["format"]["strict"], True)
+        self.assertEqual(requests[0]["text"]["format"]["name"], "chart_commentary_ko_v5")
+        self.assertEqual(requests[0]["text"]["format"]["schema"]["properties"]["indicatorRecommendations"]["maxItems"], 3)
+        self.assertNotIn(
+            "volume",
+            requests[0]["text"]["format"]["schema"]["properties"]["indicatorRecommendations"]["items"]["properties"]["layer"]["enum"],
+        )
+        self.assertNotIn("uniqueItems", json.dumps(requests[0]["text"]["format"]["schema"], sort_keys=True))
+        self.assertEqual(json.loads(requests[0]["input"]), fact_pack)
+
+    def test_openai_repair_request_targets_the_rejected_value_without_relaxing_validation(self):
+        fact_pack = _fact_pack()
+        fixture_output = FixtureWriter().generate(fact_pack)
+        requests = []
+        writer = OpenAIChartCommentaryWriter(
+            read_config=lambda key: {"CHART_COMMENTARY_MODEL": "fixture-openai-model"}.get(key),
+            response_requester=lambda request: requests.append(copy.deepcopy(request)) or fixture_output,
+        )
+
+        writer.repair(
+            fact_pack,
+            FixtureWriter(mutation="number").generate(fact_pack),
+            ChartCommentaryGenerationError("commentary contains unsupported numeric value: 50"),
+        )
+
+        self.assertEqual(len(requests), 1)
+        self.assertIn('허용되지 않은 숫자 "50"', requests[0]["instructions"])
+        self.assertIn("다른 새 숫자로 대체하지 말고", requests[0]["instructions"])
+        repair_input = json.loads(requests[0]["input"])
+        self.assertEqual(repair_input["validation"]["message"], "commentary contains unsupported numeric value: 50")
+        self.assertIn('허용되지 않은 숫자 "50"', repair_input["validation"]["guidance"])
+
+    def test_openai_writer_preflight_rejects_unsupported_strict_schema_keywords(self):
+        with self.assertRaises(ChartCommentaryGenerationError) as raised:
+            commentary_module._validate_openai_strict_schema({
+                "type": "array",
+                "uniqueItems": True,
+                "items": {"type": "string"},
+            })
+
+        self.assertEqual(raised.exception.code, "provider_schema")
+        self.assertEqual(raised.exception.details["providerParam"], "schema.uniqueItems")
+
+    def test_openai_writer_configuration_preflight_accepts_v2_schema(self):
+        writer = OpenAIChartCommentaryWriter(
+            read_config=lambda key: {
+                "OPENAI_API_KEY": "preflight-secret",
+                "CHART_COMMENTARY_MODEL": "gpt-5.2",
+            }.get(key),
+        )
+
+        writer.validate_configuration()
+
+    def test_openai_transport_retries_rate_limit_once(self):
+        fact_pack = _fact_pack()
+        fixture_output = FixtureWriter().generate(fact_pack)
+        attempts = []
+        responses = [
+            urllib.error.HTTPError(
+                "https://api.openai.com/v1/responses",
+                429,
+                "rate limited",
+                {"x-request-id": "req-safe-1"},
+                io.BytesIO(json.dumps({
+                    "error": {"type": "rate_limit_error", "code": "rate_limit_exceeded", "param": None},
+                }).encode("utf-8")),
+            ),
+            FakeOpenAIResponse({"status": "completed", "output_text": json.dumps(fixture_output)}),
+        ]
+
+        def urlopen(_request, *, timeout):
+            attempts.append(timeout)
+            response = responses.pop(0)
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+        sleeps = []
+        writer = OpenAIChartCommentaryWriter(
+            read_config=lambda key: {
+                "OPENAI_API_KEY": "secret-not-logged",
+                "CHART_COMMENTARY_MODEL": "fixture-openai-model",
+                "CHART_COMMENTARY_TIMEOUT_SECONDS": "12",
+            }.get(key),
+            urlopen=urlopen,
+            sleep=sleeps.append,
+        )
+
+        self.assertEqual(writer.generate(fact_pack), fixture_output)
+        self.assertEqual(attempts, [12.0, 12.0])
+        self.assertEqual(sleeps, [0.5])
+
+    def test_openai_transport_does_not_retry_auth_failure(self):
+        attempts = []
+
+        def urlopen(_request, *, timeout):
+            attempts.append(timeout)
+            raise urllib.error.HTTPError(
+                "https://api.openai.com/v1/responses",
+                401,
+                "unauthorized",
+                {"x-request-id": "req-auth-1"},
+                io.BytesIO(json.dumps({
+                    "error": {"type": "invalid_request_error", "code": "invalid_api_key", "param": None},
+                }).encode("utf-8")),
+            )
+
+        writer = OpenAIChartCommentaryWriter(
+            read_config=lambda key: {"OPENAI_API_KEY": "invalid", "CHART_COMMENTARY_MODEL": "fixture"}.get(key),
+            urlopen=urlopen,
+            sleep=lambda _seconds: self.fail("auth failure must not retry"),
+        )
+        with self.assertRaises(ChartCommentaryGenerationError) as caught:
+            writer.generate(_fact_pack())
+        self.assertEqual(caught.exception.code, "provider_auth")
+        self.assertEqual(caught.exception.attempts, 1)
+        self.assertEqual(caught.exception.details["requestId"], "req-auth-1")
+        self.assertEqual(len(attempts), 1)
+
+    def test_post_validation_failure_gets_one_repair_attempt(self):
+        writer = RepairingFixtureWriter()
+
+        ready, _latency = generate_chart_commentary(
+            fact_pack=_fact_pack(),
+            writer=writer,
+            generated_at="2025-06-11T00:00:00.000Z",
+        )
+
+        self.assertEqual(ready["version"], "chart-commentary.v2")
+        self.assertEqual(writer.repair_calls, 1)
+
+    def test_required_builder_fails_fast_when_openai_key_is_missing(self):
+        writer = OpenAIChartCommentaryWriter(
+            read_config=lambda key: {"CHART_COMMENTARY_MODEL": "fixture-openai-model"}.get(key),
+            response_requester=lambda _request: {},
+        )
+        with self.assertRaises(ChartCommentaryGenerationError) as caught:
+            ChartAssetBuilder(
+                candle_loader=Loader(_rows(160)),
+                storage=MemoryStorage(),
+                progress=InMemoryChartAssetProgressStore(),
+                commentary_writer=writer,
+                commentary_context_loader=StaticContext(),
+                commentary_required=True,
+                concurrency=1,
+            )
+        self.assertEqual(caught.exception.code, "provider_config")
+
+    def test_builder_required_commentary_failure_preserves_previous_asset(self):
+        rows = _rows(160)
+        existing = {"assetVersion": "geometry", "symbol": "NVDA", "interval": "1D", "marker": "previous"}
+        storage = MemoryStorage(existing)
+        builder = ChartAssetBuilder(
+            candle_loader=Loader(rows), storage=storage, progress=InMemoryChartAssetProgressStore(),
+            commentary_writer=FailingWriter(), commentary_context_loader=StaticContext(),
+            commentary_required=True, concurrency=1,
+        )
+
+        state = builder.run(ChartAssetBuildEnvelope.create(
+            requested_by="any-user", symbols=["NVDA"], intervals=["1D"], force=True,
+        ))
+
+        self.assertEqual(state["status"], "completed_with_errors")
+        self.assertEqual(state["recentItems"][-1]["stage"], "commentary")
+        self.assertEqual(state["recentItems"][-1]["reason"], "commentary_generation_failed")
+        self.assertIs(storage.assets[("NVDA", "1D")], existing)
+        self.assertEqual(storage.save_count, 0)
+        failure_log = json.loads(state["logs"][-1])
+        self.assertEqual(failure_log["event"], "chart_commentary_failed")
+        self.assertEqual(failure_log["commentary"]["status"], "failed")
+        self.assertEqual(failure_log["commentary"]["model"], "fixture-model")
+        self.assertEqual(failure_log["commentary"]["promptVersion"], "chart-commentary.ko.v5")
+        self.assertTrue(str(failure_log["commentary"]["contextDigest"]).startswith("sha256:"))
+        self.assertEqual(set(failure_log["commentary"]), {
+            "status", "failureCode", "retryable", "attempts", "model", "promptVersion",
+            "contextDigest", "newsAsOf", "earningsAsOf", "latencyMs", "requestId",
+        })
+        self.assertEqual(failure_log["commentary"]["failureCode"], "provider_timeout")
+        self.assertEqual(failure_log["commentary"]["requestId"], "req-fixture-safe")
+        self.assertNotIn("unsafe", str(failure_log))
+        self.assertIn("[provider_timeout]", state["recentItems"][-1]["error"])
+
+    def test_builder_stores_injected_commentary_and_schema_accepts_it(self):
+        rows = _rows(160)
+        storage = MemoryStorage()
+        builder = ChartAssetBuilder(
+            candle_loader=Loader(rows), storage=storage, progress=InMemoryChartAssetProgressStore(),
+            commentary_writer=FixtureWriter(), commentary_context_loader=StaticContext(),
+            commentary_required=True, concurrency=1,
+        )
+
+        state = builder.run(ChartAssetBuildEnvelope.create(
+            requested_by="first-user", symbols=["NVDA"], intervals=["1D"], force=True,
+        ))
+
+        self.assertEqual(state["recentItems"][-1]["status"], "saved")
+        self.assertTrue(all(len(line) <= 500 for line in state["logs"]))
+        parsed_logs = [json.loads(line) for line in state["logs"]]
+        commentary_log = next(item for item in parsed_logs if item["event"] == "chart_commentary_saved")
+        self.assertEqual(commentary_log["commentary"]["status"], "ready")
+        self.assertEqual(commentary_log["commentary"]["promptVersion"], "chart-commentary.ko.v5")
+        stored_paragraphs = storage.assets[("NVDA", "1D")]["commentary"]["paragraphs"]
+        self.assertEqual(
+            commentary_log["commentary"]["characterCount"],
+            sum(len(segment["text"]) for paragraph in stored_paragraphs for segment in paragraph["segments"])
+            + (len(stored_paragraphs) - 1) * 2,
+        )
+        self.assertEqual(commentary_log["commentary"]["sentenceCount"], 4)
+        self.assertLessEqual(commentary_log["commentary"]["linkCount"], 6)
+        self.assertEqual(commentary_log["commentary"]["indicatorCount"], 2)
+        self.assertEqual(parsed_logs[-1]["event"], "chart_asset_saved")
+        self.assertTrue(parsed_logs[-1]["writeVerified"])
+        asset = storage.assets[("NVDA", "1D")]
+        self.assertEqual(asset["commentary"]["version"], "chart-commentary.v2")
+        self.assertNotIn("first-user", str(asset))
+        _validate_asset_schema(asset)
+
+
+class FixtureWriter:
+    model = "fixture-model"
+
+    def __init__(self, mutation: str | None = None):
+        self.mutation = mutation
+
+    def generate(self, fact_pack):
+        references = fact_pack["references"]
+        candle_references = [item["id"] for item in references if item["type"] == "candle"]
+        candle_reference = candle_references[0]
+        indicator_reference = candle_reference
+        drawing_reference = next((item["id"] for item in references if item["type"] == "drawing"), None)
+        event = next((item for item in references if item["type"] in {"news", "earnings"}), None)
+        indicator_specs = [
+            ("rsi:14", "상대강도지수", "가격 움직임의 힘이 확장되는지 둔화되는지 함께 확인합니다."),
+            ("volume-profile", "거래량 프로파일", "최근 완료 봉 구간에서 거래가 집중된 가격대를 함께 확인합니다."),
+        ]
+        indicator_specs = [
+            item for item in indicator_specs
+            if commentary_module._indicator_available(fact_pack, item[0])
+        ]
+        confirmation_segments = [
+            {"id": "confirmation-open", "text": "그 판단을 점검할 때에는 ", "link": None},
+            {"id": "confirmation-candle", "text": "주요 완료 봉", "link": {"kind": "candle", "referenceId": candle_reference}},
+            {"id": "confirmation-middle", "text": "의 몸통·꼬리와 거래량은 경계에서 실제 수급 반응이 확인됐는지를 보여 줍니다. 여기에 ", "link": None},
+        ]
+        for index, (layer, label, _reason) in enumerate(indicator_specs):
+            if index:
+                confirmation_segments.append({
+                    "id": f"confirmation-indicator-join-{index}", "text": "와 ", "link": None,
+                })
+            confirmation_segments.append({
+                "id": f"confirmation-indicator-{index + 1}",
+                "text": label,
+                "link": {"kind": "indicator", "layer": layer, "referenceIds": [indicator_reference]},
+            })
+        confirmation_segments.append({
+            "id": "confirmation-close",
+            "text": "를 겹치면 경계를 시험하는 힘의 확장과 둔화를 구분할 수 있지만, 지표는 작도를 대신하는 결론이 아니라 반응의 질을 보완하는 근거입니다.",
+            "link": None,
+        })
+        paragraphs = [
+            {
+                "id": "structure",
+                "segments": [
+                    {"id": "structure-open", "text": "현재 가격 구조는 단기 등락보다 ", "link": None},
+                    *([{"id": "structure-drawing", "text": "최종 작도", "link": {"kind": "drawing", "referenceIds": [drawing_reference]}}] if drawing_reference else []),
+                    {"id": "structure-close", "text": (
+                        "가 제시하는 경계와 반복 반응을 중심으로 읽고, 다음 완료 봉이 구조 안팎에서 자리를 잡는지를 핵심 기준으로 삼아야 합니다."
+                        if drawing_reference else
+                        "축적된 경계와 반복 반응을 중심으로 읽고, 다음 완료 봉이 구조 안팎에서 자리를 잡는지를 핵심 기준으로 삼아야 합니다."
+                    ), "link": None},
+                ],
+            },
+            {
+                "id": "confirmation",
+                "segments": confirmation_segments,
+            },
+            {
+                "id": "context",
+                "segments": [
+                    {"id": "context-open", "text": (
+                        "외부 맥락으로는 " if event else
+                        "외부 이벤트 자료가 제한된 경우에는 "
+                    ), "link": None},
+                    *([{"id": "context-event", "text": "저장된 이벤트 맥락", "link": {"kind": event["type"], "referenceId": event["id"]}}] if event else []),
+                    {"id": "context-close", "text": (
+                        "을 가격 움직임의 원인보다 동시 정보로만 보고, 다음 완료 봉이 최종 경계를 지키는지 또는 반대편을 넘어 해석을 재검토하게 하는지를 확인합니다."
+                        if event else
+                        "확인되지 않은 서사를 채우지 않고, 다음 완료 봉이 최종 경계를 지키는지 또는 반대편을 넘어 해석을 재검토하게 하는지를 확인합니다."
+                    ), "link": None},
+                ],
+            },
+        ]
+        if self.mutation == "reference":
+            paragraphs[1]["segments"][1]["link"]["referenceId"] = "missing-reference"
+        if self.mutation == "personal":
+            paragraphs[0]["segments"][0]["text"] = paragraphs[0]["segments"][0]["text"].replace("현재 가격 구조", "사용자 계좌")
+        if self.mutation == "number":
+            paragraphs[0]["segments"][0]["text"] = paragraphs[0]["segments"][0]["text"].replace("현재 가격 구조", "현재 가격 구조와 9999")
+        if self.mutation == "type":
+            paragraphs[1]["segments"][1]["link"]["kind"] = "news"
+        if self.mutation == "markup":
+            paragraphs[0]["segments"][0]["text"] = "<strong>" + paragraphs[0]["segments"][0]["text"]
+        if self.mutation == "sentence_link":
+            paragraphs[1]["segments"][1]["text"] = "주요 완료 봉은 이 구조를 확인하는 핵심 근거입니다."
+        if self.mutation == "shared_reference":
+            paragraphs[1]["segments"][3]["link"]["referenceIds"] = [candle_reference]
+            indicator_reference = candle_reference
+        if self.mutation == "duplicate_candle_link":
+            paragraphs[2]["segments"][0]["text"] = "같은 주요 완료 봉"
+            paragraphs[2]["segments"][0]["link"] = copy.deepcopy(paragraphs[1]["segments"][1]["link"])
+        if self.mutation == "three_sentences":
+            for paragraph in paragraphs:
+                for segment in paragraph["segments"]:
+                    segment["text"] = segment["text"].replace(".", "")
+                paragraph["segments"][-1]["text"] = paragraph["segments"][-1]["text"].rstrip() + "."
+        if self.mutation == "expanded_style":
+            paragraphs[2]["segments"][-1]["text"] += (
+                " 또한 경계 부근의 반응이 다음 완료 봉에서도 이어지는지 살피면 구조의 지속성과 일시적 흔들림을 구분하는 데 도움이 됩니다."
+                " 외부 맥락보다 가격과 거래량의 확인 순서를 우선하면 해석이 한쪽 서사에 치우치는 위험도 줄일 수 있습니다."
+                " 이 과정은 결론을 늘리는 것이 아니라 같은 기준을 새 데이터에 반복 적용하는 관찰 절차입니다."
+                " 서로 다른 근거가 같은 방향을 가리키는지 확인하되 하나의 지표가 전체 판단을 대신하지 않도록 구조와 반응의 순서를 유지합니다."
+                " 이후 변화 역시 새 서사를 덧붙이기보다 기존 경계가 유지되는지부터 차례로 대조합니다."
+            )
+        if self.mutation == "macd_periods":
+            paragraphs[1]["segments"][-1]["text"] += " MACD(12,26,9)는 같은 가격 반응의 강도를 보조적으로 확인하는 기준입니다."
+        return {
+            "paragraphs": paragraphs,
+            "indicatorRecommendations": [
+                {
+                    "layer": layer, "label": label, "reason": reason,
+                    "referenceIds": [indicator_reference],
+                }
+                for layer, label, reason in indicator_specs
+            ],
+            "limitations": [],
+        }
+
+
+class FailingWriter:
+    model = "fixture-model"
+
+    def generate(self, _fact_pack):
+        raise ChartCommentaryGenerationError(
+            "injected failure",
+            code="provider_timeout",
+            retryable=True,
+            details={"requestId": "req-fixture-safe", "providerMessage": "unsafe raw response"},
+        )
+
+
+class RepairingFixtureWriter(FixtureWriter):
+    def __init__(self):
+        super().__init__(mutation="number")
+        self.repair_calls = 0
+
+    def repair(self, fact_pack, previous_output, validation_error):
+        self.repair_calls += 1
+        if "9999" not in str(previous_output):
+            raise AssertionError("repair must receive the rejected structured output")
+        if "unsupported numeric" not in str(validation_error):
+            raise AssertionError("repair must receive the validation failure")
+        return FixtureWriter().generate(fact_pack)
+
+
+class FakeOpenAIResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
+
+
+class StaticContext:
+    def load(self, **_kwargs):
+        return {"news": [], "earnings": [], "missingData": ["news", "earnings"]}
+
+
+class ContextProvider:
+    def __init__(self, news, earnings):
+        self.news = news
+        self.earnings = earnings
+
+    def company_daily_news_summaries_between(self, *_args, **_kwargs):
+        return self.news
+
+    def earnings_events(self, *_args, **_kwargs):
+        return self.earnings
+
+
+class Loader:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def load_symbol(self, _symbol, intervals):
+        interval = intervals[0]
+        return AnalysisCandleBundle(
+            rows={interval: self.rows},
+            coverage={interval: {
+                "coverageState": "partial", "recentContiguousBars": len(self.rows),
+                "missingBars": 380 - len(self.rows),
+            }},
+            digests={interval: "sha256:geometry"},
+        )
+
+
+class MemoryStorage:
+    def __init__(self, existing=None):
+        self.assets = {("NVDA", "1D"): existing} if existing else {}
+        self.save_count = 0
+
+    def get(self, symbol, interval):
+        return self.assets.get((symbol, interval))
+
+    def save(self, asset):
+        self.save_count += 1
+        self.assets[(asset["symbol"], asset["interval"])] = asset
+        return True
+
+
+def _rows(count: int):
+    start = datetime(2025, 1, 2, 14, 30, tzinfo=timezone.utc)
+    return [{
+        "candleKey": (start + timedelta(days=index)).date().isoformat(),
+        "timestamp": (start + timedelta(days=index)).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        "barIndex": index,
+        "open": 100 + index * 0.1,
+        "high": 101 + index * 0.1 + (index % 7) * 0.04,
+        "low": 99 + index * 0.1 - (index % 5) * 0.03,
+        "close": 100.2 + index * 0.1,
+        "volume": 1_000_000 + (index % 11) * 20_000,
+        "isClosed": True,
+        "interval": "1D",
+    } for index in range(count)]
+
+
+def _geometry():
+    return {
+        "drawings": [], "supports": [], "resistances": [], "patterns": [],
+        "primaryPattern": None, "tradePlan": None, "primaryTriangle": None,
+        "historicalTriangle": None, "evidence": [],
+        "drawingGroups": {"levels": [], "trend": [], "pattern": []},
+        "analysisTrace": {
+            "version": "geometry-analysis-trace-v2", "pivots": [],
+            "levelCandidates": [], "trendCandidates": [], "patternCandidates": [],
+            "selections": {"levelCandidateIds": [], "trendCandidateIds": [], "patternCandidateIds": []},
+            "omittedCounts": {},
+            "completeness": {
+                "complete": True,
+                "detected": {"levels": 0, "trends": 0, "patterns": 0},
+                "stored": {"levels": 0, "trends": 0, "patterns": 0},
+            },
+        },
+    }
+
+
+def _trend_drawing(drawing_id: str, rows: list[dict], price: float):
+    return {
+        "id": drawing_id,
+        "type": "trendLine",
+        "createdBy": "system",
+        "anchors": [
+            {"timestamp": rows[120]["timestamp"], "logicalIndex": 120, "price": price},
+            {"timestamp": rows[150]["timestamp"], "logicalIndex": 150, "price": price},
+        ],
+    }
+
+
+def _level_geometry(rows: list[dict], *, support_prices: list[float], resistance_prices: list[float]):
+    supports = [{"id": f"support-{index}", "price": price} for index, price in enumerate(support_prices)]
+    resistances = [{"id": f"resistance-{index}", "price": price} for index, price in enumerate(resistance_prices)]
+    levels = [*supports, *resistances]
+    drawings = [{
+        "id": f"chart-asset:NVDA:1D:{level['id']}",
+        "type": "horizontalLine",
+        "createdBy": "system",
+        "anchors": [{"timestamp": rows[-1]["timestamp"], "logicalIndex": len(rows) - 1, "price": level["price"]}],
+    } for level in levels]
+    return {
+        "drawings": drawings,
+        "supports": supports,
+        "resistances": resistances,
+        "drawingGroups": {"levels": [drawing["id"] for drawing in drawings], "trend": [], "pattern": []},
+    }
+
+
+def _fact_pack():
+    return build_chart_commentary_fact_pack(
+        symbol="NVDA", interval="1D", candles=_rows(160), geometry=_geometry(),
+        geometry_input_digest="sha256:geometry",
+        context={"news": [], "earnings": [], "missingData": ["news", "earnings"]},
+    )
+
+
+if __name__ == "__main__":
+    unittest.main()

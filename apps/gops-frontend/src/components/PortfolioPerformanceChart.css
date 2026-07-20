@@ -1,0 +1,207 @@
+.portfolio-performance-panel-v2 {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.portfolio-performance-panel-v2 .portfolio-split-header {
+  align-items: center;
+}
+
+.portfolio-performance-panel-v2 .portfolio-split-header > div {
+  gap: 0;
+}
+
+.portfolio-performance-panel-v2 .portfolio-split-header span {
+  display: none;
+}
+
+.portfolio-performance-panel-v2 .portfolio-split-header strong {
+  font: var(--type-title-sm);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  text-transform: var(--type-title-sm-text-transform);
+}
+
+.portfolio-performance-chart.portfolio-performance-chart-v2 {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: clamp(10px, 1.8cqh, 18px) !important;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-return-summary {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px clamp(14px, 2.2cqw, 28px);
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-return-summary span {
+  min-width: 0;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-return-summary strong {
+  font-size: clamp(16px, 2.2cqw, 23px);
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-range-tabs {
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-controls {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-inline-state {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 260px;
+  align-items: center;
+  gap: 5px;
+  color: var(--portfolio-coinbase-body);
+  font: var(--type-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-inline-state.is-error,
+.portfolio-performance-chart-v2 .portfolio-performance-inline-state.is-warning {
+  color: var(--color-down);
+}
+
+.portfolio-performance-chart-v2 > .portfolio-performance-state-row {
+  grid-row: 1 / -1;
+  align-self: center;
+  justify-self: center;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-range-tabs button {
+  min-height: 34px;
+  padding-inline: clamp(10px, 1.4cqw, 16px);
+  font-size: clamp(13px, 1.7cqw, 16px);
+  white-space: nowrap;
+}
+
+.portfolio-performance-chart-v2 > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-principal-band {
+  stroke: none;
+  pointer-events: none;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-principal-band.is-principal-above {
+  fill: color-mix(in srgb, var(--color-down) 18%, transparent);
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-principal-band.is-portfolio-above {
+  fill: color-mix(in srgb, var(--color-up) 18%, transparent);
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-return-line.portfolio {
+  stroke-width: 3.25;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-return-line.principal {
+  stroke-dasharray: 7 6;
+  stroke-width: 3;
+}
+
+.portfolio-performance-chart-v2 .portfolio-performance-return-line.benchmark {
+  stroke-dasharray: 3 5;
+  stroke-width: 2.5;
+}
+
+.portfolio-performance-chart-v2 .portfolio-terminal-axis-label {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+@container (max-width: 860px) {
+  .portfolio-performance-chart-v2 .portfolio-performance-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .portfolio-performance-chart-v2 .portfolio-performance-range-tabs {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .portfolio-performance-chart-v2 .portfolio-performance-controls {
+    width: 100%;
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+
+  .portfolio-performance-chart-v2 .portfolio-performance-inline-state {
+    width: 100%;
+    max-width: none;
+  }
+
+  .portfolio-performance-chart-v2 .portfolio-performance-range-tabs button {
+    flex: 1 1 0;
+  }
+}
+
+@container (max-width: 620px) {
+  .portfolio-performance-panel-v2 {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .portfolio-performance-panel-v2 > .portfolio-split-header {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .portfolio-performance-panel-v2 > .portfolio-performance-tabs {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .portfolio-performance-panel-v2 > .portfolio-terminal-chart,
+  .portfolio-performance-panel-v2 > .portfolio-purchase-compare,
+  .portfolio-performance-panel-v2 > .portfolio-state-row {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .portfolio-performance-chart-v2 .portfolio-performance-return-summary {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .portfolio-performance-chart-v2 .portfolio-performance-return-summary span:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portfolio-performance-chart-v2 .portfolio-performance-return-line {
+    animation: none;
+  }
+}

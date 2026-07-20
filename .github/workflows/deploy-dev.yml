@@ -1,13 +1,36 @@
-name: Deploy dev to EKS
+name: Deploy dev/test to EKS
 
 on:
-  push:
-    branches:
-      - dev
   workflow_dispatch:
+    inputs:
+      services:
+        description: "Optional service keys to deploy, e.g. frontend,backend. Use all to force every app image."
+        required: false
+        type: string
+      run_order_migrations:
+        description: "Legacy force switch. Order migrations run automatically whenever order-worker or agent-orchestrator is selected."
+        required: false
+        default: false
+        type: boolean
+      run_chart_asset_migrations:
+        description: "Legacy force switch. Chart Geometry migrations run automatically whenever agent-orchestrator is selected."
+        required: false
+        default: false
+        type: boolean
+      rebuild_news_cache:
+        description: "Rebuild news Redis cache using the built market-storage image"
+        required: false
+        default: false
+        type: boolean
+      apply_platform_manifests:
+        description: "Apply dedicated NodePools and in-cluster platform manifests before app workloads. Does not delete PVCs."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
+  actions: read
   id-token: write
 
 concurrency:
@@ -20,86 +43,322 @@ env:
   DOCKER_PLATFORM: linux/amd64
   EKS_CLUSTER_NAME: gops-eks-cluster
   K8S_NAMESPACE: alfaka-market-data
+  PLATFORM_KUSTOMIZE_OVERLAY: infra/k8s/base/platform
   KUSTOMIZE_OVERLAY: infra/k8s/overlays/aws-incluster-app-ci
   ECR_FRONTEND_REPO: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-frontend
   ECR_API_SERVER_REPO: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-api-server
   ECR_MARKET_INGESTOR_REPO: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-ingestor
   ECR_MARKET_PROCESSOR_REPO: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-processor
   ECR_MARKET_STORAGE_REPO: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-storage
-  ECR_BACKFILL_WORKER_REPO: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-backfill-worker
   ECR_ORDER_WORKER_REPO: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-order-worker
   ECR_KIS_ADAPTER_REPO: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-kis-adapter
 
 jobs:
+  quality:
+    name: Test and validate deploy inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            systems/api-server/pods/api-server/gops-backend/requirements.txt
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt -r systems/api-server/pods/api-server/gops-backend/requirements.txt
+
+      - name: Run Python tests
+        run: python -m pytest
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/gops-frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix apps/gops-frontend
+
+      - name: Run chart tests
+        run: npm run test:chart --prefix apps/gops-frontend
+
+      - name: Build frontend
+        run: npm run build --prefix apps/gops-frontend
+
+      - name: Enforce frontend bundle budget
+        run: npm run test:bundle-size --prefix apps/gops-frontend
+
+      - name: Set up kubectl for manifest rendering
+        uses: azure/setup-kubectl@v4
+
+      - name: Render Kubernetes manifests
+        run: |
+          kubectl kustomize infra/k8s/base >/tmp/gops-k8s-base.yaml
+          kubectl kustomize infra/k8s/base/platform >/tmp/gops-k8s-platform.yaml
+          kubectl kustomize infra/k8s/overlays/aws-incluster-app-ci >/tmp/gops-k8s-app-ci.yaml
+
+      - name: Verify simulator deploy contract
+        run: bash scripts/aws/tests/test-simulator-deploy-contract.sh
+
   deploy:
     name: Build images and deploy app workloads
+    needs: quality
     runs-on: ubuntu-latest
     environment: dev
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed app services
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.before || '' }}
+          HEAD_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_SERVICES: ${{ github.event.inputs.services || '' }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WORKFLOW_FILE: deploy-dev.yml
+        run: ./scripts/aws/detect-changed-services.sh
+
+      - name: Skip app deploy
+        if: steps.changes.outputs.has_services != 'true'
+        run: echo "No app service changes detected; skipping EKS app deploy."
 
       - name: Configure AWS credentials
+        if: steps.changes.outputs.has_services == 'true' || github.event.inputs.apply_platform_manifests == 'true'
         uses: aws-actions/configure-aws-credentials@v6.1.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Ensure Amazon ECR repositories
+        if: steps.changes.outputs.has_services == 'true'
+        run: ./scripts/aws/ensure-ecr-repositories.sh
+
+      - name: Load Logo.dev build key from AWS Secrets Manager
+        if: steps.changes.outputs.has_services == 'true' && contains(steps.changes.outputs.services, 'frontend')
+        env:
+          LOGODEV_SECRET_NAME: icon/logodev
+        run: ./scripts/aws/load-logodev-build-env.sh
+
       - name: Login to Amazon ECR
+        if: steps.changes.outputs.has_services == 'true'
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set up Docker Buildx
+        if: steps.changes.outputs.has_services == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Set image tag
-        run: echo "IMAGE_TAG=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+        if: steps.changes.outputs.has_services == 'true'
+        run: echo "IMAGE_TAG=${GITHUB_SHA::7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
 
-      - name: Build and push images
-        run: ./scripts/aws/build-and-push-images.sh
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
-
-      - name: Configure kubeconfig
-        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
-
-      - name: Point CI overlay at this commit image tag
+      - name: Validate optional build tasks
+        if: steps.changes.outputs.has_services == 'true'
+        env:
+          SERVICES: ${{ steps.changes.outputs.services }}
+          RUN_ORDER_MIGRATIONS: ${{ github.event.inputs.run_order_migrations || 'false' }}
+          ORDER_MIGRATIONS_REQUIRED: ${{ steps.changes.outputs.order_migrations_required }}
+          RUN_CHART_ASSET_MIGRATIONS: ${{ github.event.inputs.run_chart_asset_migrations || 'false' }}
+          REBUILD_NEWS_CACHE: ${{ github.event.inputs.rebuild_news_cache || 'false' }}
         run: |
-          sed -i "s/ci-placeholder/${IMAGE_TAG}/g" "$KUSTOMIZE_OVERLAY/kustomization.yaml"
-          if grep -R "ci-placeholder" "$KUSTOMIZE_OVERLAY"; then
-            echo "Image tag placeholder still remains in $KUSTOMIZE_OVERLAY" >&2
+          if [[ "$RUN_ORDER_MIGRATIONS" == "true" && " ${SERVICES} " != *" order-worker "* ]]; then
+            echo "run_order_migrations=true requires services to include order-worker." >&2
+            exit 1
+          fi
+          if [[ "$ORDER_MIGRATIONS_REQUIRED" == "true" && " ${SERVICES} " != *" order-worker "* ]]; then
+            echo "Automatic order migration gate requires the order-worker migration image." >&2
+            exit 1
+          fi
+          if [[ "$RUN_CHART_ASSET_MIGRATIONS" == "true" && " ${SERVICES} " != *" agent-orchestrator "* ]]; then
+            echo "run_chart_asset_migrations=true requires services to include agent-orchestrator." >&2
+            exit 1
+          fi
+          if [[ "$REBUILD_NEWS_CACHE" == "true" && " ${SERVICES} " != *" market-storage "* ]]; then
+            echo "rebuild_news_cache=true requires services to include market-storage." >&2
             exit 1
           fi
 
+      - name: Build and push images
+        if: steps.changes.outputs.has_services == 'true'
+        env:
+          SERVICES: ${{ steps.changes.outputs.services }}
+          VITE_LOGO_DEV_ATTRIBUTION: ${{ vars.LOGO_DEV_ATTRIBUTION || 'true' }}
+        run: ./scripts/aws/build-and-push-images.sh
+
+      - name: Set up kubectl
+        if: steps.changes.outputs.has_services == 'true' || github.event.inputs.apply_platform_manifests == 'true'
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        if: steps.changes.outputs.has_services == 'true' || github.event.inputs.apply_platform_manifests == 'true'
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Server-side dry run platform manifests
+        if: github.event.inputs.apply_platform_manifests == 'true'
+        run: |
+          kubectl apply -k "$PLATFORM_KUSTOMIZE_OVERLAY" --dry-run=server
+          kubectl apply \
+            -f infra/k8s/base/app/service-graphdb.yaml \
+            -f infra/k8s/base/app/statefulset-graphdb.yaml \
+            --dry-run=server
+
+      - name: Apply dedicated platform manifests
+        if: github.event.inputs.apply_platform_manifests == 'true'
+        run: |
+          kubectl apply -k "$PLATFORM_KUSTOMIZE_OVERLAY"
+          kubectl apply \
+            -f infra/k8s/base/app/service-graphdb.yaml \
+            -f infra/k8s/base/app/statefulset-graphdb.yaml
+
+      - name: Wait for dedicated platform rollout
+        if: github.event.inputs.apply_platform_manifests == 'true'
+        run: |
+          for statefulset in clickhouse kafka postgres redis graphdb; do
+            kubectl rollout status "statefulset/${statefulset}" \
+              -n "$K8S_NAMESPACE" \
+              --timeout=900s
+          done
+
+      - name: Validate dedicated platform
+        if: steps.changes.outputs.has_services == 'true' || github.event.inputs.apply_platform_manifests == 'true'
+        run: ./scripts/aws/validate-dedicated-platform.sh
+
+      - name: Point selected CI images at this commit image tag
+        if: steps.changes.outputs.has_services == 'true'
+        env:
+          SERVICES: ${{ steps.changes.outputs.services }}
+        run: ./scripts/aws/update-ci-image-tags.sh
+
+      - name: Import simulator replay dataset
+        if: steps.changes.outputs.has_services == 'true' && contains(steps.changes.outputs.services, 'simulator')
+        env:
+          SIMULATOR_IMAGE: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-simulator:${{ env.IMAGE_TAG }}
+        run: ./scripts/aws/run-simulator-replay-import.sh
+
+      - name: Run order database migrations
+        if: steps.changes.outputs.has_services == 'true' && (steps.changes.outputs.order_migrations_required == 'true' || github.event.inputs.run_order_migrations == 'true')
+        run: ./scripts/aws/run-order-migrations-job.sh
+
+      - name: Run company journal ClickHouse migrations
+        if: steps.changes.outputs.has_services == 'true' && steps.changes.outputs.smoke_backend == 'true'
+        run: ./scripts/aws/run-company-journal-migrations-job.sh
+
+      - name: Bootstrap company journal benchmark candles
+        if: steps.changes.outputs.has_services == 'true' && contains(steps.changes.outputs.services, 'market-processor')
+        run: ./scripts/aws/run-company-journal-benchmark-bootstrap-job.sh
+
+      - name: Run chart asset database migrations
+        if: steps.changes.outputs.has_services == 'true' && contains(steps.changes.outputs.services, 'agent-orchestrator')
+        env:
+          ECR_AGENT_ORCHESTRATOR_REPO: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-agent-orchestrator
+        run: ./scripts/aws/run-chart-asset-migrations-job.sh
+
       - name: Server-side dry run
+        if: steps.changes.outputs.has_services == 'true'
         run: kubectl apply -k "$KUSTOMIZE_OVERLAY" --dry-run=server
 
+      - name: Delete retired app workloads
+        if: steps.changes.outputs.has_services == 'true'
+        run: |
+          kubectl delete deployment alfaka-alpaca-tick-ingestor-sip \
+            -n "$K8S_NAMESPACE" \
+            --ignore-not-found=true
+          kubectl delete cronjob alfaka-news-daily-summary-nvda \
+            -n "$K8S_NAMESPACE" \
+            --ignore-not-found=true
+
       - name: Deploy app workloads
+        id: deploy_app
+        if: steps.changes.outputs.has_services == 'true'
         run: kubectl apply -k "$KUSTOMIZE_OVERLAY"
 
       - name: Verify rollout
+        if: steps.changes.outputs.has_services == 'true'
+        env:
+          DEPLOYMENTS: ${{ steps.changes.outputs.deployments }}
         run: |
-          deployments=(
-            alfaka-alpaca-ingestor
-            alfaka-backfill-worker
-            alfaka-clickhouse-loader
-            alfaka-local-stream-processor
-            alfaka-s3-sink
-            gops-backend
-            gops-frontend
-            kis-broker-adapter
-            order-outbox-publisher
-          )
-
-          for deployment in "${deployments[@]}"; do
-            kubectl rollout status "deployment/${deployment}" \
+          for deployment in ${DEPLOYMENTS}; do
+            if ! kubectl rollout status "deployment/${deployment}" \
               -n "$K8S_NAMESPACE" \
-              --timeout=300s
+              --timeout=600s; then
+              ./scripts/aws/print-rollout-diagnostics.sh "${deployment}"
+              exit 1
+            fi
           done
 
-      - name: Smoke test public endpoints
-        run: |
-          curl -fsS https://stargops.com/ >/dev/null
-          curl -fsS https://stargops.com/api/charts/symbols >/dev/null
+      - name: Verify chart commentary writer
+        if: steps.changes.outputs.has_services == 'true' && contains(steps.changes.outputs.services, 'agent-orchestrator')
+        env:
+          EXPECTED_IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          EXPECTED_PROMPT_VERSION: chart-commentary.ko.v5
+        run: ./scripts/aws/preflight-chart-commentary-aws.sh
 
+      - name: Verify simulator rollout
+        if: steps.changes.outputs.has_services == 'true'
+        run: |
+          if ! kubectl rollout status deployment/gops-simulator \
+            -n "$K8S_NAMESPACE" \
+            --timeout=600s; then
+            ./scripts/aws/print-rollout-diagnostics.sh gops-simulator
+            exit 1
+          fi
+
+      - name: Verify AI coach snapshot archive through worker IRSA
+        if: steps.changes.outputs.has_services == 'true' && contains(steps.changes.outputs.services, 'agent-orchestrator')
+        run: ./scripts/aws/verify-ai-coach-snapshot-s3.sh
+
+      - name: Smoke test public endpoints
+        if: steps.changes.outputs.has_services == 'true'
+        env:
+          SMOKE_FRONTEND: ${{ steps.changes.outputs.smoke_frontend }}
+          SMOKE_BACKEND: ${{ steps.changes.outputs.smoke_backend }}
+        run: |
+          smoke_url() {
+            local url="$1"
+            local attempt
+            for attempt in $(seq 1 20); do
+              if curl -fsS "$url" >/dev/null; then
+                echo "Smoke passed: $url"
+                return 0
+              fi
+              echo "Smoke retry ${attempt}/20: $url"
+              sleep 15
+            done
+            curl -i -fsS "$url" >/dev/null
+          }
+
+          if [[ "$SMOKE_FRONTEND" == "true" ]]; then
+            smoke_url https://stargops.com/
+          fi
+          if [[ "$SMOKE_BACKEND" == "true" ]]; then
+            smoke_url https://stargops.com/api/health
+          fi
+
+      - name: Rebuild news Redis cache
+        if: steps.changes.outputs.has_services == 'true' && github.event.inputs.rebuild_news_cache == 'true'
+        run: ./scripts/aws/run-news-cache-rebuild-jobs.sh
+
+      - name: Roll back failed app rollout
+        if: failure() && steps.changes.outputs.has_services == 'true' && steps.deploy_app.outcome == 'success'
+        env:
+          DEPLOYMENTS: ${{ steps.changes.outputs.deployments }}
+        run: |
+          for deployment in ${DEPLOYMENTS}; do
+            echo "Rolling back deployment/${deployment}"
+            kubectl rollout undo "deployment/${deployment}" -n "$K8S_NAMESPACE"
+            kubectl rollout status "deployment/${deployment}" \
+              -n "$K8S_NAMESPACE" \
+              --timeout=600s
+          done

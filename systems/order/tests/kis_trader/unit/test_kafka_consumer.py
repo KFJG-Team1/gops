@@ -6,7 +6,7 @@ from kis_trader.broker_adapter.adapter import KisBrokerAdapter
 from kis_trader.broker_adapter.consumer import KafkaBrokerAdapterConsumer, build_broker_adapter_consumer_config
 from kis_trader.kis.fake import FakeKisClient
 
-from tests.kis_trader.fixtures.orders import repository_with_published_order
+from systems.order.tests.kis_trader.fixtures.orders import repository_with_published_order
 
 
 class FakeKafkaMessage:
@@ -18,6 +18,25 @@ class FakeKafkaMessage:
 
     def value(self):
         return json.dumps(self._payload).encode("utf-8")
+
+
+class FakeKafkaError:
+    def __init__(self, code):
+        self._code = code
+
+    def code(self):
+        return self._code
+
+    def __str__(self):
+        return f"fake kafka error {self._code}"
+
+
+class FakeKafkaErrorMessage:
+    def __init__(self, error):
+        self._error = error
+
+    def error(self):
+        return self._error
 
 
 class FakeKafkaConsumer:
@@ -64,6 +83,24 @@ def test_consumer_commits_after_adapter_success():
     assert consumer.committed_messages == [(message, False)]
     assert consumer.closed is True
     assert repo.get_order("ord-1")["status"] == "SUBMITTED"
+
+
+def test_long_running_consumer_waits_for_missing_topic(monkeypatch):
+    from confluent_kafka import KafkaError
+
+    repo, envelope, _command = repository_with_published_order()
+    adapter = KisBrokerAdapter(repo, FakeKisClient(["success"]))
+    missing_topic = FakeKafkaErrorMessage(FakeKafkaError(KafkaError.UNKNOWN_TOPIC_OR_PART))
+    message = FakeKafkaMessage(envelope)
+    consumer = FakeKafkaConsumer([missing_topic, message])
+    runner = KafkaBrokerAdapterConsumer(consumer, adapter)
+    monkeypatch.setenv("KIS_ADAPTER_KAFKA_RETRY_SECONDS", "0")
+
+    processed = runner.run(max_messages=1, retry_kafka_errors=True)
+
+    assert processed == 1
+    assert consumer.committed_messages == [(message, False)]
+    assert consumer.closed is True
 
 
 def test_consumer_factory_rejects_real_env_even_with_fake_kis(monkeypatch):

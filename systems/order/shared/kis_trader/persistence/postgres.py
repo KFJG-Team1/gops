@@ -14,11 +14,21 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from kis_trader.domain.commands import OrderCommand
-from kis_trader.domain.envelope import build_order_status_envelope
+from kis_trader.domain.envelope import build_order_fill_envelope, build_order_status_envelope
 from kis_trader.domain.status import OrderStatus, assert_transition_allowed
-from kis_trader.domain.topics import ORDER_EVENTS_TOPIC, ORDERS_COMMANDS_TOPIC, ORDERS_DLQ_TOPIC, SUBMIT_RESULTS_TOPIC, build_order_message_key
+from kis_trader.domain.topics import (
+    ORDER_EVENTS_TOPIC,
+    ORDERS_COMMANDS_TOPIC,
+    ORDERS_DLQ_TOPIC,
+    ORDERS_FILLS_TOPIC,
+    SUBMIT_RESULTS_TOPIC,
+    build_order_message_key,
+)
+
+FILL_STATUSES = {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}
 from kis_trader.security.redaction import redact_sensitive
 
+from .fills import canonical_fill_observation
 from .repository import IdempotencyConflictError, OrderCreationResult, OrderNotFoundError, SubmissionIntent, utc_now_iso
 
 
@@ -45,6 +55,7 @@ class PostgresOrderRepository:
         idempotency_key_hash: str,
         body_hash: str,
         command: OrderCommand,
+        user_sub: str | None = None,
     ) -> OrderCreationResult:
         with self._connect() as conn:
             with conn.transaction():
@@ -64,9 +75,10 @@ class PostgresOrderRepository:
                     """
                     INSERT INTO orders (
                         order_id, request_id, client_order_id, account_alias, market, symbol, side,
-                        qty, price, exchange, order_division, status, broker_order_id, reason, occurred_at
+                        qty, price, exchange, order_division, status, broker_order_id, reason, occurred_at,
+                        user_sub
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, %s)
                     """,
                     (
                         command.order_id,
@@ -83,6 +95,7 @@ class PostgresOrderRepository:
                         OrderStatus.RECEIVED.value,
                         command.broker_order_id,
                         command.occurred_at,
+                        user_sub,
                     ),
                 )
                 self._append_order_event(conn, command.order_id, OrderStatus.RECEIVED, None)
@@ -111,6 +124,16 @@ class PostgresOrderRepository:
                 )
                 order = conn.execute("SELECT * FROM orders WHERE order_id = %s", (command.order_id,)).fetchone()
                 return OrderCreationResult(True, False, dict(order), response, outbox_event_id)
+
+    def find_idempotent_response(self, idempotency_key_hash: str, body_hash: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT body_hash, response FROM idempotency_requests WHERE key_hash = %s",
+                (idempotency_key_hash,),
+            ).fetchone()
+            if row is None or row["body_hash"] != body_hash:
+                return None
+            return dict(row["response"] or {})
 
     def get_order(self, order_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
@@ -331,6 +354,11 @@ class PostgresOrderRepository:
                     )
                 self._update_order_status(conn, order_id, status, reason)
                 order = conn.execute("SELECT * FROM orders WHERE order_id = %s", (order_id,)).fetchone()
+                observation = canonical_fill_observation(
+                    dict(order), payload, execution_id=execution_id
+                )
+                if observation is not None:
+                    self._append_coach_fill(conn, observation)
                 envelope = build_order_status_envelope(
                     dict(order),
                     event_type="order.broker.event.reconciled",
@@ -347,6 +375,47 @@ class PostgresOrderRepository:
                     build_order_message_key(order["account_alias"], order["symbol"]),
                 )
 
+    def _append_coach_fill(self, conn: psycopg.Connection, observation: dict[str, Any]) -> None:
+        latest = conn.execute(
+            """
+            SELECT observation_version, cumulative_filled_qty
+            FROM order_coach_fill_history
+            WHERE fill_id = %s
+            ORDER BY observation_version DESC
+            LIMIT 1
+            """,
+            (observation["fill_id"],),
+        ).fetchone()
+        if latest is not None and Decimal(str(latest["cumulative_filled_qty"])) >= observation["cumulative_filled_qty"]:
+            return
+        version = int(latest["observation_version"]) + 1 if latest else 1
+        conn.execute(
+            """
+            INSERT INTO order_coach_fill_history (
+                fill_id, observation_version, user_sub, order_id, source_execution_id,
+                symbol, side, cumulative_filled_qty, average_fill_price, status,
+                decision_at, filled_at, source_observed_at, source_payload_digest
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (
+                observation["fill_id"],
+                version,
+                observation["user_sub"],
+                observation["order_id"],
+                observation["source_execution_id"],
+                observation["symbol"],
+                observation["side"],
+                observation["cumulative_filled_qty"],
+                observation["average_fill_price"],
+                observation["status"],
+                observation["decision_at"],
+                observation["filled_at"],
+                observation["source_observed_at"],
+                observation["source_payload_digest"],
+            ),
+        )
     def metrics_snapshot(self) -> dict[str, Any]:
         with self._connect() as conn:
             row = conn.execute(
@@ -357,7 +426,20 @@ class PostgresOrderRepository:
                   (SELECT count(*) FROM dlq_events) AS dlq_count,
                   (SELECT count(*) FROM orders WHERE status = 'SUBMIT_FAILED_UNKNOWN') AS submit_failed_unknown_count,
                   (SELECT count(*) FROM orders WHERE status = 'RECONCILIATION_REQUIRED') AS reconciliation_required_count,
-                  (SELECT count(*) FROM audit_logs) AS audit_log_count
+                  (SELECT count(*) FROM audit_logs) AS audit_log_count,
+                  (SELECT count(*) FROM paper_accounts WHERE seeded_at IS NOT NULL) AS paper_seed_success_count,
+                  (SELECT count(*) FROM paper_accounts WHERE seed_suppressed_at IS NOT NULL) AS paper_seed_suppressed_count,
+                  (SELECT count(*) FROM paper_accounts
+                     WHERE seed_profile IS NULL AND seed_suppressed_at IS NULL) AS paper_seed_unseeded_count,
+                  (SELECT count(*) FROM paper_orders
+                     WHERE execution_mode = 'simulation' AND status = 'pending') AS simulation_pending_order_count,
+                  (SELECT count(*) FROM paper_orders
+                     WHERE execution_mode = 'simulation' AND status = 'filled') AS simulation_filled_order_count,
+                  (SELECT count(*) FROM paper_orders
+                     WHERE execution_mode = 'simulation' AND status = 'cancelled') AS simulation_cancelled_order_count,
+                  (SELECT COALESCE(max(sequence), 0) FROM simulation_matcher_checkpoints) AS simulation_matcher_checkpoint,
+                  (SELECT EXTRACT(EPOCH FROM (now() - max(updated_at)))
+                     FROM simulation_matcher_checkpoints) AS simulation_matcher_checkpoint_age_seconds
                 """
             ).fetchone()
             return dict(row)
@@ -380,7 +462,18 @@ class PostgresOrderRepository:
             "UPDATE orders SET status = %s, reason = %s, updated_at = now() WHERE order_id = %s",
             (status.value, reason, order_id),
         )
-        return self._append_order_event(conn, order_id, status, reason)
+        event_id = self._append_order_event(conn, order_id, status, reason)
+        if status in FILL_STATUSES:
+            order = {**row, "status": status.value}
+            self._insert_outbox_event(
+                conn,
+                ORDERS_FILLS_TOPIC,
+                order_id,
+                status,
+                build_order_fill_envelope(order, reason=reason),
+                build_order_message_key(order["account_alias"], order["symbol"]),
+            )
+        return event_id
 
     def _append_order_event(
         self,

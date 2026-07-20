@@ -1,0 +1,110 @@
+import {
+  chartRuntimeReducer,
+  type ChartDataStatus,
+  type ChartDocument,
+  type ChartRuntimePanel,
+  type ChartRuntimeState,
+  type StreamStatus
+} from "@gops/chart-engine";
+import type { PanelContentInstance, TiledPanelState } from "../layout/panelLayout";
+import { normalizeBidAskChartInterval, type CandleDto, type ChartComparisonSeries, type ChartInterval, type ChartState, type ChartType, type DrawingEntity } from "./types";
+
+const defaultFrontendChartInterval: ChartInterval = "1D";
+
+export function chartDocumentIdForContent(content: PanelContentInstance): string {
+  return content.chartDocumentId ?? `${content.id}-document`;
+}
+
+export function chartRuntimePanelsForPanelState(
+  state: TiledPanelState,
+  fallbackSymbol: string
+): ChartRuntimePanel[] {
+  return state.slots
+    .map((slot): ChartRuntimePanel | null => {
+      const content = state.contents[slot.contentId];
+      if (!content || content.kind !== "chart") {
+        return null;
+      }
+      return {
+        id: slot.id,
+        type: "chart",
+        chartDocumentId: chartDocumentIdForContent(content),
+        props: {
+          symbol: readString(content.props?.symbol) ?? fallbackSymbol,
+          timeframe: readString(content.props?.timeframe) ?? defaultFrontendChartInterval
+        }
+      };
+    })
+    .filter((panel): panel is ChartRuntimePanel => Boolean(panel));
+}
+
+export function ensureFrontendChartDocuments(
+  runtime: ChartRuntimeState,
+  panelState: TiledPanelState,
+  fallbackSymbol: string
+): ChartRuntimeState {
+  const panels = chartRuntimePanelsForPanelState(panelState, fallbackSymbol);
+  return chartRuntimeReducer(runtime, { kind: "chart.ensureDocuments", panels });
+}
+
+export function chartStateFromDocument(
+  document: ChartDocument,
+  candles: CandleDto[],
+  dataStatus: ChartDataStatus,
+  streamStatus: StreamStatus,
+  streamMessage?: string
+): ChartState {
+  const chartType = normalizeFrontendChartType(document.chartType);
+  const interval = chartType === "bidask" ? normalizeBidAskChartInterval(document.timeframe) : normalizeFrontendInterval(document.timeframe);
+  return {
+    symbol: document.symbol.toUpperCase(),
+    chartType,
+    interval,
+    candles,
+    status: dataStatus.state,
+    message: streamMessage ?? dataStatus.message,
+    requestedLimit: dataStatus.requestedLimit,
+    hasMoreBefore: dataStatus.hasMoreBefore,
+    hasMoreAfter: dataStatus.hasMoreAfter,
+    layers: { ...document.layers },
+    panes: document.panes.map((pane) => ({ id: pane.id, heightRatio: pane.heightRatio })),
+    volumeRatio: volumeRatioFromDocument(document),
+    visibleCount: document.viewport.visibleCount,
+    rightOffset: document.viewport.rightOffset,
+    toolMode: document.interactionState.mode,
+    trendLineExtension: document.interactionState.trendLineExtension,
+    parallelLineCount: document.interactionState.parallelLineCount ?? 3,
+    drawings: document.drawings as unknown as DrawingEntity[],
+    comparisons: document.comparisons.map((comparison): ChartComparisonSeries => ({
+      id: comparison.id,
+      symbol: comparison.symbol.toUpperCase(),
+      label: comparison.label,
+      scaleMode: "percent",
+      base: comparison.base,
+      style: comparison.style,
+      candles: [],
+      status: "idle"
+    })),
+    selectedDrawingId: document.selectedDrawingId,
+    streamState: streamStatus === "stale" ? "idle" : streamStatus
+  };
+}
+
+function volumeRatioFromDocument(document: ChartDocument): number {
+  const volumePane = document.panes.find((pane) => pane.id === "volume");
+  return typeof volumePane?.heightRatio === "number" ? volumePane.heightRatio : 0.22;
+}
+
+function normalizeFrontendInterval(value: string): ChartInterval {
+  return value === "1m" || value === "5m" || value === "10m" || value === "1h" || value === "4h" || value === "1D" || value === "1W" || value === "1M"
+    ? value
+    : defaultFrontendChartInterval;
+}
+
+function normalizeFrontendChartType(value: string | undefined): ChartType {
+  return value === "line" || value === "ohlc" || value === "candle" || value === "bidask" ? value : "candle";
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}

@@ -1,0 +1,665 @@
+from __future__ import annotations
+
+import json
+import os
+import hashlib
+import secrets
+from typing import Any
+
+from .analysis_cache import agent_finding_from_dict, evidence_item_from_dict, final_answer_citation_from_dict, final_answer_from_dict, intent_route_from_dict
+from ..contracts import (
+    AgentAnswer,
+    AgentSignal,
+    AnalysisReport,
+    DataSnapshot,
+    FinalResponse,
+    LatencyStage,
+    LatencyTrace,
+    LayoutProposal,
+    MarketEvent,
+    NotificationDecision,
+    ResolvedEntity,
+    RoutePlan,
+    SynthesisInput,
+    TradeConditionProposal,
+    utc_now_iso,
+)
+
+
+DEFAULT_REPORT_KEY_PREFIX = "agent:report"
+DEFAULT_REPORT_TTL_SECONDS = 43200
+DEFAULT_IDEMPOTENCY_KEY_PREFIX = "agent:request:idempotency"
+DEFAULT_CANCEL_KEY_PREFIX = "agent:report:cancel"
+DEFAULT_OWNER_KEY_PREFIX = "agent:report:owner"
+CANCELED_REPORT_STATUS = "canceled"
+TERMINAL_REPORT_STATUSES = {"completed", "deep_completed", "failed", CANCELED_REPORT_STATUS}
+
+
+class ReportStore:
+    def save(self, report: AnalysisReport) -> AnalysisReport:
+        raise NotImplementedError
+
+    def get(self, analysis_id: str) -> AnalysisReport | None:
+        raise NotImplementedError
+
+    def mark_canceled(self, analysis_id: str, *, reason: str | None = None, user_id: str | None = None) -> AnalysisReport:
+        raise NotImplementedError
+
+    def is_canceled(self, analysis_id: str) -> bool:
+        return False
+
+    def save_idempotency_mapping(self, user_id: str, idempotency_key: str, request_id: str, ttl_seconds: int | None = None) -> None:
+        return None
+
+    def get_idempotency_request_id(self, user_id: str, idempotency_key: str) -> str | None:
+        return None
+
+    def save_owner_mapping(self, user_id: str, analysis_id: str, ttl_seconds: int | None = None) -> bool:
+        return False
+
+    def is_owner(self, analysis_id: str, user_id: str) -> bool:
+        return False
+
+
+class InMemoryReportStore(ReportStore):
+    def __init__(self):
+        self._reports: dict[str, AnalysisReport] = {}
+        self._idempotency: dict[tuple[str, str], str] = {}
+        self._canceled: dict[str, dict[str, Any]] = {}
+        self._owners: dict[str, str] = {}
+
+    def save(self, report: AnalysisReport) -> AnalysisReport:
+        if report.status != CANCELED_REPORT_STATUS and self.is_canceled(report.analysisId):
+            existing = self.get(report.analysisId)
+            if existing and existing.status == CANCELED_REPORT_STATUS:
+                return existing
+        self._reports[report.analysisId] = report
+        return report
+
+    def get(self, analysis_id: str) -> AnalysisReport | None:
+        return self._reports.get(analysis_id)
+
+    def mark_canceled(self, analysis_id: str, *, reason: str | None = None, user_id: str | None = None) -> AnalysisReport:
+        canceled_at = utc_now_iso()
+        existing = self.get(str(analysis_id))
+        if existing and existing.status in TERMINAL_REPORT_STATUSES and existing.status != CANCELED_REPORT_STATUS:
+            return existing
+        self._canceled[str(analysis_id)] = cancellation_marker(reason=reason, user_id=user_id, canceled_at=canceled_at)
+        report = canceled_report_for_existing(
+            str(analysis_id),
+            existing,
+            reason=reason,
+            user_id=user_id,
+            canceled_at=canceled_at,
+        )
+        return self.save(report)
+
+    def is_canceled(self, analysis_id: str) -> bool:
+        if str(analysis_id) in self._canceled:
+            return True
+        report = self.get(str(analysis_id))
+        return bool(report and report.status == CANCELED_REPORT_STATUS)
+
+    def save_idempotency_mapping(self, user_id: str, idempotency_key: str, request_id: str, ttl_seconds: int | None = None) -> None:
+        if user_id and idempotency_key and request_id:
+            self._idempotency[(str(user_id), str(idempotency_key))] = str(request_id)
+
+    def get_idempotency_request_id(self, user_id: str, idempotency_key: str) -> str | None:
+        return self._idempotency.get((str(user_id), str(idempotency_key)))
+
+    def save_owner_mapping(self, user_id: str, analysis_id: str, ttl_seconds: int | None = None) -> bool:
+        del ttl_seconds
+        if not user_id or not analysis_id:
+            return False
+        owner_hash = stable_idempotency_part(user_id)
+        existing = self._owners.get(str(analysis_id))
+        if existing is not None:
+            return secrets.compare_digest(existing, owner_hash)
+        self._owners[str(analysis_id)] = owner_hash
+        return True
+
+    def is_owner(self, analysis_id: str, user_id: str) -> bool:
+        existing = self._owners.get(str(analysis_id))
+        return bool(existing and user_id and secrets.compare_digest(existing, stable_idempotency_part(user_id)))
+
+
+class RedisReportStore(ReportStore):
+    def __init__(
+        self,
+        redis_client=None,
+        *,
+        redis_url: str | None = None,
+        ttl_seconds: int | None = None,
+        key_prefix: str | None = None,
+        strict: bool = False,
+        verify_connection: bool = False,
+    ):
+        if redis_client is not None:
+            self.redis = redis_client
+        else:
+            import redis
+
+            self.redis = redis.from_url(redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+        self.ttl_seconds = int(ttl_seconds if ttl_seconds is not None else os.getenv("AGENT_REPORT_TTL_SECONDS", str(DEFAULT_REPORT_TTL_SECONDS)))
+        self.key_prefix = key_prefix or os.getenv("AGENT_REPORT_KEY_PREFIX", DEFAULT_REPORT_KEY_PREFIX)
+        self.idempotency_key_prefix = os.getenv("AGENT_IDEMPOTENCY_KEY_PREFIX", DEFAULT_IDEMPOTENCY_KEY_PREFIX)
+        self.cancel_key_prefix = os.getenv("AGENT_REPORT_CANCEL_KEY_PREFIX", DEFAULT_CANCEL_KEY_PREFIX)
+        self.owner_key_prefix = os.getenv("AGENT_REPORT_OWNER_KEY_PREFIX", DEFAULT_OWNER_KEY_PREFIX)
+        self.strict = bool(strict)
+        if self.strict and self.ttl_seconds <= 0:
+            raise ValueError("AGENT_REPORT_TTL_SECONDS must be positive for strict Redis report storage")
+        if verify_connection:
+            self.redis.ping()
+
+    def save(self, report: AnalysisReport) -> AnalysisReport:
+        if self.ttl_seconds <= 0:
+            return report
+        if report.status != CANCELED_REPORT_STATUS and self.is_canceled(report.analysisId):
+            existing = self.get(report.analysisId)
+            if existing and existing.status == CANCELED_REPORT_STATUS:
+                return existing
+        try:
+            encoded = serialize_report(report)
+            self.redis.setex(self._report_key(report.analysisId), self.ttl_seconds, encoded)
+            self.redis.setex(self._latest_key(), self.ttl_seconds, encoded)
+            self.redis.setex(self._latest_key(report.symbol), self.ttl_seconds, encoded)
+        except Exception as exc:
+            if self.strict:
+                raise
+            report.agentTrace["reportStoreWriteFailed"] = f"{exc.__class__.__name__}: {exc}"
+            return report
+        return report
+
+    def get(self, analysis_id: str) -> AnalysisReport | None:
+        try:
+            payload = self.redis.get(self._report_key(analysis_id))
+        except Exception:
+            if self.strict:
+                raise
+            return None
+        if isinstance(payload, bytes):
+            payload = payload.decode("utf-8")
+        return deserialize_report(payload) if payload else None
+
+    def mark_canceled(self, analysis_id: str, *, reason: str | None = None, user_id: str | None = None) -> AnalysisReport:
+        canceled_at = utc_now_iso()
+        existing = self.get(str(analysis_id))
+        if existing and existing.status in TERMINAL_REPORT_STATUSES and existing.status != CANCELED_REPORT_STATUS:
+            return existing
+        marker = cancellation_marker(reason=reason, user_id=user_id, canceled_at=canceled_at)
+        try:
+            self.redis.setex(self._cancel_key(str(analysis_id)), self.ttl_seconds, json.dumps(marker, ensure_ascii=False, separators=(",", ":")))
+        except Exception:
+            if self.strict:
+                raise
+        report = canceled_report_for_existing(
+            str(analysis_id),
+            existing,
+            reason=reason,
+            user_id=user_id,
+            canceled_at=canceled_at,
+        )
+        return self.save(report)
+
+    def is_canceled(self, analysis_id: str) -> bool:
+        try:
+            if self.redis.get(self._cancel_key(str(analysis_id))):
+                return True
+        except Exception:
+            if self.strict:
+                raise
+        report = self.get(str(analysis_id))
+        return bool(report and report.status == CANCELED_REPORT_STATUS)
+
+    def save_idempotency_mapping(self, user_id: str, idempotency_key: str, request_id: str, ttl_seconds: int | None = None) -> None:
+        ttl = int(ttl_seconds if ttl_seconds is not None else os.getenv("AGENT_IDEMPOTENCY_TTL_SECONDS", str(self.ttl_seconds)))
+        if ttl <= 0 or not user_id or not idempotency_key or not request_id:
+            return
+        try:
+            self.redis.setex(self._idempotency_key(user_id, idempotency_key), ttl, request_id)
+        except Exception:
+            if self.strict:
+                raise
+            return None
+
+    def get_idempotency_request_id(self, user_id: str, idempotency_key: str) -> str | None:
+        if not user_id or not idempotency_key:
+            return None
+        try:
+            payload = self.redis.get(self._idempotency_key(user_id, idempotency_key))
+        except Exception:
+            if self.strict:
+                raise
+            return None
+        if isinstance(payload, bytes):
+            payload = payload.decode("utf-8")
+        return str(payload) if payload else None
+
+    def save_owner_mapping(self, user_id: str, analysis_id: str, ttl_seconds: int | None = None) -> bool:
+        ttl = int(ttl_seconds if ttl_seconds is not None else self.ttl_seconds)
+        if ttl <= 0 or not user_id or not analysis_id:
+            return False
+        key = self._owner_key(analysis_id)
+        owner_hash = stable_idempotency_part(user_id)
+        try:
+            existing = self.redis.get(key)
+            if isinstance(existing, bytes):
+                existing = existing.decode("utf-8")
+            if existing:
+                return secrets.compare_digest(str(existing), owner_hash)
+            claimed = self.redis.set(key, owner_hash, nx=True, ex=ttl)
+            if claimed:
+                return True
+            existing = self.redis.get(key)
+            if isinstance(existing, bytes):
+                existing = existing.decode("utf-8")
+            return bool(existing and secrets.compare_digest(str(existing), owner_hash))
+        except Exception:
+            if self.strict:
+                raise
+            return False
+
+    def is_owner(self, analysis_id: str, user_id: str) -> bool:
+        if not analysis_id or not user_id:
+            return False
+        try:
+            existing = self.redis.get(self._owner_key(analysis_id))
+        except Exception:
+            if self.strict:
+                raise
+            return False
+        if isinstance(existing, bytes):
+            existing = existing.decode("utf-8")
+        return bool(existing and secrets.compare_digest(str(existing), stable_idempotency_part(user_id)))
+
+    def _report_key(self, analysis_id: str) -> str:
+        return f"{self.key_prefix}:{analysis_id}"
+
+    def _latest_key(self, symbol: str | None = None) -> str:
+        if symbol:
+            return f"{self.key_prefix}:latest:{str(symbol).upper()}"
+        return f"{self.key_prefix}:latest"
+
+    def _idempotency_key(self, user_id: str, idempotency_key: str) -> str:
+        return f"{self.idempotency_key_prefix}:{stable_idempotency_part(user_id)}:{stable_idempotency_part(idempotency_key)}"
+
+    def _cancel_key(self, analysis_id: str) -> str:
+        return f"{self.cancel_key_prefix}:{analysis_id}"
+
+    def _owner_key(self, analysis_id: str) -> str:
+        return f"{self.owner_key_prefix}:{analysis_id}"
+
+
+def cancellation_marker(*, reason: str | None, user_id: str | None, canceled_at: str) -> dict[str, Any]:
+    marker = {
+        "status": CANCELED_REPORT_STATUS,
+        "canceledAt": canceled_at,
+    }
+    if reason:
+        marker["reason"] = str(reason)
+    if user_id:
+        marker["userId"] = str(user_id)
+    return marker
+
+
+def canceled_report_for_existing(
+    analysis_id: str,
+    existing: AnalysisReport | None,
+    *,
+    reason: str | None = None,
+    user_id: str | None = None,
+    canceled_at: str | None = None,
+) -> AnalysisReport:
+    if existing and existing.status in TERMINAL_REPORT_STATUSES and existing.status != CANCELED_REPORT_STATUS:
+        return existing
+    canceled_at = canceled_at or utc_now_iso()
+    summary = "AI 분석을 중단했습니다."
+    rationale = reason or "The analysis request was canceled by the user."
+    if existing is None:
+        existing = AnalysisReport(
+            analysisId=analysis_id,
+            symbol="UNKNOWN",
+            intent="analysis",
+            status=CANCELED_REPORT_STATUS,
+            createdAt=canceled_at,
+            summary=summary,
+            rationale=rationale,
+        )
+    existing.status = CANCELED_REPORT_STATUS
+    existing.summary = summary
+    existing.rationale = rationale
+    existing.agentTrace.setdefault("cancellation", {})
+    existing.agentTrace["cancellation"].update(cancellation_marker(reason=reason, user_id=user_id, canceled_at=canceled_at))
+    return existing
+
+
+def stable_idempotency_part(value: str) -> str:
+    return hashlib.sha1(str(value).encode("utf-8")).hexdigest()[:24]
+
+
+def build_report_store_from_env() -> ReportStore:
+    backend = os.getenv("AGENT_REPORT_STORE_BACKEND", "auto").strip().lower()
+    if backend in {"off", "none", "memory", "false", "0"}:
+        return InMemoryReportStore()
+    if backend == "redis" or (backend == "auto" and os.getenv("REDIS_URL")):
+        try:
+            return RedisReportStore(strict=backend == "redis", verify_connection=backend == "redis")
+        except Exception:
+            if backend == "redis":
+                raise
+            return InMemoryReportStore()
+    return InMemoryReportStore()
+
+
+def serialize_report(report: AnalysisReport) -> str:
+    return json.dumps(report.to_dict(), ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def deserialize_report(payload: str | bytes | None) -> AnalysisReport | None:
+    if not payload:
+        return None
+    try:
+        decoded = json.loads(payload.decode("utf-8") if isinstance(payload, bytes) else payload)
+    except Exception:
+        return None
+    return analysis_report_from_dict(decoded)
+
+
+def analysis_report_from_dict(value: Any) -> AnalysisReport | None:
+    if not isinstance(value, dict):
+        return None
+    analysis_id = str(value.get("analysisId") or "").strip()
+    symbol = str(value.get("symbol") or "").strip()
+    status = str(value.get("status") or "").strip()
+    if not analysis_id or not symbol or not status:
+        return None
+    return AnalysisReport(
+        analysisId=analysis_id,
+        symbol=symbol,
+        intent=str(value.get("intent") or ""),
+        status=status,
+        createdAt=str(value.get("createdAt") or ""),
+        summary=str(value.get("summary") or ""),
+        rationale=str(value.get("rationale") or ""),
+        findings=[item for item in (agent_finding_from_dict(item) for item in value.get("findings", [])) if item],
+        marketEvents=[market_event_from_dict(item) for item in value.get("marketEvents", []) if isinstance(item, dict)],
+        providerEvidence=[item for item in (evidence_item_from_dict(item) for item in value.get("providerEvidence", [])) if item],
+        route=intent_route_from_dict(value.get("route")),
+        finalAnswer=final_answer_from_dict(value.get("finalAnswer")),
+        notificationDecision=notification_decision_from_dict(value.get("notificationDecision")),
+        layoutProposal=layout_proposal_from_dict(value.get("layoutProposal")),
+        chartProposal=value.get("chartProposal") if isinstance(value.get("chartProposal"), dict) else None,
+        tradeConditionProposals=[
+            item
+            for item in (trade_condition_proposal_from_dict(item) for item in value.get("tradeConditionProposals", []))
+            if item is not None
+        ],
+        dailySummaries=[item for item in value.get("dailySummaries", []) if isinstance(item, dict)],
+        timing=dict(value.get("timing") or {}),
+        routePlan=route_plan_from_dict(value.get("routePlan")),
+        resolvedEntities=[item for item in (resolved_entity_from_dict(item) for item in value.get("resolvedEntities", [])) if item],
+        snapshots=[item for item in (data_snapshot_from_dict(item) for item in value.get("snapshots", [])) if item],
+        synthesisInput=synthesis_input_from_dict(value.get("synthesisInput")),
+        finalResponse=final_response_from_dict(value.get("finalResponse")),
+        latencyTrace=latency_trace_from_dict(value.get("latencyTrace")),
+        agentAnswers=[item for item in (agent_answer_from_dict(item) for item in value.get("agentAnswers", [])) if item],
+        agentTrace=dict(value.get("agentTrace") or {}),
+        chartExplanation=dict(value.get("chartExplanation")) if isinstance(value.get("chartExplanation"), dict) else None,
+        coachReport=dict(value.get("coachReport")) if isinstance(value.get("coachReport"), dict) else None,
+    )
+
+
+def market_event_from_dict(value: dict[str, Any]) -> MarketEvent:
+    return MarketEvent.from_dict(value)
+
+
+def trade_condition_proposal_from_dict(value: Any) -> TradeConditionProposal | None:
+    if not isinstance(value, dict):
+        return None
+    proposal_id = str(value.get("proposalId") or "").strip()
+    analysis_id = str(value.get("analysisId") or "").strip()
+    symbol = str(value.get("symbol") or "").strip().upper()
+    side = str(value.get("side") or "").strip()
+    direction = str(value.get("direction") or "").strip()
+    try:
+        trigger_price = float(value.get("triggerPrice"))
+        limit_price = float(value["limitPrice"]) if value.get("limitPrice") is not None else None
+        quantity = int(value["quantity"]) if value.get("quantity") is not None else None
+    except (TypeError, ValueError):
+        return None
+    if not proposal_id or not analysis_id or not symbol or side not in {"buy", "sell"}:
+        return None
+    if direction not in {"atOrBelow", "atOrAbove"} or trigger_price <= 0:
+        return None
+    return TradeConditionProposal(
+        proposalId=proposal_id,
+        analysisId=analysis_id,
+        symbol=symbol,
+        exchange=str(value.get("exchange") or "NASD").upper(),
+        side=side,
+        direction=direction,
+        triggerPrice=trigger_price,
+        limitPrice=limit_price,
+        quantity=quantity,
+        executionEnabled=value.get("executionEnabled") is not False,
+        alertsEnabled=value.get("alertsEnabled") is not False,
+        validity=str(value.get("validity") or "DAY"),
+        missingFields=[str(item) for item in value.get("missingFields", []) if isinstance(item, str)],
+        rationale=str(value.get("rationale") or ""),
+        createdAt=str(value.get("createdAt") or ""),
+        expiresAt=str(value.get("expiresAt")) if value.get("expiresAt") else None,
+    )
+
+
+def notification_decision_from_dict(value: Any) -> NotificationDecision | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        return NotificationDecision(
+            decisionId=str(value.get("decisionId") or ""),
+            analysisId=str(value.get("analysisId") or ""),
+            symbol=str(value.get("symbol") or "UNKNOWN"),
+            level=str(value.get("level") or "none"),
+            showToast=bool(value.get("showToast")),
+            title=str(value.get("title") or ""),
+            message=str(value.get("message") or ""),
+            reason=str(value.get("reason") or ""),
+            eventId=value.get("eventId") if isinstance(value.get("eventId"), str) else None,
+            eventType=value.get("eventType") if isinstance(value.get("eventType"), str) else None,
+            createdAt=str(value.get("createdAt") or ""),
+            expiresAt=value.get("expiresAt") if isinstance(value.get("expiresAt"), str) else None,
+            channels=[str(item) for item in value.get("channels", []) if isinstance(item, (str, int, float))],
+        )
+    except Exception:
+        return None
+
+
+def layout_proposal_from_dict(value: Any) -> LayoutProposal | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        return LayoutProposal(
+            title=str(value.get("title") or ""),
+            rationale=str(value.get("rationale") or ""),
+            commands=[item for item in value.get("commands", []) if isinstance(item, dict)],
+            autoApply=bool(value.get("autoApply", True)),
+            panelPriorities=[item for item in value.get("panelPriorities", []) if isinstance(item, dict)],
+            createdAt=str(value.get("createdAt") or ""),
+            id=str(value.get("id") or ""),
+        )
+    except Exception:
+        return None
+
+
+def route_plan_from_dict(value: Any) -> RoutePlan | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        return RoutePlan(
+            run_id=str(value.get("run_id") or ""),
+            intent=str(value.get("intent") or ""),
+            route_confidence=float(value.get("route_confidence") or 0.0),
+            entity_candidates=[str(item) for item in value.get("entity_candidates", []) if isinstance(item, (str, int, float))],
+            snapshot_bundle=[str(item) for item in value.get("snapshot_bundle", []) if isinstance(item, (str, int, float))],
+            execution_mode=str(value.get("execution_mode") or "parallel_snapshots"),
+            llm_calls_allowed=int(value.get("llm_calls_allowed") or 0),
+            analysisQueryType=str(value.get("analysisQueryType") or value.get("analysis_query_type") or "general"),
+            priority=str(value.get("priority") or "P3"),
+            anchorMode=str(value.get("anchorMode") or value.get("anchor_mode") or "symbol"),
+            compositionStrategy=str(value.get("compositionStrategy") or value.get("composition_strategy") or "general_synthesis"),
+            answerPolicy=value.get("answerPolicy") if isinstance(value.get("answerPolicy"), dict) else {},
+        )
+    except Exception:
+        return None
+
+
+def resolved_entity_from_dict(value: Any) -> ResolvedEntity | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        return ResolvedEntity(
+            raw_name=str(value.get("raw_name") or ""),
+            canonical_name=str(value.get("canonical_name") or ""),
+            ticker=value.get("ticker") if isinstance(value.get("ticker"), str) else None,
+            market=str(value.get("market") or "US"),
+            asset_type=str(value.get("asset_type") or "stock"),
+            graph_node_id=value.get("graph_node_id") if isinstance(value.get("graph_node_id"), str) else None,
+            aliases=[str(item) for item in value.get("aliases", []) if isinstance(item, (str, int, float))],
+            confidence=float(value.get("confidence") if isinstance(value.get("confidence"), (int, float)) else 0.5),
+        )
+    except Exception:
+        return None
+
+
+def agent_signal_from_dict(value: Any) -> AgentSignal | None:
+    if not isinstance(value, dict):
+        return None
+    return AgentSignal(
+        target=str(value.get("target") or ""),
+        direction=str(value.get("direction") or "unknown"),
+        horizon=str(value.get("horizon") or "unknown"),
+        strength=str(value.get("strength") or "low"),
+        reasoning=str(value.get("reasoning") or ""),
+    )
+
+
+def data_snapshot_from_dict(value: Any) -> DataSnapshot | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        return DataSnapshot(
+            snapshot_id=str(value.get("snapshot_id") or ""),
+            run_id=str(value.get("run_id") or ""),
+            snapshot_type=str(value.get("snapshot_type") or ""),
+            status=str(value.get("status") or "partial"),
+            source=str(value.get("source") or "computed"),
+            cache_hit=bool(value.get("cache_hit")),
+            freshness=dict(value.get("freshness") or {}),
+            summary=str(value.get("summary") or ""),
+            signals=[item for item in (agent_signal_from_dict(item) for item in value.get("signals", [])) if item],
+            evidence=[item for item in (evidence_item_from_dict(item) for item in value.get("evidence", [])) if item],
+            data_quality=str(value.get("data_quality") or "low"),
+            confidence=float(value.get("confidence") if isinstance(value.get("confidence"), (int, float)) else 0.5),
+            latency_ms=float(value.get("latency_ms") if isinstance(value.get("latency_ms"), (int, float)) else 0.0),
+            warnings=[str(item) for item in value.get("warnings", []) if isinstance(item, (str, int, float))],
+        )
+    except Exception:
+        return None
+
+
+def synthesis_input_from_dict(value: Any) -> SynthesisInput | None:
+    if not isinstance(value, dict):
+        return None
+    return SynthesisInput(
+        run_id=str(value.get("run_id") or ""),
+        original_prompt=str(value.get("original_prompt") or ""),
+        intent=str(value.get("intent") or ""),
+        entities=[item for item in (resolved_entity_from_dict(item) for item in value.get("entities", [])) if item],
+        snapshots=[item for item in (data_snapshot_from_dict(item) for item in value.get("snapshots", [])) if item],
+        crossSignals=[item for item in value.get("crossSignals", []) if isinstance(item, dict)],
+        missing_data=[str(item) for item in value.get("missing_data", []) if isinstance(item, (str, int, float))],
+        risk_warnings=[str(item) for item in value.get("risk_warnings", []) if isinstance(item, (str, int, float))],
+        output_policy=dict(value.get("output_policy") or {}),
+    )
+
+
+def final_response_from_dict(value: Any) -> FinalResponse | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        return FinalResponse(
+            run_id=str(value.get("run_id") or value.get("runId") or ""),
+            answer_type=str(value.get("answer_type") or value.get("answerType") or "general_answer"),
+            summary=str(value.get("summary") or ""),
+            key_points=string_list(value.get("key_points") or value.get("keyPoints") or []),
+            bullish_points=string_list(value.get("bullish_points") or value.get("bullishPoints") or []),
+            bearish_points=string_list(value.get("bearish_points") or value.get("bearishPoints") or []),
+            relationship_impacts=string_list(value.get("relationship_impacts") or value.get("relationshipImpacts") or []),
+            risk_warnings=string_list(value.get("risk_warnings") or value.get("riskWarnings") or []),
+            data_freshness_warnings=string_list(value.get("data_freshness_warnings") or value.get("dataFreshnessWarnings") or []),
+            partial_data_used=bool(value.get("partial_data_used") if "partial_data_used" in value else value.get("partialDataUsed")),
+            confidence=float(value.get("confidence") if isinstance(value.get("confidence"), (int, float)) else 0.5),
+            final_stance=str(value.get("final_stance") or value.get("finalStance") or "not_applicable"),
+            latency_ms=float(
+                value.get("latency_ms")
+                if isinstance(value.get("latency_ms"), (int, float))
+                else value.get("latencyMs")
+                if isinstance(value.get("latencyMs"), (int, float))
+                else 0.0
+            ),
+            llm_calls_used=int(
+                value.get("llm_calls_used")
+                if isinstance(value.get("llm_calls_used"), (int, float))
+                else value.get("llmCallsUsed")
+                if isinstance(value.get("llmCallsUsed"), (int, float))
+                else 0
+            ),
+        )
+    except Exception:
+        return None
+
+
+def agent_answer_from_dict(value: Any) -> AgentAnswer | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        return AgentAnswer(
+            agentId=str(value.get("agentId") or ""),
+            role=str(value.get("role") or ""),
+            title=str(value.get("title") or ""),
+            content=str(value.get("content") or ""),
+            confidence=float(value.get("confidence") if isinstance(value.get("confidence"), (int, float)) else 0.5),
+            citations=[item for item in (final_answer_citation_from_dict(item) for item in value.get("citations", [])) if item],
+            createdAt=str(value.get("createdAt") or ""),
+        )
+    except Exception:
+        return None
+
+
+def string_list(value: Any) -> list[str]:
+    return [str(item) for item in value if isinstance(item, (str, int, float))] if isinstance(value, list) else []
+
+
+def latency_trace_from_dict(value: Any) -> LatencyTrace | None:
+    if not isinstance(value, dict):
+        return None
+    return LatencyTrace(
+        run_id=str(value.get("run_id") or ""),
+        total_latency_ms=float(value.get("total_latency_ms") if isinstance(value.get("total_latency_ms"), (int, float)) else 0.0),
+        llm_calls_used=int(value.get("llm_calls_used") if isinstance(value.get("llm_calls_used"), (int, float)) else 0),
+        stages=[stage for stage in (latency_stage_from_dict(item) for item in value.get("stages", [])) if stage],
+    )
+
+
+def latency_stage_from_dict(value: Any) -> LatencyStage | None:
+    if not isinstance(value, dict):
+        return None
+    return LatencyStage(
+        stage=str(value.get("stage") or ""),
+        latency_ms=float(value.get("latency_ms") if isinstance(value.get("latency_ms"), (int, float)) else 0.0),
+        status=str(value.get("status") or "success"),
+        cache_hit=value.get("cache_hit") if isinstance(value.get("cache_hit"), bool) else None,
+        input_tokens=value.get("input_tokens") if isinstance(value.get("input_tokens"), int) else None,
+        output_tokens=value.get("output_tokens") if isinstance(value.get("output_tokens"), int) else None,
+        cached_tokens=value.get("cached_tokens") if isinstance(value.get("cached_tokens"), int) else None,
+    )

@@ -1,0 +1,46 @@
+# 역할: PostgreSQL 작업 큐에서 결정론적 Geometry Asset 빌드 항목을 처리합니다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chart-asset-builder
+  namespace: alfaka-market-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chart-asset-builder
+  template:
+    metadata:
+      labels:
+        app: chart-asset-builder
+    spec:
+      serviceAccountName: alfaka-market-data-sa
+      containers:
+        - name: chart-asset-builder
+          # Base placeholder only. AWS/CI overlays replace this with one immutable
+          # Git-SHA tag shared by every gops-agent-orchestrator workload.
+          image: YOUR_ECR_REPOSITORY/gops-agent-orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -u
+            - /app/systems/agent-orchestration/pods/chart-asset-builder/main.py
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          envFrom:
+            - configMapRef:
+                name: alfaka-market-data-config
+            - secretRef:
+                name: alfaka-clickhouse-secret
+                optional: true
+            - secretRef:
+                name: alfaka-openai-secret
+                optional: true
+            - secretRef:
+                name: alfaka-order-db-secret
+                optional: false

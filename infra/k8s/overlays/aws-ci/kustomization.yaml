@@ -1,0 +1,51 @@
+# GitHub Actions overlay for managed-AWS app deployments.
+# App Deployments are applied automatically; one-shot Jobs and ExternalSecret
+# bootstrap resources remain manual operations.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../aws
+
+patches:
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: SecretStore
+      name: aws-secrets-manager
+    patch: |-
+      apiVersion: external-secrets.io/v1beta1
+      kind: SecretStore
+      metadata:
+        name: aws-secrets-manager
+        namespace: alfaka-market-data
+      $patch: delete
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: alfaka-openai-secret
+    patch: |-
+      apiVersion: external-secrets.io/v1beta1
+      kind: ExternalSecret
+      metadata:
+        name: alfaka-openai-secret
+        namespace: alfaka-market-data
+      $patch: delete
+images:
+  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-ingestor
+    newTag: "ci-placeholder"
+  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-processor
+    newTag: "ci-placeholder"
+  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-storage
+    newTag: "ci-placeholder"
+  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-api-server
+    newTag: "ci-placeholder"
+  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-frontend
+    newTag: "ci-placeholder"
+  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-order-worker
+    newTag: "ci-placeholder"
+  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-kis-adapter
+    newTag: "ci-placeholder"
+  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-agent-orchestrator
+    newTag: "ci-placeholder"

@@ -1,0 +1,311 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useAuth } from "../auth/AuthProvider";
+import {
+  fetchPaperAccount,
+  fetchPaperOrders,
+  paperAccountWebSocketUrl,
+  type PaperAccountSnapshot
+} from "./paperTradingClient";
+import type { OrderSnapshot } from "./orderClient";
+import { subscribePortfolioRefresh } from "../simulator/simulatorApi";
+import { isTransientPaperAccountError } from "./paperAccountPresentation";
+
+type PaperAccountContextValue = {
+  snapshot?: PaperAccountSnapshot;
+  loading: boolean;
+  error?: string;
+  refresh: () => Promise<void>;
+  orders: OrderSnapshot[];
+  ordersLoading: boolean;
+  ordersError?: string;
+  refreshOrders: () => Promise<void>;
+  latestSubmittedOrderId?: string;
+  recordSubmittedOrder: (order: OrderSnapshot) => void;
+};
+
+type PaperAccountState = Pick<PaperAccountContextValue, "snapshot" | "loading" | "error"> & {
+  accountKey: string;
+};
+
+type PaperOrderState = Pick<PaperAccountContextValue, "orders" | "ordersLoading" | "ordersError"> & {
+  accountKey: string;
+};
+
+const PaperAccountContext = createContext<PaperAccountContextValue | undefined>(undefined);
+
+export function PaperAccountProvider({ children }: { children: ReactNode }) {
+  const { authEnabled, user, loading: authLoading } = useAuth();
+  const accountKey = authEnabled ? (user?.email.trim().toLowerCase() ?? "") : "auth-disabled";
+  const canLoad = !authLoading && (!authEnabled || Boolean(user));
+  const requestRevisionRef = useRef(0);
+  const orderRequestRevisionRef = useRef(0);
+  const refreshPromiseRef = useRef<Promise<void> | null>(null);
+  const refreshOrdersPromiseRef = useRef<Promise<void> | null>(null);
+  const tradeHistoryRevisionKeyRef = useRef("");
+  const [state, setState] = useState<PaperAccountState>({
+    accountKey: "",
+    snapshot: undefined,
+    loading: true,
+    error: undefined
+  });
+  const [orderState, setOrderState] = useState<PaperOrderState>({
+    accountKey: "",
+    orders: [],
+    ordersLoading: true,
+    ordersError: undefined
+  });
+  const [latestSubmittedOrderId, setLatestSubmittedOrderId] = useState<string>();
+
+  const recordSubmittedOrder = useCallback((order: OrderSnapshot) => {
+    if (!order.order_id || order.status !== "pending") return;
+    setLatestSubmittedOrderId(order.order_id);
+    setState((current) => {
+      if (current.accountKey !== accountKey || !current.snapshot) {
+        return current;
+      }
+      return {
+        ...current,
+        snapshot: {
+          ...current.snapshot,
+          open_orders: [
+            order,
+            ...current.snapshot.open_orders.filter((item) => item.order_id !== order.order_id)
+          ]
+        }
+      };
+    });
+    setOrderState((current) => ({
+      accountKey,
+      orders: [
+        order,
+        ...(current.accountKey === accountKey
+          ? current.orders.filter((item) => item.order_id !== order.order_id)
+          : [])
+      ],
+      ordersLoading: false,
+      ordersError: undefined
+    }));
+  }, [accountKey]);
+
+  const refreshOrders = useCallback(async () => {
+    if (!canLoad) return;
+    if (refreshOrdersPromiseRef.current) {
+      await refreshOrdersPromiseRef.current;
+      return;
+    }
+    const requestedAccountKey = accountKey;
+    const requestRevision = ++orderRequestRevisionRef.current;
+    setOrderState((current) => ({
+      accountKey: requestedAccountKey,
+      orders: current.accountKey === requestedAccountKey ? current.orders : [],
+      ordersLoading: current.accountKey !== requestedAccountKey || !current.orders.length,
+      ordersError: undefined
+    }));
+    const request = (async () => {
+      try {
+        const orders = await fetchPaperOrders();
+        if (orderRequestRevisionRef.current !== requestRevision) return;
+        setOrderState({
+          accountKey: requestedAccountKey,
+          orders,
+          ordersLoading: false,
+          ordersError: undefined
+        });
+      } catch (caught) {
+        if (orderRequestRevisionRef.current !== requestRevision) return;
+        setOrderState((current) => ({
+          accountKey: requestedAccountKey,
+          orders: current.accountKey === requestedAccountKey ? current.orders : [],
+          ordersLoading: false,
+          ordersError: caught instanceof Error ? caught.message : "가상계좌 거래내역을 불러오지 못했습니다."
+        }));
+      }
+    })();
+    refreshOrdersPromiseRef.current = request;
+    try {
+      await request;
+    } finally {
+      if (refreshOrdersPromiseRef.current === request) refreshOrdersPromiseRef.current = null;
+    }
+  }, [accountKey, canLoad]);
+
+  const refresh = useCallback(async () => {
+    if (!canLoad) return;
+    if (refreshPromiseRef.current) {
+      await refreshPromiseRef.current;
+      return;
+    }
+    const requestedAccountKey = accountKey;
+    const requestRevision = ++requestRevisionRef.current;
+    setState((current) => ({
+      accountKey: requestedAccountKey,
+      snapshot: current.accountKey === requestedAccountKey ? current.snapshot : undefined,
+      loading: current.accountKey !== requestedAccountKey || !current.snapshot,
+      error: undefined
+    }));
+    const request = (async () => {
+      try {
+        const snapshot = await fetchPaperAccount();
+        if (requestRevisionRef.current !== requestRevision) return;
+        tradeHistoryRevisionKeyRef.current = paperTradeHistoryRevisionKey(snapshot);
+        setState({ accountKey: requestedAccountKey, snapshot, loading: false, error: undefined });
+      } catch (caught) {
+        if (requestRevisionRef.current !== requestRevision) return;
+        const message = caught instanceof Error ? caught.message : "가상계좌를 불러오지 못했습니다.";
+        setState((current) => ({
+          accountKey: requestedAccountKey,
+          snapshot: current.accountKey === requestedAccountKey ? current.snapshot : undefined,
+          loading: false,
+          error: isTransientPaperAccountError(message) ? undefined : message
+        }));
+      }
+    })();
+    refreshPromiseRef.current = request;
+    try {
+      await request;
+    } finally {
+      if (refreshPromiseRef.current === request) refreshPromiseRef.current = null;
+    }
+  }, [accountKey, canLoad]);
+
+  useEffect(() => {
+    requestRevisionRef.current += 1;
+    orderRequestRevisionRef.current += 1;
+    refreshPromiseRef.current = null;
+    refreshOrdersPromiseRef.current = null;
+    tradeHistoryRevisionKeyRef.current = "";
+    setLatestSubmittedOrderId(undefined);
+    if (!canLoad) {
+      setState({ accountKey, snapshot: undefined, loading: false, error: undefined });
+      setOrderState({ accountKey, orders: [], ordersLoading: false, ordersError: undefined });
+      return undefined;
+    }
+    let active = true;
+    void refresh();
+    void refreshOrders();
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
+    let reconnectAttempt = 0;
+    const reconnect = () => {
+      if (!active || reconnectTimer !== undefined) return;
+      const delay = Math.min(10_000, 500 * (2 ** reconnectAttempt));
+      reconnectAttempt += 1;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = undefined;
+        connect();
+      }, delay);
+    };
+    const connect = () => {
+      if (!active) return;
+      const nextSocket = new WebSocket(paperAccountWebSocketUrl());
+      socket = nextSocket;
+      nextSocket.onmessage = (event) => {
+        if (!active || socket !== nextSocket) return;
+        try {
+          const payload = JSON.parse(event.data) as {
+            type?: string;
+            account?: PaperAccountSnapshot;
+            detail?: string | { code?: string };
+          };
+          if (payload.account) {
+            reconnectAttempt = 0;
+            const nextHistoryRevisionKey = paperTradeHistoryRevisionKey(payload.account);
+            const historyChanged = nextHistoryRevisionKey !== tradeHistoryRevisionKeyRef.current;
+            tradeHistoryRevisionKeyRef.current = nextHistoryRevisionKey;
+            requestRevisionRef.current += 1;
+            setState({ accountKey, snapshot: payload.account, loading: false, error: undefined });
+            if (historyChanged) void refreshOrders();
+          } else if (payload.type === "error") {
+            const message = socketErrorMessage(payload.detail);
+            setState((current) => ({
+              ...current,
+              error: isTransientPaperAccountError(message) ? undefined : message
+            }));
+          }
+        } catch {
+          setState((current) => ({ ...current, error: "가상계좌 실시간 응답을 읽지 못했습니다." }));
+        }
+      };
+      nextSocket.onerror = () => undefined;
+      nextSocket.onclose = reconnect;
+    };
+    connect();
+    return () => {
+      active = false;
+      requestRevisionRef.current += 1;
+      orderRequestRevisionRef.current += 1;
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      socket?.close();
+    };
+  }, [accountKey, canLoad, refresh, refreshOrders]);
+
+  useEffect(() => subscribePortfolioRefresh(() => {
+    if (!canLoad) return;
+    void refresh();
+    void refreshOrders();
+  }), [canLoad, refresh, refreshOrders]);
+
+  const visibleState = state.accountKey === accountKey
+    ? state
+    : { accountKey, snapshot: undefined, loading: canLoad, error: undefined };
+  const visibleOrderState = orderState.accountKey === accountKey
+    ? orderState
+    : { accountKey, orders: [], ordersLoading: canLoad, ordersError: undefined };
+  const value = useMemo<PaperAccountContextValue>(() => ({
+    snapshot: visibleState.snapshot,
+    loading: visibleState.loading,
+    error: visibleState.error,
+    refresh,
+    orders: visibleOrderState.orders,
+    ordersLoading: visibleOrderState.ordersLoading,
+    ordersError: visibleOrderState.ordersError,
+    refreshOrders,
+    latestSubmittedOrderId,
+    recordSubmittedOrder
+  }), [
+    latestSubmittedOrderId,
+    recordSubmittedOrder,
+    refresh,
+    refreshOrders,
+    visibleOrderState.orders,
+    visibleOrderState.ordersError,
+    visibleOrderState.ordersLoading,
+    visibleState.error,
+    visibleState.loading,
+    visibleState.snapshot
+  ]);
+
+  return <PaperAccountContext.Provider value={value}>{children}</PaperAccountContext.Provider>;
+}
+
+function socketErrorMessage(detail: string | { code?: string } | undefined): string {
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  if (detail && typeof detail === "object" && typeof detail.code === "string" && detail.code.trim()) {
+    return detail.code.trim();
+  }
+  return "가상계좌 실시간 연결 오류";
+}
+
+function paperTradeHistoryRevisionKey(snapshot: PaperAccountSnapshot): string {
+  return JSON.stringify({
+    generation: snapshot.account.generation,
+    cash: snapshot.account.cash_balance,
+    reservedCash: snapshot.account.reserved_cash,
+    positions: snapshot.positions.map((position) => [
+      position.symbol,
+      position.qty,
+      position.reserved_qty,
+      position.average_price,
+      position.realized_pnl
+    ]),
+    openOrders: snapshot.open_orders.map((order) => [order.order_id, order.status, order.qty])
+  });
+}
+
+export function usePaperAccount(): PaperAccountContextValue {
+  const context = useContext(PaperAccountContext);
+  if (!context) {
+    throw new Error("usePaperAccount must be used inside PaperAccountProvider");
+  }
+  return context;
+}

@@ -3,13 +3,67 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ../../base
-  - ../../base/stream-processor
+  - ../../base/app
+  - secretstore-aws-secrets-manager.yaml
+  - externalsecret-openai.yaml
+  - ../aws/scheduled
   - ingress.yaml
+  - retired-alpaca-ingestor.yaml
 
 patches:
   - path: configmap-incluster-patch.yaml
   - path: serviceaccount-irsa-patch.yaml
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: recommendation-worker
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/3/secretRef/optional
+        value: false
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: agent-orchestrator
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/2/secretRef/optional
+        value: false
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: agent-analysis-worker
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/2/secretRef/optional
+        value: false
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/3/secretRef/optional
+        value: false
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: chart-asset-builder
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/2/secretRef/optional
+        value: false
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: deep-analysis-worker
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/2/secretRef/optional
+        value: false
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/3/secretRef/optional
+        value: false
   - target:
       kind: Service
       name: gops-backend
@@ -26,11 +80,18 @@ patches:
       - op: add
         path: /metadata/annotations
         value:
-          alb.ingress.kubernetes.io/healthcheck-path: /
+          alb.ingress.kubernetes.io/healthcheck-path: /healthz
           alb.ingress.kubernetes.io/success-codes: "200-399"
   - target:
       kind: Deployment
     patch: |-
+      - op: add
+        path: /spec/strategy
+        value:
+          type: RollingUpdate
+          rollingUpdate:
+            maxUnavailable: 1
+            maxSurge: 0
       - op: add
         path: /spec/template/metadata/annotations
         value:
@@ -45,37 +106,384 @@ patches:
       - op: add
         path: /spec/template/spec/nodeSelector
         value:
+          karpenter.sh/nodepool: app-agent
           kubernetes.io/arch: amd64
-  - target:
-      kind: Job
-    patch: |-
       - op: add
-        path: /spec/template/spec/nodeSelector
+        path: /spec/template/spec/tolerations
         value:
-          kubernetes.io/arch: amd64
-
+          - key: gops.io/dedicated
+            operator: Equal
+            value: app-agent
+            effect: NoSchedule
+      - op: add
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 3
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: Exists
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+  - target:
+      kind: Deployment
+      name: chart-asset-builder
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+  - target:
+      kind: Deployment
+      name: alfaka-alpaca-ingestor-sip
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 300m
+            memory: 192Mi
+          limits:
+            cpu: 1500m
+            memory: 512Mi
+  - target:
+      kind: Deployment
+      name: gops-backend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe
+        value:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 6
+      - op: add
+        path: /spec/template/spec/containers/0/startupProbe
+        value:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 5
+          timeoutSeconds: 10
+          failureThreshold: 30
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 500m
+            memory: 384Mi
+          limits:
+            cpu: "2"
+            memory: 1Gi
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app: gops-backend
+  - target:
+      kind: Deployment
+      name: gops-frontend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+  - target:
+      kind: Deployment
+      name: gops-simulator
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
+  - target:
+      kind: Deployment
+      name: agent-orchestrator
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe
+        value:
+          httpGet:
+            path: /health
+            port: 8100
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+      - op: add
+        path: /spec/template/spec/containers/0/startupProbe
+        value:
+          httpGet:
+            path: /health
+            port: 8100
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 30
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app: agent-orchestrator
+  - target:
+      kind: Deployment
+      name: agent-event-detector
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 150m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+  - target:
+      kind: Deployment
+      name: alfaka-raw-s3-archive
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 200m
+            memory: 128Mi
+          limits:
+            cpu: 750m
+            memory: 512Mi
+  - target:
+      kind: Deployment
+      name: alfaka-s3-sink
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 150m
+            memory: 256Mi
+          limits:
+            cpu: 750m
+            memory: 512Mi
+  - target:
+      kind: Deployment
+      name: alfaka-clickhouse-loader
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+  - target:
+      kind: Deployment
+      name: alfaka-clickhouse-tick-loader
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 768Mi
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app: alfaka-clickhouse-tick-loader
+  - target:
+      kind: Deployment
+      name: alfaka-market-processor
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/1/secretRef/optional
+        value: false
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 400m
+            memory: 384Mi
+          limits:
+            cpu: "1"
+            memory: 768Mi
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            minDomains: 3
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                app: alfaka-market-processor
+  - target:
+      kind: Deployment
+      name: alfaka-market-quote-processor
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/1/secretRef/optional
+        value: false
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 200m
+            memory: 320Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            minDomains: 3
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                app: alfaka-market-quote-processor
+  - target:
+      kind: Deployment
+      name: alfaka-news-daily-summary-worker
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 0
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app: alfaka-news-daily-summary-worker
+  - target:
+      kind: Deployment
+      name: alfaka-news-intelligence-worker
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app: alfaka-news-intelligence-worker
+  - target:
+      kind: Deployment
+      name: recommendation-worker
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Deployment
+      name: alert-evaluator
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: Deployment
+      name: trade-condition-executor
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/1/secretRef/optional
+        value: false
 images:
   - name: YOUR_ECR_REPOSITORY/gops-market-ingestor
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-ingestor
-    newTag: 324661e
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-market-processor
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-processor
-    newTag: 324661e
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-market-storage
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-storage
-    newTag: 324661e
-  - name: YOUR_ECR_REPOSITORY/gops-backfill-worker
-    newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-backfill-worker
-    newTag: 324661e
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-api-server
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-api-server
-    newTag: 324661e
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-frontend
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-frontend
-    newTag: 324661e-stargops
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-order-worker
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-order-worker
-    newTag: 324661e
+    newTag: 0c876e9
   - name: YOUR_ECR_REPOSITORY/gops-kis-adapter
     newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-kis-adapter
-    newTag: 324661e
+    newTag: 0c876e9
+  - name: YOUR_ECR_REPOSITORY/gops-agent-orchestrator
+    newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-agent-orchestrator
+    newTag: 0c876e9
+  - name: YOUR_ECR_REPOSITORY/gops-simulator
+    newName: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-simulator
+    newTag: 0c876e9

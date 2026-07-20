@@ -2,6 +2,8 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 MARKET_SHARED = ROOT / "systems" / "market-data" / "shared"
@@ -16,9 +18,10 @@ try:
     from fastapi.testclient import TestClient
 
     from app.main import create_app
+    from app.market_data.fundamentals.service import FundamentalsRecord
     from kis_trader.domain.status import OrderStatus
     from kis_trader.persistence.memory import InMemoryOrderRepository
-    from tests.kis_trader.fixtures.orders import sample_order_request
+    from systems.order.tests.kis_trader.fixtures.orders import sample_order_request
 
     FASTAPI_TESTCLIENT_AVAILABLE = True
 except Exception:
@@ -38,14 +41,132 @@ class IntegratedOrderRoutesTest(unittest.TestCase):
         os.environ["IDEMPOTENCY_HASH_SECRET"] = "test-secret"
         self.repository = InMemoryOrderRepository()
         self.app = create_app()
+        self.app.state.simulator_gateway = SimpleNamespace(status=lambda: {"mode": "live"})
         self.app.state.order_repository = self.repository
+        self.app.state.portfolio_market_data_provider = None
+        self.app.state.portfolio_fundamentals_adapter = None
         self.client = TestClient(self.app)
 
     def test_order_contract_is_namespaced_under_api(self):
         response = self.client.get("/api/order-contract")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["submit"]["path"], "/api/orders")
+        contract = response.json()
+        self.assertEqual(contract["submit"]["path"], "/api/orders")
+        self.assertEqual(contract["submit"]["accepted_values"]["market"], ["overseas"])
+        self.assertEqual(contract["submit"]["accepted_values"]["order_division"], ["00"])
+        self.assertEqual(contract["balance"], "GET /api/orders/balance")
+
+    def test_account_holdings_returns_kis_demo_positions(self):
+        class FakeKisClient:
+            def fetch_holdings(self, *, market: str, currency: str, exchange: str):
+                self.request = {"market": market, "currency": currency, "exchange": exchange}
+                return {
+                    "status": "ok",
+                    "source": "kis-demo",
+                    "account": {
+                        "alias": "모의투자",
+                        "market": market,
+                        "currency": currency,
+                        "cashForeign": 1199,
+                        "totalValueKrw": 20164899,
+                    },
+                    "positions": [
+                        {
+                            "symbol": "MU",
+                            "name": "Micron Technology",
+                            "quantity": 10,
+                            "marketValueKrw": 17573254,
+                            "unrealizedPnlRate": 141.6,
+                        }
+                    ],
+                    "limitations": [],
+                }
+
+        fake_client = FakeKisClient()
+        self.app.state.kis_client = fake_client
+        self.app.state.portfolio_sector_provider = lambda: [{"symbol": "MU", "sector": "Technology"}]
+
+        response = self.client.get("/api/account/holdings?market=overseas&currency=USD&source=kis")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["source"], "kis-demo")
+        self.assertEqual(payload["positions"][0]["symbol"], "MU")
+        self.assertEqual(payload["positions"][0]["sector"], "Information Technology")
+        self.assertEqual(payload["positions"][0]["sectorLabelKo"], "정보기술")
+        self.assertEqual(fake_client.request, {"market": "overseas", "currency": "USD", "exchange": ""})
+
+    def test_account_holdings_enriches_market_stats(self):
+        class FakeKisClient:
+            def fetch_holdings(self, *, market: str, currency: str, exchange: str):
+                return {
+                    "status": "ok",
+                    "source": "kis-demo",
+                    "account": {"market": market, "currency": currency},
+                    "positions": [
+                        {
+                            "symbol": "MU",
+                            "name": "Micron Technology",
+                            "quantity": 10,
+                            "averagePrice": 80.0,
+                            "currentPrice": 102.0,
+                            "marketValueForeign": 1020.0,
+                        }
+                    ],
+                    "limitations": [],
+                }
+
+        class FakeFundamentalsAdapter:
+            def latest_for_symbols(self, symbols):
+                self.symbols = symbols
+                return {
+                    "MU": FundamentalsRecord(
+                        symbol="MU",
+                        eps=8.5,
+                        source="sec_companyfacts",
+                        asOf="2026-03-31",
+                    )
+                }
+
+        class FakeClickHouseProvider:
+            def latest_chart_candles_source(self, where_sql, include_live=False):
+                self.where_sql = where_sql
+                return "SELECT * FROM market_data.chart_candles"
+
+            def query_json_each_row(self, query, params):
+                self.query = query
+                self.params = params
+                return [
+                    {
+                        "symbol": "MU",
+                        "low52": 72.5,
+                        "high52": 188.4,
+                        "marketStatsAsOf": "2026-07-07T00:00:00.000Z",
+                    }
+                ]
+
+        fake_clickhouse = FakeClickHouseProvider()
+        fake_adapter = FakeFundamentalsAdapter()
+        self.app.state.kis_client = FakeKisClient()
+        self.app.state.portfolio_sector_provider = lambda: [{"symbol": "MU", "sector": "Technology"}]
+        self.app.state.portfolio_fundamentals_adapter = fake_adapter
+        self.app.state.portfolio_market_data_provider = SimpleNamespace(
+            clickhouse_provider=fake_clickhouse,
+            redis_provider=SimpleNamespace(redis=None),
+        )
+
+        response = self.client.get("/api/account/holdings?market=overseas&currency=USD&source=kis")
+
+        self.assertEqual(response.status_code, 200)
+        position = response.json()["positions"][0]
+        self.assertAlmostEqual(position["peRatio"], 12.0)
+        self.assertEqual(position["epsTtm"], 8.5)
+        self.assertEqual(position["low52"], 72.5)
+        self.assertEqual(position["high52"], 188.4)
+        self.assertEqual(position["fundamentalsSource"], "sec_companyfacts")
+        self.assertEqual(position["stats52wSource"], "clickhouse.chart_candles")
+        self.assertEqual(fake_clickhouse.params["symbols"], ["MU"])
 
     def test_submit_order_requires_idempotency_key(self):
         response = self.client.post("/api/orders", json=sample_order_request())
@@ -87,6 +208,55 @@ class IntegratedOrderRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(self.repository.orders, {})
         self.assertEqual(self.repository.outbox_events, {})
+
+    def test_submit_order_rejects_non_overseas_market(self):
+        payload = sample_order_request(market="domestic", symbol="005930", exchange="KRX", price="70000")
+
+        response = self.client.post("/api/orders", json=payload, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("market", response.json()["detail"])
+        self.assertEqual(self.repository.orders, {})
+
+    def test_submit_order_rejects_non_limit_order_division(self):
+        payload = sample_order_request(order_division="01")
+
+        response = self.client.post("/api/orders", json=payload, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("order_division", response.json()["detail"])
+        self.assertEqual(self.repository.orders, {})
+
+    def test_submit_order_rejects_fractional_quantity(self):
+        payload = sample_order_request(qty="1.5")
+
+        response = self.client.post("/api/orders", json=payload, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("whole-share", response.json()["detail"])
+        self.assertEqual(self.repository.orders, {})
+
+    def test_order_balance_returns_kis_demo_orderable_cash(self):
+        class FakeKisClient:
+            def fetch_orderable_cash(self, *, symbol: str, exchange: str, price: str):
+                return {
+                    "env": "demo",
+                    "market": "overseas",
+                    "symbol": symbol.upper(),
+                    "exchange": exchange.upper(),
+                    "currency": "USD",
+                    "orderable_cash": "12345.67",
+                    "orderable_qty": "12",
+                }
+
+        with patch("app.routes.orders.DemoKisHttpClient.from_env", return_value=FakeKisClient()):
+            response = self.client.get("/api/orders/balance?symbol=nvda&exchange=nasd&price=1.00")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["symbol"], "NVDA")
+        self.assertEqual(payload["exchange"], "NASD")
+        self.assertEqual(payload["orderable_cash"], "12345.67")
 
     def test_order_read_and_events_endpoints(self):
         created = self.client.post("/api/orders", json=sample_order_request(), headers=HEADERS).json()

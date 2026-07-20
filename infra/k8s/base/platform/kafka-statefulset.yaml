@@ -23,6 +23,13 @@ spec:
       labels:
         app: kafka
     spec:
+      nodeSelector:
+        karpenter.sh/nodepool: streaming
+      tolerations:
+        - key: gops.io/dedicated
+          operator: Equal
+          value: streaming
+          effect: NoSchedule
       securityContext:
         fsGroup: 1000
       containers:
@@ -33,7 +40,7 @@ spec:
             - /bin/bash
             - -ec
             - |
-              mkdir -p /var/lib/kafka/data
+              mkdir -p /var/lib/kafka/data/data
               cat >/tmp/kraft-server.properties <<'EOF'
               node.id=1
               process.roles=broker,controller
@@ -49,7 +56,7 @@ spec:
               group.initial.rebalance.delay.ms=0
               num.partitions=3
               auto.create.topics.enable=true
-              log.dirs=/var/lib/kafka/data
+              log.dirs=/var/lib/kafka/data/data
               EOF
               /opt/kafka/bin/kafka-storage.sh format --ignore-formatted --cluster-id "${CLUSTER_ID}" --config /tmp/kraft-server.properties
               exec /opt/kafka/bin/kafka-server-start.sh /tmp/kraft-server.properties
@@ -61,9 +68,13 @@ spec:
           env:
             - name: CLUSTER_ID
               value: MkU3OEVBNTcwNTJENDM2Qk
+            - name: KAFKA_HEAP_OPTS
+              value: -Xms1g -Xmx2g
           volumeMounts:
             - name: kafka-data
-              mountPath: /var/lib/kafka
+              # Mount the PVC at the image data path. Existing broker logs from
+              # the former parent mount remain in the PVC's data/ child.
+              mountPath: /var/lib/kafka/data
           startupProbe:
             exec:
               command:
@@ -84,11 +95,11 @@ spec:
             failureThreshold: 6
           resources:
             requests:
-              cpu: 250m
-              memory: 768Mi
-            limits:
               cpu: "1"
-              memory: 1536Mi
+              memory: 3Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
   volumeClaimTemplates:
     - metadata:
         name: kafka-data
@@ -98,4 +109,4 @@ spec:
         storageClassName: eks-auto-ebs
         resources:
           requests:
-            storage: 10Gi
+            storage: 30Gi

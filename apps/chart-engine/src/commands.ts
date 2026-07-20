@@ -1,7 +1,10 @@
 import { cloneChartDocument, restoreChartDocumentSnapshot, snapshotChartDocument } from "./chartDocuments";
 import { defaultVisibleBarsForInterval, maxRequestBarsForInterval, normalizeChartInterval } from "./intervals";
+import { chartLayerMetadata, layerVisibilityAliases, normalizeChartLayerKey } from "./layers";
 import { drawingRegistry, isSupportedDrawing } from "./registries";
+import { riskRewardDirection } from "./drawingGeometry";
 import { normalizeSupportedSymbol } from "./symbols";
+import { clampRightOffset, latestCandleRightOffset } from "./viewport";
 import type {
   ChartCommand,
   ChartCommandActor,
@@ -12,6 +15,7 @@ import type {
   ChartHistoryEntry,
   ChartLineExtension,
   ChartLayerKey,
+  ChartType,
   ChartProposal,
   ComparisonSeries,
   DrawingAnchor,
@@ -24,7 +28,7 @@ export type ChartCommandResult =
   | { ok: true; document: ChartDocument; message: string; historyEntry?: ChartHistoryEntry; noOp?: boolean }
   | { ok: false; document: ChartDocument; message: string };
 
-const layerKeys: ChartLayerKey[] = ["candles", "volume", "ma5", "ma20", "ma60"];
+const chartTypes: ChartType[] = ["candle", "line", "ohlc", "bidask"];
 
 export function makeChartCommand(
   type: ChartCommandType,
@@ -146,6 +150,14 @@ export function executeChartCommandGroup(
     return { ok: true, document, message: "No chart change.", noOp: true };
   }
 
+  if (commands.every((command) => command.historyScope === "external")) {
+    return {
+      ok: true,
+      document: next,
+      message: label
+    };
+  }
+
   const historyEntry: ChartHistoryEntry = {
     id: `chart-history-${crypto.randomUUID()}`,
     label,
@@ -183,7 +195,9 @@ export function validateChartProposal(proposal: ChartProposal): string | null {
   const allowed = new Set<ChartCommandType>([
     "chart.symbol.set",
     "chart.timeframe.set",
+    "chart.type.set",
     "chart.viewport.set",
+    "chart.pane.ratio.set",
     "chart.layer.visibility.set",
     "chart.drawing.add",
     "chart.drawing.update",
@@ -192,8 +206,7 @@ export function validateChartProposal(proposal: ChartProposal): string | null {
     "chart.drawing.clearSelection",
     "chart.comparison.add",
     "chart.comparison.remove",
-    "chart.comparison.update",
-    "chart.measurement.add"
+    "chart.comparison.update"
   ]);
 
   for (const command of proposal.commands) {
@@ -212,12 +225,12 @@ export function validateChartProposal(proposal: ChartProposal): string | null {
 }
 
 export function normalizeDrawingFromCommand(command: ChartCommand): DrawingEntity | null {
-  if (command.type !== "chart.drawing.add" && command.type !== "chart.measurement.add") {
+  if (command.type !== "chart.drawing.add") {
     return null;
   }
 
   const drawing = normalizeDrawingEntity(command.payload.drawing, command.actor, command.proposalId) ??
-    makeDrawingFromPayload(command.payload, command.actor, command.proposalId, command.type === "chart.measurement.add" ? "measurement" : undefined);
+    makeDrawingFromPayload(command.payload, command.actor, command.proposalId);
 
   return drawing && isSupportedDrawing(drawing) ? drawing : null;
 }
@@ -247,7 +260,8 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart symbol.";
       }
       document.symbol = symbol;
-      document.viewport = { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval(document.timeframe) };
+      const visibleCount = defaultVisibleBarsForInterval(document.timeframe);
+      document.viewport = { rightOffset: latestCandleRightOffset(visibleCount), visibleCount };
       return null;
     }
     case "chart.timeframe.set": {
@@ -256,16 +270,45 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid chart timeframe.";
       }
       document.timeframe = timeframe;
-      document.viewport = { rightOffset: 0, visibleCount: defaultVisibleBarsForInterval(timeframe) };
+      const visibleCount = defaultVisibleBarsForInterval(timeframe);
+      document.viewport = { rightOffset: latestCandleRightOffset(visibleCount), visibleCount };
+      return null;
+    }
+    case "chart.type.set": {
+      const chartType = readChartType(command.payload.chartType);
+      if (!chartType) {
+        return "Invalid chart type.";
+      }
+      document.chartType = chartType;
       return null;
     }
     case "chart.viewport.set": {
       const visibleCount = readNumber(command.payload.visibleCount);
       const rightOffset = readNumber(command.payload.rightOffset);
+      const nextVisibleCount = visibleCount === null ? document.viewport.visibleCount : clamp(Math.round(visibleCount), 6, maxRequestBarsForInterval(document.timeframe));
+      const extraFutureSlots = maxRequestBarsForInterval(document.timeframe);
       document.viewport = {
-        visibleCount: visibleCount === null ? document.viewport.visibleCount : clamp(Math.round(visibleCount), 12, maxRequestBarsForInterval(document.timeframe)),
-        rightOffset: rightOffset === null ? document.viewport.rightOffset : Math.max(0, Math.round(rightOffset))
+        visibleCount: nextVisibleCount,
+        rightOffset: rightOffset === null
+          ? document.viewport.rightOffset
+          : clampRightOffset(rightOffset, nextVisibleCount, Math.max(nextVisibleCount, extraFutureSlots), { extraFutureSlots })
       };
+      return null;
+    }
+    case "chart.pane.ratio.set": {
+      const paneId = readString(command.payload.paneId);
+      const heightRatio = readNumber(command.payload.heightRatio);
+      if (!paneId || heightRatio === null) {
+        return "Invalid pane ratio payload.";
+      }
+      const nextRatio = clamp(heightRatio, 0.08, 0.82);
+      if (!document.panes.some((pane) => pane.id === paneId)) {
+        document.panes = [...document.panes, { id: paneId, heightRatio: nextRatio }];
+        return null;
+      }
+      document.panes = document.panes.map((pane) => (
+        pane.id === paneId ? { ...pane, heightRatio: nextRatio } : pane
+      ));
       return null;
     }
     case "chart.layer.visibility.set": {
@@ -274,18 +317,23 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       if (!layer || visible === null) {
         return "Invalid layer visibility payload.";
       }
-      document.layers = { ...document.layers, [layer]: visible };
+      const nextLayers = { ...document.layers };
+      layerVisibilityAliases(layer).forEach((layerKey) => {
+        nextLayers[layerKey] = visible;
+      });
+      document.layers = nextLayers;
+      syncLayerPane(document, layer, visible);
       return null;
     }
-    case "chart.drawing.add":
-    case "chart.measurement.add": {
+    case "chart.drawing.add": {
       const drawing = readDrawing(command.payload.drawing, command.actor, command.proposalId) ??
-        makeDrawingFromPayload(command.payload, command.actor, command.proposalId, command.type === "chart.measurement.add" ? "measurement" : undefined);
+        makeDrawingFromPayload(command.payload, command.actor, command.proposalId);
       if (!drawing || !isSupportedDrawing(drawing)) {
         return "Invalid drawing payload.";
       }
       document.drawings = [...document.drawings.filter((item) => item.id !== drawing.id), drawing];
       document.selectedDrawingId = drawing.id;
+      document.interactionState = { ...document.interactionState, mode: "select" };
       return null;
     }
     case "chart.drawing.update": {
@@ -295,7 +343,7 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid drawing update payload.";
       }
       const current = document.drawings.find((drawing) => drawing.id === drawingId);
-      if (!current || current.locked) {
+      if (!current || (current.locked && !isSystemVisibilityUpdate(command, patch))) {
         return "Drawing not found or locked.";
       }
       const next = mergeDrawingPatch(current, patch);
@@ -303,7 +351,6 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
         return "Invalid drawing update.";
       }
       document.drawings = document.drawings.map((drawing) => drawing.id === drawingId ? next : drawing);
-      document.selectedDrawingId = drawingId;
       return null;
     }
     case "chart.drawing.remove": {
@@ -335,6 +382,10 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
       }
       if (isLineExtension(command.payload.trendLineExtension)) {
         document.interactionState = { ...document.interactionState, trendLineExtension: command.payload.trendLineExtension };
+      }
+      const parallelLineCount = readNumber(command.payload.parallelLineCount);
+      if (parallelLineCount !== null) {
+        document.interactionState = { ...document.interactionState, parallelLineCount: normalizeParallelLineCount(parallelLineCount) };
       }
       return null;
     case "chart.comparison.add": {
@@ -372,6 +423,29 @@ function applyDocumentMutation(document: ChartDocument, command: ChartCommand): 
     default:
       return `Unsupported chart command: ${command.type}.`;
   }
+}
+
+function isSystemVisibilityUpdate(command: ChartCommand, patch: Record<string, unknown>): boolean {
+  const keys = Object.keys(patch);
+  return command.actor === "system"
+    && command.historyScope === "external"
+    && keys.length === 1
+    && keys[0] === "visible"
+    && typeof patch.visible === "boolean";
+}
+
+function syncLayerPane(document: ChartDocument, layer: ChartLayerKey, visible: boolean): void {
+  const metadata = chartLayerMetadata[layer];
+  if (!metadata || metadata.placement !== "below" || metadata.paneId === "price") {
+    return;
+  }
+  if (visible) {
+    if (!document.panes.some((pane) => pane.id === metadata.paneId)) {
+      document.panes = [...document.panes, { id: metadata.paneId, heightRatio: 0.22 }];
+    }
+    return;
+  }
+  document.panes = document.panes.filter((pane) => pane.id === "price" || pane.id !== metadata.paneId);
 }
 
 function undoChartDocument(document: ChartDocument): ChartCommandResult {
@@ -434,8 +508,14 @@ function restoreChartDocumentFields(
     next.timeframe = restored.timeframe;
     next.viewport = { ...restored.viewport };
   }
+  if (typeSet.has("chart.type.set")) {
+    next.chartType = restored.chartType;
+  }
   if (typeSet.has("chart.viewport.set")) {
     next.viewport = { ...restored.viewport };
+  }
+  if (typeSet.has("chart.pane.ratio.set")) {
+    next.panes = structuredClone(restored.panes) as ChartDocument["panes"];
   }
   if (typeSet.has("chart.layer.visibility.set")) {
     next.layers = { ...restored.layers };
@@ -443,8 +523,7 @@ function restoreChartDocumentFields(
   if (
     typeSet.has("chart.drawing.add") ||
     typeSet.has("chart.drawing.update") ||
-    typeSet.has("chart.drawing.remove") ||
-    typeSet.has("chart.measurement.add")
+    typeSet.has("chart.drawing.remove")
   ) {
     next.drawings = restored.drawings;
     next.selectedDrawingId = restored.selectedDrawingId;
@@ -466,14 +545,16 @@ function labelForCommand(command: ChartCommand): string {
       return `Symbol changed to ${String(command.payload.symbol).toUpperCase()}.`;
     case "chart.timeframe.set":
       return `Timeframe changed to ${String(command.payload.timeframe)}.`;
+    case "chart.type.set":
+      return `Chart type changed to ${String(command.payload.chartType)}.`;
     case "chart.viewport.set":
       return "Chart viewport changed.";
+    case "chart.pane.ratio.set":
+      return "Chart pane ratio changed.";
     case "chart.layer.visibility.set":
       return "Chart layer visibility changed.";
     case "chart.drawing.add":
       return "Chart drawing added.";
-    case "chart.measurement.add":
-      return "Chart measurement added.";
     case "chart.drawing.update":
       return "Chart drawing updated.";
     case "chart.drawing.remove":
@@ -496,6 +577,7 @@ function labelForCommand(command: ChartCommand): string {
 function snapshotsEqual(left: ReturnType<typeof snapshotChartDocument>, right: ReturnType<typeof snapshotChartDocument>): boolean {
   return left.id === right.id &&
     left.symbol === right.symbol &&
+    left.chartType === right.chartType &&
     left.timeframe === right.timeframe &&
     left.viewport.visibleCount === right.viewport.visibleCount &&
     left.viewport.rightOffset === right.viewport.rightOffset &&
@@ -524,24 +606,35 @@ function readTimeframe(value: unknown) {
 }
 
 function readLayer(value: unknown): ChartLayerKey | null {
-  return layerKeys.includes(value as ChartLayerKey) ? (value as ChartLayerKey) : null;
+  return normalizeChartLayerKey(value);
+}
+
+function readChartType(value: unknown): ChartType | null {
+  return chartTypes.includes(value as ChartType) ? value as ChartType : null;
 }
 
 function isToolMode(value: unknown): value is ChartDocument["interactionState"]["mode"] {
   return value === "select" ||
     value === "pan" ||
     value === "draw-horizontalLine" ||
+    value === "draw-horizontalParallelLines" ||
     value === "draw-trendLine" ||
+    value === "draw-trendParallelLines" ||
     value === "draw-verticalMarker" ||
+    value === "draw-verticalParallelLines" ||
     value === "draw-textLabel" ||
-    value === "draw-pointMarker" ||
-    value === "draw-arrow" ||
+    value === "draw-flagMarker" ||
     value === "draw-rangeBox" ||
-    value === "draw-measurement";
+    value === "draw-riskRewardBox" ||
+    value === "draw-fibonacciRetracement";
 }
 
 function isLineExtension(value: unknown): value is ChartLineExtension {
   return value === "segment" || value === "ray" || value === "line";
+}
+
+function isLabelPlacement(value: unknown): value is NonNullable<DrawingStyle["labelPlacement"]> {
+  return value === "inline" || value === "axis" || value === "none";
 }
 
 function readDrawingType(value: unknown): DrawingType | null {
@@ -574,7 +667,8 @@ function readAnchor(value: unknown): DrawingAnchor | null {
     paneId: readString(source.paneId) ?? "price",
     symbol: readString(source.symbol) ?? undefined,
     logicalIndex: logicalIndex ?? undefined,
-    value: anchorValue ?? undefined
+    value: anchorValue ?? undefined,
+    interval: readString(source.interval) ?? undefined
   };
 }
 
@@ -588,16 +682,73 @@ function readAnchors(value: unknown): DrawingAnchor[] | null {
 
 function readStyle(value: unknown): DrawingStyle {
   const source = readObject(value) ?? {};
+  const color = readString(source.color);
+  const fillColor = readString(source.fillColor);
+  const textColor = readString(source.textColor);
   return {
-    color: readString(source.color) ?? "#111111",
-    lineWidth: readNumber(source.lineWidth) ?? 1.5,
+    color: color ?? undefined,
+    colorToken: readString(source.colorToken) ?? (color ? undefined : "drawing"),
+    lineWidth: normalizeDrawingLineWidth(source.lineWidth, 1),
     lineDash: Array.isArray(source.lineDash) ? source.lineDash.filter((item): item is number => typeof item === "number") : undefined,
-    fillColor: readString(source.fillColor) ?? "rgba(17, 17, 17, 0.08)",
-    textColor: readString(source.textColor) ?? readString(source.color) ?? "#111111",
+    fillColor: fillColor ?? undefined,
+    fillToken: readString(source.fillToken) ?? (fillColor ? undefined : "drawing"),
+    fillOpacity: readNumber(source.fillOpacity) ?? undefined,
+    textColor: textColor ?? color ?? undefined,
+    textToken: readString(source.textToken) ?? (textColor || color ? undefined : "drawing"),
     fontSize: readNumber(source.fontSize) ?? 12,
     opacity: readNumber(source.opacity) ?? 1,
-    extension: isLineExtension(source.extension) ? source.extension : undefined
+    extension: isLineExtension(source.extension) ? source.extension : undefined,
+    labelPlacement: isLabelPlacement(source.labelPlacement) ? source.labelPlacement : undefined,
+    zoneSplit: typeof source.zoneSplit === "boolean" ? source.zoneSplit : undefined,
+    proposalAction: source.proposalAction === "buy_candidate" || source.proposalAction === "sell_candidate" ? source.proposalAction : undefined,
+    proposalKind: source.proposalKind === "confirmed" || source.proposalKind === "conditional" ? source.proposalKind : undefined
   };
+}
+
+function readStylePatch(value: unknown): DrawingStyle {
+  const source = readObject(value);
+  if (!source) {
+    return {};
+  }
+  const patch: DrawingStyle = {};
+  for (const key of ["color", "colorToken", "fillColor", "fillToken", "textColor", "textToken"] as const) {
+    if (key in source) {
+      patch[key] = readString(source[key]) ?? undefined;
+    }
+  }
+  for (const key of ["lineWidth", "fillOpacity", "fontSize", "opacity"] as const) {
+    if (key in source) {
+      patch[key] = key === "lineWidth"
+        ? normalizeDrawingLineWidth(source[key], undefined)
+        : readNumber(source[key]) ?? undefined;
+    }
+  }
+  if ("lineDash" in source) {
+    patch.lineDash = Array.isArray(source.lineDash)
+      ? source.lineDash.filter((item): item is number => typeof item === "number" && Number.isFinite(item))
+      : undefined;
+  }
+  if ("extension" in source) {
+    patch.extension = isLineExtension(source.extension) ? source.extension : undefined;
+  }
+  if ("labelPlacement" in source) {
+    patch.labelPlacement = isLabelPlacement(source.labelPlacement) ? source.labelPlacement : undefined;
+  }
+  if ("zoneSplit" in source) {
+    patch.zoneSplit = typeof source.zoneSplit === "boolean" ? source.zoneSplit : undefined;
+  }
+  if ("proposalAction" in source) {
+    patch.proposalAction = source.proposalAction === "buy_candidate" || source.proposalAction === "sell_candidate" ? source.proposalAction : undefined;
+  }
+  if ("proposalKind" in source) {
+    patch.proposalKind = source.proposalKind === "confirmed" || source.proposalKind === "conditional" ? source.proposalKind : undefined;
+  }
+  return patch;
+}
+
+function normalizeDrawingLineWidth(value: unknown, fallback: number | undefined): number | undefined {
+  const width = readNumber(value);
+  return width === null ? fallback : Math.max(1, Math.min(5, width));
 }
 
 function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: string): DrawingEntity | null {
@@ -606,7 +757,8 @@ function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: stri
     return null;
   }
   const type = readDrawingType(source.type);
-  const anchors = readAnchors(source.anchors);
+  const rawAnchors = readAnchors(source.anchors);
+  const anchors = type && rawAnchors ? normalizeDrawingAnchors(type, rawAnchors) : rawAnchors;
   if (!type || !anchors || !anchorsMatchDrawingType(type, anchors)) {
     return null;
   }
@@ -615,8 +767,10 @@ function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: stri
     id: readString(source.id) ?? `drawing-${crypto.randomUUID()}`,
     type,
     anchors,
+    sourceInterval: readString(source.sourceInterval) ?? undefined,
     style: readStyle(source.style),
     label: readString(source.label) ?? undefined,
+    parallelLineCount: type === "trendParallelLines" ? normalizeParallelLineCount(readNumber(source.parallelLineCount) ?? 3) : undefined,
     locked: typeof source.locked === "boolean" ? source.locked : undefined,
     visible: typeof source.visible === "boolean" ? source.visible : true,
     createdBy: source.createdBy === "llm" || source.createdBy === "system" || source.createdBy === "user" ? source.createdBy : actor,
@@ -628,7 +782,8 @@ function readDrawing(value: unknown, actor: ChartCommandActor, proposalId?: stri
 
 function makeDrawingFromPayload(payload: Record<string, unknown>, actor: ChartCommandActor, proposalId?: string, forcedType?: DrawingType): DrawingEntity | null {
   const type = forcedType ?? readDrawingType(payload.drawingType);
-  const anchors = readAnchors(payload.anchors);
+  const rawAnchors = readAnchors(payload.anchors);
+  const anchors = type && rawAnchors ? normalizeDrawingAnchors(type, rawAnchors) : rawAnchors;
   if (!type || !anchors || !anchorsMatchDrawingType(type, anchors)) {
     return null;
   }
@@ -637,8 +792,10 @@ function makeDrawingFromPayload(payload: Record<string, unknown>, actor: ChartCo
     id: readString(payload.drawingId) ?? `drawing-${crypto.randomUUID()}`,
     type,
     anchors,
+    sourceInterval: readString(payload.sourceInterval) ?? undefined,
     style: readStyle(payload.style),
     label: readString(payload.label) ?? undefined,
+    parallelLineCount: type === "trendParallelLines" ? normalizeParallelLineCount(readNumber(payload.parallelLineCount) ?? 3) : undefined,
     visible: true,
     createdBy: actor,
     sourceProposalId: proposalId,
@@ -657,11 +814,19 @@ function anchorsMatchDrawingType(type: DrawingType, anchors: DrawingAnchor[]): b
   if (type === "verticalMarker") {
     return hasAnchorTime(anchors[0]);
   }
-  if (type === "pointMarker" || type === "textLabel") {
+  if (type === "textLabel" || type === "flagMarker") {
     return hasAnchorTime(anchors[0]) && hasAnchorValue(anchors[0]);
   }
   const needed = drawingRegistry[type]?.minAnchors ?? 2;
-  return anchors.length >= needed && anchors.slice(0, needed).every((anchor) => hasAnchorTime(anchor) && hasAnchorValue(anchor));
+  if (anchors.length < needed || !anchors.slice(0, needed).every((anchor) => hasAnchorTime(anchor) && hasAnchorValue(anchor))) {
+    return false;
+  }
+  if (type === "riskRewardBox") {
+    const prices = anchors.slice(0, 3).map((anchor) => anchor.price ?? anchor.value);
+    return prices.every((price): price is number => typeof price === "number") &&
+      riskRewardDirection(prices[0], prices[1], prices[2]) !== null;
+  }
+  return true;
 }
 
 function hasAnchorTime(anchor: DrawingAnchor): boolean {
@@ -673,16 +838,38 @@ function hasAnchorValue(anchor: DrawingAnchor): boolean {
 }
 
 function mergeDrawingPatch(current: DrawingEntity, patch: Record<string, unknown>): DrawingEntity {
-  const anchors = readAnchors(patch.anchors);
+  const rawAnchors = readAnchors(patch.anchors);
+  const anchors = rawAnchors ? normalizeDrawingAnchors(current.type, rawAnchors) : null;
+  const parallelLineCount = readNumber(patch.parallelLineCount);
   return {
     ...current,
     anchors: anchors ?? current.anchors,
-    style: { ...current.style, ...readStyle(patch.style) },
+    style: { ...current.style, ...readStylePatch(patch.style) },
     label: typeof patch.label === "string" ? patch.label : current.label,
+    parallelLineCount: parallelLineCount === null ? current.parallelLineCount : normalizeParallelLineCount(parallelLineCount),
     visible: typeof patch.visible === "boolean" ? patch.visible : current.visible,
     locked: typeof patch.locked === "boolean" ? patch.locked : current.locked,
     updatedAt: new Date().toISOString()
   };
+}
+
+function normalizeDrawingAnchors(type: DrawingType, anchors: DrawingAnchor[]): DrawingAnchor[] {
+  if (type !== "riskRewardBox" || anchors.length < 3) {
+    return anchors;
+  }
+  const [entry, stop, target, ...rest] = anchors;
+  return [entry, stop, {
+    ...target,
+    timestamp: stop.timestamp,
+    logicalIndex: stop.logicalIndex,
+    interval: stop.interval,
+    symbol: stop.symbol,
+    paneId: stop.paneId
+  }, ...rest];
+}
+
+function normalizeParallelLineCount(value: number): number {
+  return Math.max(2, Math.min(10, Math.round(value)));
 }
 
 function readComparison(value: unknown): ComparisonSeries | null {

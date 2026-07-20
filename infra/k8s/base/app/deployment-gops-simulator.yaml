@@ -1,0 +1,84 @@
+# 역할: READY 상태의 실제 틱 데이터셋을 ClickHouse에서 순서대로 재생합니다.
+# portable base는 비활성이고, AWS app overlay가 일반 배포에서 replicas=1로 올립니다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gops-simulator
+  namespace: alfaka-market-data
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: gops-simulator
+  template:
+    metadata:
+      labels:
+        app: gops-simulator
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: gops-simulator
+          image: YOUR_ECR_REPOSITORY/gops-simulator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8765
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: SIM_REPLAY_DATASET_ID
+              value: sp500-full-20260715-kst-v3
+            - name: CLICKHOUSE_URL
+              value: http://clickhouse:8123
+            - name: CLICKHOUSE_DATABASE
+              value: market_data
+            - name: CLICKHOUSE_USER
+              value: alfaka
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: alfaka-clickhouse-secret
+                  key: CLICKHOUSE_PASSWORD
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi

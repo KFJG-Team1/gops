@@ -1,5 +1,6 @@
 # GitHub Actions 전용 overlay입니다.
-# 앱 Deployment/Service/Ingress만 자동 배포하고, Job은 수동 실행 대상으로 남깁니다.
+# 앱 Deployment/Service/Ingress와 scheduled runtime CronJob을 자동 배포합니다.
+# 일회성 Job은 수동 실행 대상으로 남깁니다.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -8,51 +9,39 @@ resources:
 
 patches:
   - target:
-      group: batch
+      group: apps
       version: v1
-      kind: Job
-      name: order-migrations
+      kind: StatefulSet
+      name: graphdb
     patch: |-
-      apiVersion: batch/v1
-      kind: Job
+      apiVersion: apps/v1
+      kind: StatefulSet
       metadata:
-        name: order-migrations
+        name: graphdb
         namespace: alfaka-market-data
       $patch: delete
   - target:
-      group: batch
+      group: external-secrets.io
       version: v1
-      kind: Job
-      name: order-reconciler
+      kind: SecretStore
+      name: aws-secrets-manager
     patch: |-
-      apiVersion: batch/v1
-      kind: Job
+      apiVersion: external-secrets.io/v1
+      kind: SecretStore
       metadata:
-        name: order-reconciler
+        name: aws-secrets-manager
         namespace: alfaka-market-data
       $patch: delete
   - target:
-      group: batch
+      group: external-secrets.io
       version: v1
-      kind: Job
-      name: alfaka-coverage-repair
+      kind: ExternalSecret
+      name: alfaka-openai-secret
     patch: |-
-      apiVersion: batch/v1
-      kind: Job
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
       metadata:
-        name: alfaka-coverage-repair
-        namespace: alfaka-market-data
-      $patch: delete
-  - target:
-      group: batch
-      version: v1
-      kind: Job
-      name: alfaka-symbol-registry-sync
-    patch: |-
-      apiVersion: batch/v1
-      kind: Job
-      metadata:
-        name: alfaka-symbol-registry-sync
+        name: alfaka-openai-secret
         namespace: alfaka-market-data
       $patch: delete
 
@@ -63,8 +52,6 @@ images:
     newTag: "ci-placeholder"
   - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-market-storage
     newTag: "ci-placeholder"
-  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-backfill-worker
-    newTag: "ci-placeholder"
   - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-api-server
     newTag: "ci-placeholder"
   - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-frontend
@@ -72,4 +59,8 @@ images:
   - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-order-worker
     newTag: "ci-placeholder"
   - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-kis-adapter
+    newTag: "ci-placeholder"
+  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-agent-orchestrator
+    newTag: "ci-placeholder"
+  - name: 993099901407.dkr.ecr.ap-northeast-2.amazonaws.com/alfaka-dev-gops-simulator
     newTag: "ci-placeholder"

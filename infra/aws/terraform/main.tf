@@ -1,6 +1,6 @@
 # 역할: AWS에 바로 붙는 공통 리소스 ECR/S3/Secret/IRSA를 준비합니다.
 # 사용: EKS, MSK, Redis가 준비된 뒤 이 foundation을 적용합니다.
-# 주의: MSK/Flink/Redis 서버 자체 생성은 별도 네트워크/운영 모듈에서 다룹니다.
+# 주의: MSK/Redis 서버 자체 생성은 별도 네트워크/운영 모듈에서 다룹니다.
 data "aws_caller_identity" "current" {}
 
 locals {
@@ -11,21 +11,21 @@ locals {
     ManagedBy   = "terraform"
   }
   custom_image_repositories = {
-    frontend         = "gops-frontend"
-    api_server       = "gops-api-server"
-    market_ingestor  = "gops-market-ingestor"
-    market_processor = "gops-market-processor"
-    market_storage   = "gops-market-storage"
-    backfill_worker  = "gops-backfill-worker"
-    order_worker     = "gops-order-worker"
-    kis_adapter      = "gops-kis-adapter"
+    frontend           = "gops-frontend"
+    api_server         = "gops-api-server"
+    market_ingestor    = "gops-market-ingestor"
+    market_processor   = "gops-market-processor"
+    market_storage     = "gops-market-storage"
+    order_worker       = "gops-order-worker"
+    kis_adapter        = "gops-kis-adapter"
+    agent_orchestrator = "gops-agent-orchestrator"
   }
 }
 
 resource "aws_ecr_repository" "custom_images" {
   for_each             = local.custom_image_repositories
   name                 = "${local.name_prefix}-${each.value}"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
   force_delete         = false
 
   image_scanning_configuration {
@@ -68,6 +68,109 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "market_data" {
   }
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "market_data" {
+  count  = var.manage_s3_chart_data_lifecycle ? 1 : 0
+  bucket = local.market_data_bucket_name
+
+  lifecycle {
+    precondition {
+      condition     = var.create_s3_bucket || var.acknowledge_s3_lifecycle_document_ownership
+      error_message = "Existing S3 buckets require acknowledge_s3_lifecycle_document_ownership=true because this resource owns the complete lifecycle document."
+    }
+  }
+
+  rule {
+    id     = "expire-chart-raw-v1"
+    status = "Enabled"
+
+    filter {
+      prefix = "${trimsuffix(var.s3_chart_data_root_prefix, "/")}/raw/"
+    }
+
+    expiration {
+      days = var.s3_raw_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.s3_raw_retention_days
+    }
+  }
+
+  rule {
+    id     = "expire-chart-raw-v2"
+    status = "Enabled"
+
+    filter {
+      prefix = "${trimsuffix(var.s3_chart_data_root_prefix, "/")}/raw-v2/"
+    }
+
+    expiration {
+      days = var.s3_raw_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.s3_raw_retention_days
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.market_data]
+}
+
+resource "aws_s3_bucket" "ai_coach_snapshots" {
+  bucket = "${local.name_prefix}-ai-coach-snapshots-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  tags = merge(local.common_tags, {
+    DataClass = "user-financial-snapshot"
+  })
+}
+
+resource "aws_s3_bucket_public_access_block" "ai_coach_snapshots" {
+  bucket                  = aws_s3_bucket.ai_coach_snapshots.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "ai_coach_snapshots" {
+  bucket = aws_s3_bucket.ai_coach_snapshots.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "ai_coach_snapshots" {
+  bucket = aws_s3_bucket.ai_coach_snapshots.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "ai_coach_snapshots" {
+  bucket = aws_s3_bucket.ai_coach_snapshots.id
+  rule {
+    id     = "expire-ai-coach-snapshots"
+    status = "Enabled"
+
+    filter {
+      prefix = "ai-coach/snapshots/"
+    }
+
+    expiration {
+      days = var.ai_coach_snapshot_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.ai_coach_snapshot_noncurrent_retention_days
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.ai_coach_snapshots]
+}
+
 data "aws_secretsmanager_secret" "alpaca_api" {
   count = var.create_alpaca_secret ? 0 : 1
   name  = var.alpaca_secret_name
@@ -75,6 +178,15 @@ data "aws_secretsmanager_secret" "alpaca_api" {
 
 data "aws_secretsmanager_secret" "kis_api" {
   name = var.kis_secret_name
+}
+
+data "aws_secretsmanager_secret" "google_oauth" {
+  count = var.google_oauth_secret_name == "" ? 0 : 1
+  name  = var.google_oauth_secret_name
+}
+
+data "aws_secretsmanager_secret" "openai_api_key" {
+  name = var.openai_secret_name
 }
 
 resource "aws_secretsmanager_secret" "alpaca_api" {
@@ -101,11 +213,17 @@ locals {
     aws_secretsmanager_secret.alpaca_api[*].name,
     data.aws_secretsmanager_secret.alpaca_api[*].name
   ))
-  kis_secret_arn = data.aws_secretsmanager_secret.kis_api.arn
-  pod_secret_arns = [
-    local.alpaca_secret_arn,
-    local.kis_secret_arn
-  ]
+  kis_secret_arn           = data.aws_secretsmanager_secret.kis_api.arn
+  openai_secret_arn        = data.aws_secretsmanager_secret.openai_api_key.arn
+  google_oauth_secret_arns = data.aws_secretsmanager_secret.google_oauth[*].arn
+  pod_secret_arns = concat(
+    [
+      local.alpaca_secret_arn,
+      local.kis_secret_arn,
+      local.openai_secret_arn
+    ],
+    local.google_oauth_secret_arns
+  )
 }
 
 resource "aws_iam_policy" "market_data_pod_policy" {
@@ -134,6 +252,13 @@ resource "aws_iam_policy" "market_data_pod_policy" {
           local.market_data_bucket_arn,
           "${local.market_data_bucket_arn}/*"
         ]
+      },
+      {
+        # The authenticated API reads a report only after it derives the
+        # caller's hashed prefix.  It never lists this user-data bucket.
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = ["${aws_s3_bucket.ai_coach_snapshots.arn}/ai-coach/reports/*"]
       }
     ]
   })
@@ -169,4 +294,59 @@ resource "aws_iam_role" "market_data_irsa" {
 resource "aws_iam_role_policy_attachment" "market_data_irsa" {
   role       = aws_iam_role.market_data_irsa.name
   policy_arn = aws_iam_policy.market_data_pod_policy.arn
+}
+
+resource "aws_iam_policy" "ai_coach_worker" {
+  name        = "${local.name_prefix}-ai-coach-worker-policy"
+  description = "Read post-market coach input and write immutable coach analysis artifacts"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["s3:GetObject"]
+        Resource = [
+          "${aws_s3_bucket.ai_coach_snapshots.arn}/ai-coach/input/*",
+          "${aws_s3_bucket.ai_coach_snapshots.arn}/ai-coach/snapshots/*",
+          "${aws_s3_bucket.ai_coach_snapshots.arn}/ai-coach/reports/*",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = ["s3:PutObject"]
+        Resource = [
+          "${aws_s3_bucket.ai_coach_snapshots.arn}/ai-coach/snapshots/*",
+          "${aws_s3_bucket.ai_coach_snapshots.arn}/ai-coach/reports/*",
+        ]
+      }
+    ]
+  })
+  tags = local.common_tags
+}
+
+resource "aws_iam_role" "ai_coach_worker_irsa" {
+  name = "${local.name_prefix}-ai-coach-worker-irsa"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Federated = var.eks_oidc_provider_arn
+      }
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "${var.eks_oidc_provider_url}:sub" = "system:serviceaccount:${var.kubernetes_namespace}:ai-coach-worker-sa"
+          "${var.eks_oidc_provider_url}:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "ai_coach_worker" {
+  role       = aws_iam_role.ai_coach_worker_irsa.name
+  policy_arn = aws_iam_policy.ai_coach_worker.arn
 }

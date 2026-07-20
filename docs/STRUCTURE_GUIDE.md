@@ -52,7 +52,7 @@ systems/<system>/
 
 ```text
 systems/api-server/   FastAPI chart/order/WebSocket gateway
-systems/market-data/  Alpaca ingest, processing, storage, backfill, serving helpers
+systems/market-data/  Alpaca ingest, processing, storage, on-demand fill, serving helpers
 systems/order/        KIS demo order domain, outbox, adapter, jobs
 ```
 
@@ -115,4 +115,4 @@ Kafka and stream processing stay staged:
 local compose -> single pod candidate -> managed AWS candidate
 ```
 
-Do not hard-code MSK or managed Flink as the next step before the team decides.
+Do not hard-code MSK or any external stream processor as the next step before the team decides.

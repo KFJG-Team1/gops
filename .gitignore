@@ -16,11 +16,15 @@ __pycache__/
 .idea/
 .vscode/
 node_modules/
+systems/simulator/data/sessions/
 **/node_modules/
+.pnpm-store/
 dist/
 **/dist/
 .tmp/
 **/.tmp/
+**/test-results/
+**/playwright-report/
 *.tsbuildinfo
 
 # Terraform local state and secret inputs.
@@ -43,7 +47,14 @@ kubeconfig
 *.kubeconfig
 awscliv2.zip
 
+# Local restore and backup artifacts. These may contain DB data or license material.
+.local-artifacts/
+graphdb-volume.tgz
+
 # Local Codex/app artifacts.
 /.agents/
 /.codex/
 /.ignore
+
+# Annotation (auto-generated)
+.annotation/

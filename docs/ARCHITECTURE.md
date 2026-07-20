@@ -3,6 +3,10 @@
 This is the current repository and runtime architecture.
 For placement rules, read `STRUCTURE_GUIDE.md`.
 
+Chart-data work must use `CHART_DATA_ARCHITECTURE.md` for current ownership and
+query contracts and `CHART_DATA_OPERATIONS.md` for rollout/recovery. Platform
+details remain in `platform/*/README.md`.
+
 ## Repository Shape
 
 ```text
@@ -19,10 +23,10 @@ systems/
     shared/
     tests/
   order/
+  agent-orchestration/
 
 platform/
   kafka/
-  flink/
   redis/
   postgres/
   clickhouse/
@@ -51,12 +55,19 @@ flowchart LR
     ApiServer["pod: api-server<br/>FastAPI chart/order/WebSocket"]
   end
 
+  subgraph Agents["systems/agent-orchestration"]
+    AgentOrch["pod: agent-orchestrator<br/>role agents"]
+    EventDetector["pod: agent-event-detector"]
+    AlertPublisher["pod: agent-notification-publisher"]
+    AgentShared["shared: gops_agents.*"]
+  end
+
   subgraph Market["systems/market-data"]
     Ingestor["pod: market-ingestor"]
     Processor["pod: market-processor"]
-    S3Sink["pod: s3-sink"]
+    S3Sink["pod: processed-s3-sink"]
+    RawS3Archive["pod: raw-s3-archive"]
     CHLoader["pod: clickhouse-loader"]
-    Backfill["pod: backfill-worker"]
     Registry["job: symbol-registry-sync"]
     CoverageRepair["job: coverage-repair"]
     MarketShared["shared: alfaka.*"]
@@ -87,23 +98,27 @@ flowchart LR
   ApiServer --> Redis
   ApiServer --> ClickHouse
   ApiServer --> Postgres
+  ApiServer --> AgentOrch
   ApiServer --> MarketShared
   ApiServer --> OrderShared
 
   Ingestor --> Kafka
   Ingestor --> Secrets
   Ingestor --> MarketShared
+  Kafka --> RawS3Archive
+  RawS3Archive --> S3
   Kafka --> Processor
+  Kafka --> EventDetector
   Processor --> Redis
   Processor --> S3Sink
   Processor --> CHLoader
   Processor --> MarketShared
+  EventDetector --> Kafka
+  AgentOrch --> AgentShared
+  Kafka --> AlertPublisher
+  AlertPublisher --> Redis
   S3Sink --> S3
   CHLoader --> ClickHouse
-  Backfill --> Redis
-  Backfill --> S3
-  Backfill --> ClickHouse
-  Backfill --> Secrets
   Registry --> Redis
   Registry --> ClickHouse
 
@@ -119,6 +134,33 @@ flowchart LR
   Reconciler --> KIS
 ```
 
+## Chart Data Boundary
+
+The chart rebuild is on-demand:
+
+```text
+Frontend chart request
+  -> API Redis latest 120 check
+  -> ClickHouse confirmed history
+  -> bounded auto/general foreground Alpaca REST direct bars
+  -> background S3 final/manifest evidence
+  -> background Alpaca historical direct fill for the requested interval/range
+```
+
+Realtime data is feed-guarded and symbol-keyed:
+
+```text
+SIP only 04:00-20:00 ET / BOATS only 20:00-04:00 ET
+  -> Kafka market.input.realtime.* topics with key=symbol
+  -> processor feed guard
+  -> Redis live/provisional/latest 120
+  -> market.layer.* topics for canonical downstream storage
+```
+
+Raw Alpaca payload archives may be written to S3 for backup only. Raw archives
+must not participate in chart serving, coverage checks, fill decisions, or
+ClickHouse loading unless a future explicit raw-replay pipeline is designed.
+
 ## Platform Staging
 
 Platform dependencies can move through stages without changing system ownership:
@@ -127,7 +169,7 @@ Platform dependencies can move through stages without changing system ownership:
 local compose -> single pod candidate -> managed AWS candidate
 ```
 
-This matters most for Kafka and Flink/stream processing.
+This matters most for Kafka and stream processing.
 Do not make folder structure depend on a final AWS choice before the team decides.
 
 ## Future System Candidates
@@ -136,7 +178,6 @@ Future product areas may become systems later:
 
 ```text
 systems/ontology/
-systems/agent-orchestration/
 systems/ui-composition/
 systems/news-intelligence/
 systems/user-context/

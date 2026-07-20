@@ -6,6 +6,12 @@ export type CandleData = {
   close: number;
   volume: number;
   isClosed: boolean;
+  sourceInterval?: string;
+  feedProfile?: string;
+  marketSession?: string;
+  updatedAt?: string;
+  displayOnly?: boolean;
+  synthetic?: boolean;
   ma5?: number;
   ma20?: number;
   ma60?: number;
@@ -13,15 +19,21 @@ export type CandleData = {
 
 export type CandleEventType = "LIVE_CANDLE_UPDATE" | "CANDLE_CLOSED" | "CANDLE_CORRECTED";
 export type ChartSnapshotDataStatus = "ready" | "partial" | "empty" | "error";
-export type BackfillStatus = "not_requested" | "queued" | "running" | "succeeded" | "failed" | "unavailable";
+export type RepairStatus = "none" | "gapfill_required" | "gapfill_active" | "gapfill_failed" | "history_preload_required";
 export type ChartCoverageState = "complete" | "partial" | "empty" | "unavailable";
+
+export type ChartGapRange = {
+  start: string;
+  end: string;
+  missingCount?: number;
+};
 
 export type ChartCoverage = {
   state: ChartCoverageState;
   reasonCode?: string;
   message?: string;
+  repairStatus?: RepairStatus;
   sourceInterval?: string;
-  backfillStatus?: BackfillStatus;
   requestedLimit?: number;
   returnedCount?: number;
   storedCandleCount?: number;
@@ -36,6 +48,7 @@ export type ChartCoverage = {
   returnedSpanSeconds?: number;
   maxRenderableSpanSeconds?: number;
   renderabilityReasonCode?: string;
+  gapRanges?: ChartGapRange[];
 };
 
 export type CandleSnapshot = {
@@ -43,10 +56,10 @@ export type CandleSnapshot = {
   interval: string;
   source: string;
   feed: string;
+  feedProfile?: string;
+  marketSession?: string;
   snapshotCursor?: string;
   dataStatus?: ChartSnapshotDataStatus;
-  backfillStatus?: BackfillStatus;
-  canBackfill?: boolean;
   sourceInterval?: string;
   message?: string;
   requestedLimit?: number;
@@ -74,14 +87,77 @@ export type CandleEvent = {
   cursor?: string;
   symbol: string;
   interval: string;
+  sourceInterval?: string;
   source?: string;
   feed?: string;
+  feedProfile?: string;
+  marketSession?: string;
   data: CandleData;
 };
 
+export type TradeTickData = {
+  tradeId?: string;
+  price?: number;
+  size?: number;
+  exchange?: string;
+  conditions?: string[];
+  tape?: string;
+  timestamp?: string;
+  updatedAt?: string;
+};
+
+export type QuoteTickData = {
+  bidPrice?: number;
+  bidSize?: number;
+  askPrice?: number;
+  askSize?: number;
+  bidExchange?: string;
+  askExchange?: string;
+  conditions?: string[];
+  timestamp?: string;
+  updatedAt?: string;
+};
+
+export type RealtimeLayerEvent =
+  | { type: "LIVE_TRADE_UPDATE"; symbol: string; data: TradeTickData }
+  | { type: "LIVE_QUOTE_UPDATE"; symbol: string; data: QuoteTickData };
+
 export type StreamStatus = "connecting" | "idle" | "live" | "stale" | "error";
 
-export type ChartLayerKey = "candles" | "volume" | "ma5" | "ma20" | "ma60";
+export type ChartType = "candle" | "line" | "ohlc" | "bidask";
+
+export type ChartLayerKey =
+  | "candles"
+  | "volume"
+  | "ma5"
+  | "ma20"
+  | "ma60"
+  | "sma:5"
+  | "sma:20"
+  | "sma:60"
+  | "sma:120"
+  | "ema:20"
+  | "wma:20"
+  | "bollinger:20:2"
+  | "rsi:14"
+  | "stochastic:14:3:3"
+  | "macd:12:26:9"
+  | "volume-profile"
+  | "events:earnings"
+  | "events:news";
+
+export type ChartLayerPlacement = "overlay" | "below";
+
+export type ChartLayerMetadata = {
+  id: ChartLayerKey;
+  kind: "base-price" | "price-overlay" | "indicator-pane" | "volume-pane" | "volume-profile" | "event-overlay";
+  label: string;
+  paneId: string;
+  source: "candle" | "derived" | "legacy" | "event";
+  params?: Record<string, string | number | boolean>;
+  placement: ChartLayerPlacement;
+  supportedPlacements: ChartLayerPlacement[];
+};
 
 export type ChartSizeVariant = "compact" | "standard" | "wide" | "large";
 
@@ -97,7 +173,9 @@ export type ChartCommandHistoryScope = "chartPanel" | "external";
 export type ChartCommandType =
   | "chart.symbol.set"
   | "chart.timeframe.set"
+  | "chart.type.set"
   | "chart.viewport.set"
+  | "chart.pane.ratio.set"
   | "chart.layer.visibility.set"
   | "chart.undo"
   | "chart.redo"
@@ -112,8 +190,7 @@ export type ChartCommandType =
   | "chart.preview.clear"
   | "chart.comparison.add"
   | "chart.comparison.remove"
-  | "chart.comparison.update"
-  | "chart.measurement.add";
+  | "chart.comparison.update";
 
 export type ChartCommand = {
   id: string;
@@ -131,7 +208,15 @@ export type ChartCommand = {
 
 export type ChartCommandJournalEntry = {
   id: string;
-  commandType: ChartCommandType | "chart.proposal.accept" | "chart.proposal.reject" | "chart.data.snapshot" | "chart.data.live";
+  commandType:
+    | ChartCommandType
+    | "chart.proposal.accept"
+    | "chart.proposal.reject"
+    | "chart.data.snapshot"
+    | "chart.data.live"
+    | "chart.layer.trade"
+    | "chart.layer.quote"
+    | "chart.market-data.reset";
   actor: ChartCommandActor;
   status: "applied" | "failed" | "proposed" | "ignored" | "undone" | "redone";
   message: string;
@@ -142,6 +227,7 @@ export type ChartCommandJournalEntry = {
 export type ChartDocumentSnapshot = {
   id: string;
   symbol: string;
+  chartType: ChartType;
   timeframe: string;
   viewport: ChartViewport;
   panes: ChartDocument["panes"];
@@ -169,27 +255,49 @@ export type ChartHistoryEntry = {
 export type ChartDocument = {
   id: string;
   symbol: string;
+  chartType: ChartType;
   timeframe: string;
   viewport: ChartViewport;
   panes: Array<{
-    id: "price" | "volume";
+    id: string;
     heightRatio: number;
   }>;
-  layers: Record<ChartLayerKey, boolean>;
+  layers: Partial<Record<ChartLayerKey, boolean>>;
   style: {
     background: string;
+    surface: string;
+    surfaceStrong: string;
+    border: string;
+    shadow: string;
     grid: string;
+    axis: string;
+    crosshair: string;
     text: string;
+    muted: string;
     bullish: string;
     bearish: string;
     ma5: string;
     ma20: string;
     ma60: string;
     volume: string;
+    drawing: string;
+    preview: string;
+    signal: string;
+    evidenceSupport: string;
+    evidenceResistance: string;
+    evidencePattern: string;
+    evidenceTrend: string;
+    proposal: string;
+    caution: string;
+    purple: string;
+    pointYellow: string;
+    pointOrange: string;
+    pointPurple: string;
   };
   interactionState: {
     mode: ChartToolMode;
     trendLineExtension: ChartLineExtension;
+    parallelLineCount: number;
   };
   drawings: DrawingEntity[];
   comparisons: ComparisonSeries[];
@@ -206,8 +314,8 @@ export type ChartDataStatus = {
   message?: string;
   source?: string;
   feed?: string;
-  backfillStatus?: BackfillStatus;
-  canBackfill?: boolean;
+  feedProfile?: string;
+  marketSession?: string;
   sourceInterval?: string;
   requestedLimit?: number;
   returnedCount?: number;
@@ -268,6 +376,9 @@ export type ChartRuntimeError = {
 export type ChartRuntimeState = {
   documents: Record<string, ChartDocument>;
   candlesByKey: Record<string, CandleData[]>;
+  candleKeyAccessOrder: string[];
+  liveTradesBySymbol?: Record<string, TradeTickData>;
+  liveQuotesBySymbol?: Record<string, QuoteTickData>;
   dataStatusByKey: Record<string, ChartDataStatus>;
   streamStatusByKey: Record<string, StreamStatus>;
   streamMessageByKey?: Record<string, string>;
@@ -281,23 +392,27 @@ export type ChartToolMode =
   | "select"
   | "pan"
   | "draw-horizontalLine"
+  | "draw-horizontalParallelLines"
   | "draw-trendLine"
+  | "draw-trendParallelLines"
   | "draw-verticalMarker"
+  | "draw-verticalParallelLines"
   | "draw-textLabel"
-  | "draw-pointMarker"
-  | "draw-arrow"
+  | "draw-flagMarker"
   | "draw-rangeBox"
-  | "draw-measurement";
+  | "draw-riskRewardBox"
+  | "draw-fibonacciRetracement";
 
 export type DrawingType =
   | "horizontalLine"
+  | "horizontalParallelLines"
   | "trendLine"
+  | "trendParallelLines"
   | "verticalMarker"
+  | "verticalParallelLines"
   | "textLabel"
-  | "pointMarker"
-  | "arrow"
+  | "flagMarker"
   | "rangeBox"
-  | "measurement"
   | "ellipse"
   | "riskRewardBox"
   | "fibonacciRetracement";
@@ -309,27 +424,38 @@ export type DrawingAnchor = {
   symbol?: string;
   logicalIndex?: number;
   value?: number;
+  interval?: string;
 };
 
 export type ChartLineExtension = "segment" | "ray" | "line";
 
 export type DrawingStyle = {
   color?: string;
+  colorToken?: string;
   lineWidth?: number;
   lineDash?: number[];
   fillColor?: string;
+  fillToken?: string;
+  fillOpacity?: number;
   textColor?: string;
+  textToken?: string;
   fontSize?: number;
   opacity?: number;
   extension?: ChartLineExtension;
+  labelPlacement?: "inline" | "axis" | "none";
+  zoneSplit?: boolean;
+  proposalAction?: "buy_candidate" | "sell_candidate";
+  proposalKind?: "confirmed" | "conditional";
 };
 
 export type DrawingEntity = {
   id: string;
   type: DrawingType;
   anchors: DrawingAnchor[];
+  sourceInterval?: string;
   style: DrawingStyle;
   label?: string;
+  parallelLineCount?: number;
   locked?: boolean;
   visible: boolean;
   createdBy: ChartCommandActor;

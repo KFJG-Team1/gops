@@ -6,6 +6,7 @@ from kis_trader.domain import (
     ORDER_EVENTS_TOPIC,
     ORDERS_COMMANDS_TOPIC,
     ORDERS_DLQ_TOPIC,
+    ORDERS_FILLS_TOPIC,
     SUBMIT_RESULTS_TOPIC,
     OrderStatus,
     assert_transition_allowed,
@@ -14,7 +15,7 @@ from kis_trader.domain import (
 )
 from kis_trader.domain.status import OrderContractError
 
-from tests.kis_trader.fixtures.orders import sample_envelope
+from systems.order.tests.kis_trader.fixtures.orders import sample_envelope
 
 
 def test_statuses_are_exactly_the_doc_canonical_set():
@@ -41,6 +42,7 @@ def test_topics_are_exactly_the_doc_canonical_set():
         ORDERS_COMMANDS_TOPIC,
         SUBMIT_RESULTS_TOPIC,
         ORDER_EVENTS_TOPIC,
+        ORDERS_FILLS_TOPIC,
         ORDERS_DLQ_TOPIC,
     )
 
@@ -90,6 +92,22 @@ def test_valid_envelope_is_normalized():
 
     assert command.symbol == "AAPL"
     assert command.env == "demo"
+
+
+@pytest.mark.parametrize(
+    ("payload_updates", "message"),
+    [
+        ({"market": "domestic", "symbol": "005930", "exchange": "KRX"}, "market"),
+        ({"order_division": "01"}, "order_division"),
+        ({"qty": "1.5"}, "whole-share"),
+        ({"exchange": "KRX"}, "exchange"),
+    ],
+)
+def test_order_envelope_accepts_only_overseas_demo_limit_whole_share_orders(payload_updates, message):
+    envelope = sample_envelope(payload={**sample_envelope()["payload"], **payload_updates})
+
+    with pytest.raises(OrderContractError, match=message):
+        validate_order_envelope(envelope)
 
 
 def test_kafka_message_key_uses_account_alias_and_symbol():

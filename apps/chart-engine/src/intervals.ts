@@ -1,35 +1,33 @@
-export const chartIntervals = ["1m", "5m", "10m", "1D", "1W", "1M"] as const;
+export const chartIntervals = ["1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M"] as const;
 
 export type ChartInterval = typeof chartIntervals[number];
 
 const minutesPerTradingDay = 390;
 const tradingDaysPerYear = 252;
-const higherTimeframeYears = 5;
+const historicalTargetYears = 6;
+const intradayLazyTargetBars = minutesPerTradingDay * tradingDaysPerYear * historicalTargetYears;
 
 const defaultVisibleBars: Record<ChartInterval, number> = {
-  "1m": 390,
-  "5m": 390,
-  "10m": 390,
-  "1D": 250,
-  "1W": 260,
-  "1M": 120
+  "1m": 120,
+  "5m": 120,
+  "10m": 120,
+  "1h": 120,
+  "4h": 120,
+  "1D": 120,
+  "1W": 104,
+  "1M": 36
 };
 
-const backfillTargetBars: Record<ChartInterval, number> = {
-  "1m": minutesPerTradingDay * tradingDaysPerYear,
-  "5m": Math.ceil((minutesPerTradingDay * tradingDaysPerYear) / 5),
-  "10m": Math.ceil((minutesPerTradingDay * tradingDaysPerYear) / 10),
-  "1D": tradingDaysPerYear * higherTimeframeYears,
-  "1W": 52 * higherTimeframeYears,
-  "1M": 12 * higherTimeframeYears
+const maxRequestBars: Record<ChartInterval, number> = {
+  "1m": intradayLazyTargetBars,
+  "5m": Math.ceil(intradayLazyTargetBars / 5),
+  "10m": Math.ceil(intradayLazyTargetBars / 10),
+  "1h": Math.ceil(intradayLazyTargetBars / 60),
+  "4h": Math.ceil(intradayLazyTargetBars / 240),
+  "1D": tradingDaysPerYear * historicalTargetYears,
+  "1W": 52 * historicalTargetYears,
+  "1M": Math.max(defaultVisibleBars["1M"], 12 * historicalTargetYears)
 };
-
-const maxRequestBars: Record<ChartInterval, number> = Object.fromEntries(
-  chartIntervals.map((interval) => [
-    interval,
-    Math.max(defaultVisibleBars[interval], backfillTargetBars[interval])
-  ])
-) as Record<ChartInterval, number>;
 
 export function normalizeChartInterval(value: unknown): ChartInterval | null {
   if (typeof value !== "string") {
@@ -45,15 +43,17 @@ export function normalizeChartInterval(value: unknown): ChartInterval | null {
   if (trimmed === "1mo" || trimmed === "1MO" || trimmed === "1month") {
     return "1M";
   }
+  if (trimmed === "1H") {
+    return "1h";
+  }
+  if (trimmed === "4H") {
+    return "4h";
+  }
   return chartIntervals.includes(trimmed as ChartInterval) ? trimmed as ChartInterval : null;
 }
 
 export function defaultVisibleBarsForInterval(interval: string): number {
   return defaultVisibleBars[normalizeChartInterval(interval) ?? "1m"];
-}
-
-export function backfillTargetBarsForInterval(interval: string): number {
-  return backfillTargetBars[normalizeChartInterval(interval) ?? "1m"];
 }
 
 export function maxRequestBarsForInterval(interval: string): number {

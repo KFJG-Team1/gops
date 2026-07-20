@@ -1,0 +1,648 @@
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[3]
+for path in (ROOT / "systems" / "market-data" / "shared", ROOT / "systems" / "agent-orchestration" / "shared"):
+    if str(path) not in sys.path: sys.path.insert(0, str(path))
+
+from gops_agents.chart_assets.storage import (  # noqa: E402
+    MAX_ASSET_BYTES, POSTGRES_SNAPSHOT_TABLE, POSTGRES_TABLE, PostgresChartAssetStorage, _asset_projection,
+    _validate_asset_schema, build_chart_asset_storage_from_env,
+)
+
+
+class ChartAssetStorageTest(unittest.TestCase):
+    def test_geometry_projection_counts_single_layer_drawings(self):
+        projection = _asset_projection(_asset())
+        self.assertEqual(projection["drawing_count"], 2)
+        self.assertEqual(projection["algorithm_version"], "ohlcv-consensus-1")
+        self.assertEqual(projection["coverage_state"], "full")
+        self.assertEqual(projection["input_digest"], "sha256:input")
+
+    def test_postgres_save_targets_geometry_table_with_monotonic_upsert(self):
+        connection = Connection()
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+        self.assertTrue(storage.save(_asset()))
+
+        query, parameters = connection.executions[0]
+        self.assertIn(f"INSERT INTO {POSTGRES_TABLE}", query)
+        self.assertIn('ON CONFLICT (symbol, "interval")', query)
+        self.assertIn("EXCLUDED.as_of >=", query)
+        self.assertIn("EXCLUDED.payload_digest IS DISTINCT FROM", query)
+        self.assertEqual(parameters[:2], ("NVDA", "1D"))
+
+    def test_simulation_snapshot_save_is_isolated_by_dataset_and_cutoff(self):
+        connection = Connection()
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+        self.assertTrue(storage.save_snapshot("dataset-1", "2026-07-16T00:00:00.000Z", _asset()))
+
+        query, parameters = connection.executions[0]
+        self.assertIn(f"INSERT INTO {POSTGRES_SNAPSHOT_TABLE}", query)
+        self.assertIn('ON CONFLICT (dataset_id, symbol, "interval")', query)
+        self.assertEqual(parameters[0], "dataset-1")
+        self.assertEqual(parameters[2:4], ("NVDA", "1D"))
+
+    def test_simulation_snapshot_rejects_asset_after_cutoff_before_write(self):
+        connection = Connection()
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+        with self.assertRaisesRegex(ValueError, "asOf exceeds"):
+            storage.save_snapshot("dataset-1", "2026-07-09T00:00:00.000Z", _asset())
+
+        self.assertEqual(connection.executions, [])
+
+    def test_snapshot_commentary_projection_uses_dataset_identity(self):
+        asset = _asset()
+        asset["commentary"] = _commentary_v2()
+        connection = Connection(rows=[{
+            "asset_version": asset["assetVersion"], "algorithm_version": asset["algorithmVersion"],
+            "as_of": asset["asOf"], "generated_at": asset["generatedAt"],
+            "input_digest": asset["inputDigest"], "drawing_ids": ["snapshot-one"],
+            "commentary": asset["commentary"],
+        }])
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+        projected = storage.get_snapshot_commentary(
+            "dataset-1", "nvda", "1D", "2026-07-16T00:00:00.000Z",
+        )
+
+        self.assertEqual(projected["drawingIds"], ["snapshot-one"])
+        query, parameters = connection.executions[0]
+        self.assertIn(f"FROM {POSTGRES_SNAPSHOT_TABLE}", query)
+        self.assertEqual(parameters[:3], ("dataset-1", "NVDA", "1D"))
+
+    def test_json_schema_accepts_legacy_and_v6_payload_fixtures(self):
+        _validate_asset_schema(_asset())
+        _validate_asset_schema(_channel_asset())
+        _validate_asset_schema(_trace_asset_v2())
+
+    def test_schema_and_postgres_round_trip_preserve_optional_commentary(self):
+        commentary_v3 = _commentary_v2()
+        commentary_v3["promptVersion"] = "chart-commentary.ko.v3"
+        commentary_v4 = _commentary_v2()
+        commentary_v4["promptVersion"] = "chart-commentary.ko.v4"
+        commentary_v5 = _commentary_v2()
+        commentary_v5["promptVersion"] = "chart-commentary.ko.v5"
+        for commentary in (_commentary(), _commentary_v2(), commentary_v3, commentary_v4, commentary_v5):
+            asset = _asset()
+            asset["commentary"] = commentary
+            _validate_asset_schema(asset)
+            connection = Connection(rows=[{"payload": asset}])
+            storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+            loaded = storage.get("NVDA", "1D")
+
+            self.assertEqual(loaded["commentary"], asset["commentary"])
+            self.assertEqual(loaded["commentary"]["sourceIdentity"]["geometryInputDigest"], asset["inputDigest"])
+
+    def test_commentary_read_projects_only_identity_commentary_and_drawing_ids(self):
+        asset = _asset()
+        asset["commentary"] = _commentary_v2()
+        connection = Connection(rows=[{
+            "asset_version": asset["assetVersion"],
+            "algorithm_version": asset["algorithmVersion"],
+            "as_of": asset["asOf"],
+            "generated_at": asset["generatedAt"],
+            "input_digest": asset["inputDigest"],
+            "drawing_ids": ["one", "two"],
+            "commentary": asset["commentary"],
+        }])
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+        projected = storage.get_commentary("nvda", "1D")
+
+        self.assertEqual(projected["drawingIds"], ["one", "two"])
+        self.assertEqual(projected["commentary"], asset["commentary"])
+        self.assertNotIn("geometry", projected)
+        query, parameters = connection.executions[0]
+        self.assertIn("payload -> 'commentary'", query)
+        self.assertIn("jsonb_path_query_array", query)
+        self.assertNotIn("SELECT payload FROM", query)
+        self.assertEqual(parameters, ("NVDA", "1D"))
+
+    def test_v4_schema_limits_recommendations_without_rejecting_v3_assets(self):
+        recommendations = [
+            {
+                "layer": layer,
+                "label": label,
+                "reason": "저장된 근거를 함께 확인합니다.",
+                "referenceIds": ["candle:indicator"],
+            }
+            for layer, label in (
+                ("rsi:14", "상대강도지수"),
+                ("volume", "거래량"),
+                ("sma:20", "SMA20"),
+            )
+        ]
+        legacy = _asset()
+        legacy["commentary"] = _commentary_v2()
+        legacy["commentary"]["promptVersion"] = "chart-commentary.ko.v3"
+        legacy["commentary"]["indicatorRecommendations"] = recommendations
+        _validate_asset_schema(legacy)
+
+        concise = _asset()
+        concise["commentary"] = _commentary_v2()
+        concise["commentary"]["promptVersion"] = "chart-commentary.ko.v4"
+        concise["commentary"]["indicatorRecommendations"] = recommendations
+        with self.assertRaisesRegex(ValueError, "schema validation failed"):
+            _validate_asset_schema(concise)
+
+    def test_v5_schema_accepts_three_non_volume_recommendations_and_rejects_volume(self):
+        asset = _asset()
+        asset["commentary"] = _commentary_v2()
+        asset["commentary"]["promptVersion"] = "chart-commentary.ko.v5"
+        asset["commentary"]["indicatorRecommendations"] = [
+            {
+                "layer": layer, "label": label, "reason": "서로 다른 저장 근거를 확인합니다.",
+                "referenceIds": ["candle:indicator"],
+            }
+            for layer, label in (
+                ("rsi:14", "상대강도지수"),
+                ("volume-profile", "거래량 프로파일"),
+                ("bollinger:20:2", "볼린저 밴드"),
+            )
+        ]
+        _validate_asset_schema(asset)
+
+        invalid_recommendation = _asset()
+        invalid_recommendation["commentary"] = _commentary_v2()
+        invalid_recommendation["commentary"]["promptVersion"] = "chart-commentary.ko.v5"
+        invalid_recommendation["commentary"]["indicatorRecommendations"][0]["layer"] = "volume"
+        with self.assertRaisesRegex(ValueError, "schema validation failed"):
+            _validate_asset_schema(invalid_recommendation)
+
+        invalid_link = _asset()
+        invalid_link["commentary"] = _commentary_v2()
+        invalid_link["commentary"]["promptVersion"] = "chart-commentary.ko.v5"
+        invalid_link["commentary"]["paragraphs"][1]["segments"][2]["link"]["layer"] = "volume"
+        with self.assertRaisesRegex(ValueError, "schema validation failed"):
+            _validate_asset_schema(invalid_link)
+
+    def test_trade_plan_schema_accepts_buy_and_exit_long_but_rejects_short(self):
+        for action, direction in (("buy_candidate", "long"), ("sell_candidate", "exit_long")):
+            asset = _asset()
+            asset["geometry"]["tradePlan"] = _trade_plan(action, direction)
+            _validate_asset_schema(asset)
+
+        short_asset = _asset()
+        short_asset["geometry"]["tradePlan"] = _trade_plan("short_candidate", "short")
+        with self.assertRaisesRegex(ValueError, "schema validation failed"):
+            _validate_asset_schema(short_asset)
+
+    def test_schema_failure_preserves_existing_row_before_postgres_write(self):
+        connection = Connection()
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+        asset = _asset()
+        del asset["geometry"]["patterns"]
+
+        with self.assertRaisesRegex(ValueError, "schema validation failed"):
+            storage.save(asset)
+
+        self.assertEqual(connection.executions, [])
+
+    def test_coverage_projects_primary_pattern_for_each_symbol_interval(self):
+        primary_pattern = {
+            "kind": "bullish_flag",
+            "state": "confirmed",
+            "score": 0.88,
+        }
+        connection = Connection(rows=[{
+            "symbol": "NVDA",
+            "interval": "1D",
+            "as_of": "2026-07-10T00:00:00.000Z",
+            "generated_at": "2026-07-11T00:00:00.000Z",
+            "status": "ready",
+            "asset_version": "geometry",
+            "algorithm_version": "ohlcv-consensus-pattern-families-v6",
+            "coverage_state": "full",
+            "payload_bytes": 512,
+            "drawing_count": 3,
+            "primary_pattern": primary_pattern,
+            "trace_mode": "geometry-analysis-trace-v2",
+            "level_candidates": 15,
+            "trend_candidates": 50,
+            "pattern_candidates": 16,
+        }])
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+        item = storage.coverage()[0]
+
+        self.assertEqual(item["primaryPattern"], primary_pattern)
+        self.assertEqual(item["traceCandidateCounts"], {"levels": 15, "trends": 50, "patterns": 16})
+        self.assertEqual(item["algorithmVersion"], "ohlcv-consensus-pattern-families-v6")
+        self.assertIn("primaryPattern", connection.executions[0][0])
+        self.assertIn("primaryTriangle", connection.executions[0][0])
+
+    def test_factory_is_postgres_only(self):
+        with self.assertRaises(RuntimeError):
+            build_chart_asset_storage_from_env()
+
+    def test_save_rejects_drawing_from_another_interval(self):
+        asset = _asset()
+        asset["geometry"]["drawings"][0]["interval"] = "1W"
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: Connection())
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            storage.save(asset)
+
+    def test_storage_accepts_eight_drawings_and_rejects_nine(self):
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: Connection())
+        asset = _asset()
+        template = asset["geometry"]["drawings"][0]
+        asset["geometry"]["drawings"] = [{**template, "id": f"drawing-{index}"} for index in range(8)]
+
+        self.assertTrue(storage.save(asset))
+
+        asset["geometry"]["drawings"].append({**template, "id": "drawing-8"})
+        with self.assertRaisesRegex(ValueError, "drawing limit"):
+            storage.save(asset)
+
+    def test_storage_rejects_oversized_payload_before_postgres_write(self):
+        connection = Connection()
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+        asset = _asset()
+        asset["indicators"]["oversized"] = "x" * MAX_ASSET_BYTES
+
+        with self.assertRaisesRegex(ValueError, "payload exceeds"):
+            storage.save(asset)
+
+        self.assertEqual(connection.executions, [])
+
+    def test_storage_rejects_invalid_v6_drawing_group_before_postgres_write(self):
+        connection = Connection()
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+        asset = _asset()
+        asset["geometry"]["drawingGroups"] = {
+            "levels": ["missing-drawing"], "trend": [], "pattern": [],
+        }
+
+        with self.assertRaisesRegex(ValueError, "do not match"):
+            storage.save(asset)
+
+        self.assertEqual(connection.executions, [])
+
+    def test_storage_rejects_every_dangling_trace_pivot_reference_before_postgres_write(self):
+        for field in ("evidenceRefs", "anchorPivotIds", "touchPivotIds", "reactionPivotIds"):
+            with self.subTest(field=field):
+                connection = Connection()
+                storage = PostgresChartAssetStorage(
+                    "postgresql://test", connect=lambda *_args, **_kwargs: connection,
+                )
+                asset = _trace_asset()
+                candidate = asset["geometry"]["analysisTrace"]["levelCandidates"][0]
+                candidate[field] = ["missing-pivot"]
+                if field == "touchPivotIds":
+                    candidate["reactionPivotIds"] = []
+                elif field == "reactionPivotIds":
+                    candidate["touchPivotIds"] = ["pivot-1", "missing-pivot"]
+
+                with self.assertRaisesRegex(ValueError, "pivot references"):
+                    storage.save(asset)
+
+                self.assertEqual(connection.executions, [])
+
+    def test_storage_rejects_reaction_pivot_that_is_not_a_touch(self):
+        connection = Connection()
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+        asset = _trace_asset()
+        candidate = asset["geometry"]["analysisTrace"]["levelCandidates"][0]
+        candidate["touchPivotIds"] = []
+
+        with self.assertRaisesRegex(ValueError, "evidence is invalid"):
+            storage.save(asset)
+
+        self.assertEqual(connection.executions, [])
+
+    def test_storage_rejects_malformed_parallel_channel_before_postgres_write(self):
+        for mutation in ("two_anchors", "missing_parallel_count"):
+            with self.subTest(mutation=mutation):
+                connection = Connection()
+                storage = PostgresChartAssetStorage(
+                    "postgresql://test", connect=lambda *_args, **_kwargs: connection,
+                )
+                asset = _channel_asset()
+                drawing = asset["geometry"]["drawings"][0]
+                if mutation == "two_anchors":
+                    drawing["anchors"] = drawing["anchors"][:2]
+                else:
+                    drawing.pop("parallelLineCount")
+
+                with self.assertRaisesRegex(ValueError, "drawing|trendParallelLines"):
+                    storage.save(asset)
+
+                self.assertEqual(connection.executions, [])
+
+    def test_storage_rejects_incomplete_v6_trend_before_postgres_write(self):
+        connection = Connection()
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+        asset = _channel_asset()
+        asset["geometry"]["trends"] = [{"id": "trend-1", "kind": "channel"}]
+        asset["geometry"]["primaryTrend"] = {"id": "trend-1", "kind": "channel"}
+
+        with self.assertRaisesRegex(ValueError, "trend contract"):
+            storage.save(asset)
+
+        self.assertEqual(connection.executions, [])
+
+    def test_postgres_round_trip_preserves_optional_v6_geometry_fields(self):
+        asset = _asset()
+        asset["geometry"].update({
+            "trends": [{"id": "trend-1", "kind": "uptrend"}],
+            "primaryTrend": {"id": "trend-1", "kind": "uptrend"},
+            "drawingGroups": {"levels": ["one"], "trend": ["trend-1"], "pattern": []},
+            "analysisTrace": {
+                "version": "geometry-analysis-trace-v1",
+                "pivots": [],
+                "levelCandidates": [],
+                "trendCandidates": [],
+                "patternCandidates": [],
+                "selections": {
+                    "levelCandidateIds": [], "trendCandidateIds": ["trend-1"], "patternCandidateIds": [],
+                },
+                "omittedCounts": {},
+            },
+        })
+        connection = Connection(rows=[{"payload": asset}])
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+        loaded = storage.get("nvda", "1D")
+
+        self.assertEqual(loaded, asset)
+        self.assertEqual(connection.executions[0][1], ("NVDA", "1D"))
+
+    def test_postgres_save_accepts_complete_v2_trace_without_schema_migration(self):
+        connection = Connection()
+        storage = PostgresChartAssetStorage("postgresql://test", connect=lambda *_args, **_kwargs: connection)
+
+        self.assertTrue(storage.save(_trace_asset_v2()))
+
+        self.assertIn(f"INSERT INTO {POSTGRES_TABLE}", connection.executions[0][0])
+
+    def test_schema_has_seven_interval_primary_key_and_eight_drawing_limit(self):
+        sql = (ROOT / "systems" / "agent-orchestration" / "jobs" / "chart-asset-migrations" / "003_geometry_assets.sql").read_text(encoding="utf-8")
+        self.assertIn('PRIMARY KEY (symbol, "interval")', sql)
+        self.assertIn("drawing_count BETWEEN 0 AND 8", sql)
+        self.assertIn("DROP CONSTRAINT IF EXISTS geometry_assets_drawing_count_check", sql)
+        self.assertNotIn("'1M'", sql)
+
+
+class Connection:
+    def __init__(self, rows=None): self.executions = []; self.rowcount = 1; self.rows = rows or []
+    def __enter__(self): return self
+    def __exit__(self, *_args): return False
+    def execute(self, query, parameters=()): self.executions.append((query, parameters)); return self
+    def commit(self): return None
+    def fetchall(self): return self.rows
+    def fetchone(self): return self.rows[0] if self.rows else None
+
+
+def _asset():
+    def drawing(drawing_id: str, price: float):
+        return {
+            "id": drawing_id,
+            "type": "horizontalLine",
+            "symbol": "NVDA",
+            "interval": "1D",
+            "sourceInterval": "1D",
+            "anchors": [
+                {"timestamp": "2026-07-09T04:00:00.000Z", "price": price},
+                {"timestamp": "2026-07-10T04:00:00.000Z", "price": price},
+            ],
+            "style": {},
+            "visible": True,
+            "createdBy": "system",
+            "sourceProposalId": "chart-asset:NVDA:1D:geometry",
+            "createdAt": "2026-07-10T04:00:00.000Z",
+            "updatedAt": "2026-07-10T04:00:00.000Z",
+        }
+    return {
+        "assetVersion": "geometry", "algorithmVersion": "ohlcv-consensus-1", "symbol": "NVDA", "interval": "1D",
+        "sourceInterval": "1D", "asOf": "2026-07-10T04:00:00.000Z", "generatedAt": "2026-07-11T00:00:00.000Z",
+        "status": "ready", "inputDigest": "sha256:input", "coverage": {
+            "state": "full", "targetBars": 380, "actualBars": 380,
+            "contiguousBars": 380, "missingBars": 0,
+        },
+        "geometry": {
+            "drawings": [drawing("one", 100.0), drawing("two", 110.0)],
+            "supports": [], "resistances": [], "patterns": [],
+            "primaryPattern": None, "tradePlan": None,
+            "primaryTriangle": None, "historicalTriangle": None,
+        },
+        "indicators": {},
+    }
+
+
+def _trace_asset():
+    asset = _asset()
+    pivot_id = "pivot-1"
+    candidate_id = "level-1"
+    asset["geometry"]["analysisTrace"] = {
+        "version": "geometry-analysis-trace-v1",
+        "pivots": [{
+            "id": pivot_id,
+            "timestamp": "2026-07-10T03:00:00.000Z",
+            "confirmedAt": "2026-07-10T03:30:00.000Z",
+            "price": 100.0,
+            "kind": "L",
+        }],
+        "levelCandidates": [{
+            "id": candidate_id,
+            "category": "level",
+            "role": "support",
+            "score": 0.9,
+            "selected": True,
+            "hardPass": True,
+            "evidencePass": True,
+            "activePass": True,
+            "rejectReasons": [],
+            "selectionTier": "confirmed",
+            "importanceTier": "major",
+            "importanceRank": 1,
+            "anchors": [
+                {"timestamp": "2026-07-09T04:00:00.000Z", "price": 100.0},
+                {"timestamp": "2026-07-10T04:00:00.000Z", "price": 100.0},
+            ],
+            "evidenceRefs": [pivot_id],
+            "anchorPivotIds": [pivot_id],
+            "touchPivotIds": [pivot_id],
+            "reactionPivotIds": [pivot_id],
+            "touches": [],
+            "touchRefs": [],
+            "reactionRefs": [],
+            "metrics": {},
+        }],
+        "trendCandidates": [],
+        "patternCandidates": [],
+        "selections": {
+            "levelCandidateIds": [candidate_id],
+            "trendCandidateIds": [],
+            "patternCandidateIds": [],
+        },
+        "omittedCounts": {},
+    }
+    return asset
+
+
+def _trace_asset_v2():
+    asset = _trace_asset()
+    trace = asset["geometry"]["analysisTrace"]
+    trace["version"] = "geometry-analysis-trace-v2"
+    candidate = trace["levelCandidates"][0]
+    candidate.update({
+        "categoryRank": 1,
+        "disposition": "selected",
+        "selectionReasons": ["confirmed"],
+        "render": {"drawingType": "horizontalLine", "extension": "plot"},
+    })
+    trace["completeness"] = {
+        "complete": True,
+        "detected": {"levels": 1, "trends": 0, "patterns": 0},
+        "stored": {"levels": 1, "trends": 0, "patterns": 0},
+    }
+    return asset
+
+
+def _trade_plan(action: str, direction: str):
+    return {
+        "version": "pattern-trade-timing-v1",
+        "symbol": "NVDA",
+        "interval": "1D",
+        "patternId": "pattern-1",
+        "patternKind": "bullish_flag",
+        "patternState": "confirmed",
+        "action": action,
+        "direction": direction,
+        "signalAt": "2026-07-10T04:00:00.000Z",
+        "entryTrigger": 100.0,
+        "entryPrice": 101.0,
+        "stopPrice": 99.0,
+        "targetPrice": 105.0,
+        "riskPerShare": 2.0,
+        "rewardPerShare": 4.0,
+        "rewardRiskRatio": 2.0,
+        "minimumRewardRisk": 2.0,
+        "projectionBars": 10,
+        "reasons": ["reward_risk_passed"],
+    }
+
+
+def _commentary():
+    kinds = ["overview", "drawing_guide", "indicator_context", "event_context", "watch_next"]
+    return {
+        "version": "chart-commentary.v1",
+        "status": "ready",
+        "generatedAt": "2026-07-11T00:01:00.000Z",
+        "model": "fixture-model",
+        "promptVersion": "chart-commentary.ko.v1",
+        "sourceIdentity": {
+            "geometryInputDigest": "sha256:input",
+            "candlesAsOf": "2026-07-10T04:00:00.000Z",
+            "indicatorsAsOf": "2026-07-10T04:00:00.000Z",
+            "contextDigest": "sha256:context",
+        },
+        "blocks": [
+            {"id": f"block-{index}", "kind": kind, "text": "저장된 팩트 기반 해설입니다.", "referenceIds": ["drawing:levels"]}
+            for index, kind in enumerate(kinds)
+        ],
+        "indicatorRecommendations": [{
+            "layer": "rsi:14", "label": "상대강도지수", "reason": "가격 움직임의 강도를 함께 확인합니다.",
+            "referenceIds": ["drawing:levels"],
+        }],
+        "references": [{"id": "drawing:levels", "type": "drawing", "drawingIds": ["one", "two"]}],
+        "limitations": ["저장된 최신 뉴스 요약이 없습니다."],
+    }
+
+
+def _commentary_v2():
+    return {
+        "version": "chart-commentary.v2",
+        "status": "ready",
+        "generatedAt": "2026-07-11T00:01:00.000Z",
+        "model": "fixture-model",
+        "promptVersion": "chart-commentary.ko.v2",
+        "sourceIdentity": {
+            "geometryInputDigest": "sha256:input",
+            "candlesAsOf": "2026-07-10T04:00:00.000Z",
+            "indicatorsAsOf": "2026-07-10T04:00:00.000Z",
+            "contextDigest": "sha256:context-v2",
+        },
+        "paragraphs": [
+            {"id": "structure", "segments": [
+                {"id": "structure-text", "text": "현재 구조는 "},
+                {"id": "structure-link", "text": "최종 작도", "link": {"kind": "drawing", "referenceIds": ["drawing:levels"]}},
+                {"id": "structure-close", "text": "를 중심으로 읽습니다."},
+            ]},
+            {"id": "confirmation", "segments": [
+                {"id": "candle-link", "text": "최근 완료 봉", "link": {"kind": "candle", "referenceId": "candle:latest"}},
+                {"id": "confirmation-text", "text": "과 "},
+                {"id": "indicator-link", "text": "상대강도지수", "link": {"kind": "indicator", "layer": "rsi:14", "referenceIds": ["candle:indicator"]}},
+                {"id": "confirmation-close", "text": "를 함께 확인합니다."},
+            ]},
+            {"id": "context", "segments": [
+                {"id": "context-text", "text": "다음 완료 봉에서 같은 기준을 다시 확인합니다."},
+            ]},
+        ],
+        "indicatorRecommendations": [{
+            "layer": "rsi:14", "label": "상대강도지수", "reason": "가격 움직임의 강도를 함께 확인합니다.",
+            "referenceIds": ["candle:indicator"],
+        }],
+        "references": [
+            {"id": "drawing:levels", "type": "drawing", "drawingIds": ["one", "two"]},
+            {"id": "candle:latest", "type": "candle", "timestamp": "2026-07-10T04:00:00.000Z"},
+            {"id": "candle:indicator", "type": "candle", "timestamp": "2026-07-09T04:00:00.000Z"},
+        ],
+        "limitations": [],
+    }
+
+
+def _channel_asset():
+    asset = _asset()
+    asset["algorithmVersion"] = "ohlcv-consensus-pattern-families-v6"
+    anchors = [
+        {"timestamp": "2026-07-08T04:00:00.000Z", "price": 95.0},
+        {"timestamp": "2026-07-10T04:00:00.000Z", "price": 100.0},
+        {"timestamp": "2026-07-09T04:00:00.000Z", "price": 110.0},
+    ]
+    drawing = {
+        **asset["geometry"]["drawings"][0],
+        "id": "trend-drawing-1",
+        "type": "trendParallelLines",
+        "anchors": anchors,
+        "parallelLineCount": 2,
+    }
+    trend = {
+        "id": "trend-1",
+        "kind": "channel",
+        "direction": "up",
+        "score": 0.9,
+        "drawingId": drawing["id"],
+        "anchors": anchors,
+        "anchorPivotIds": ["pivot-1", "pivot-2", "pivot-3"],
+        "touchPivotIds": ["pivot-1", "pivot-2", "pivot-3"],
+        "reactionPivotIds": ["pivot-1"],
+        "touchCount": 3,
+        "reactionCount": 2,
+        "slopeAtrPerBar": 0.1,
+        "medianResidualAtr": 0.2,
+        "currentDistanceAtr": 0.3,
+        "lastTouchAgeBars": 2,
+        "channelWidthAtr": 2.5,
+        "parallelSlopeError": 0.05,
+        "containment": 0.9,
+    }
+    asset["geometry"].update({
+        "drawings": [drawing],
+        "trends": [trend],
+        "primaryTrend": dict(trend),
+        "drawingGroups": {"levels": [], "trend": [drawing["id"]], "pattern": []},
+    })
+    return asset
+
+
+if __name__ == "__main__": unittest.main()

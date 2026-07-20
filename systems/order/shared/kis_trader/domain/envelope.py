@@ -74,7 +74,7 @@ def build_order_status_envelope(
     event_id: str | None = None,
     occurred_at: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    envelope = {
         "schema_version": 1,
         "event_type": event_type,
         "event_id": event_id or f"evt_{uuid4().hex}",
@@ -88,6 +88,39 @@ def build_order_status_envelope(
         "source": source,
         "payload": payload,
     }
+    if order.get("user_sub"):
+        envelope["user_sub"] = str(order["user_sub"])
+    return envelope
+
+
+def build_order_fill_envelope(order: dict[str, Any], *, reason: str | None = None) -> dict[str, Any]:
+    """Fill event for orders.fills.v1 — consumed by the risk monitor.
+
+    Carries the trade facts (symbol/side/qty/price) that the plain status
+    envelope omits, so downstream consumers can update position state without
+    a database lookup.
+    """
+    return build_order_status_envelope(
+        order,
+        event_type="order.filled",
+        producer="kis-trader-order-status",
+        source="orders.fills.v1",
+        payload={
+            "symbol": _required_order_field(order, "symbol"),
+            "side": _required_order_field(order, "side"),
+            "qty": _required_numeric_text(order, "qty"),
+            "price": _required_numeric_text(order, "price"),
+            "status": _required_order_field(order, "status"),
+            "reason": reason,
+        },
+    )
+
+
+def _required_numeric_text(order: dict[str, Any], field_name: str) -> str:
+    value = order.get(field_name)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise OrderContractError(f"missing order field for envelope: {field_name}")
+    return str(value).strip()
 
 
 def validate_order_envelope(message: dict[str, Any]) -> OrderCommand:

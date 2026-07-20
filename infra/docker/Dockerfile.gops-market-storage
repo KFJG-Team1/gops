@@ -4,14 +4,20 @@ FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app/systems/market-data/shared
+    PYTHONPATH=/app/systems/market-data/shared:/app/systems/fundamentals/shared
 
 WORKDIR /app
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY systems/market-data/config ./config
+COPY systems/market-data/config ./systems/market-data/config
 COPY systems/market-data/shared ./systems/market-data/shared
 COPY systems/market-data/pods/s3-sink ./systems/market-data/pods/s3-sink
 COPY systems/market-data/pods/clickhouse-loader ./systems/market-data/pods/clickhouse-loader
+COPY systems/market-data/pods/news-intelligence-worker ./systems/market-data/pods/news-intelligence-worker
+COPY systems/market-data/pods/news-daily-summary-worker ./systems/market-data/pods/news-daily-summary-worker
+COPY systems/market-data/jobs/news-backfill ./systems/market-data/jobs/news-backfill
+COPY systems/market-data/jobs/news-intelligence-rebuild ./systems/market-data/jobs/news-intelligence-rebuild
+COPY systems/market-data/jobs/news-daily-summary-rebuild ./systems/market-data/jobs/news-daily-summary-rebuild
+COPY systems/fundamentals ./systems/fundamentals

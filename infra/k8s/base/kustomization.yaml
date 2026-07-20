@@ -3,20 +3,23 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - namespace.yaml
-  - configmap.yaml
-  - serviceaccount-irsa.example.yaml
+  - app
   - job-order-migrations.yaml
+  - job-company-journal-migrations.yaml
+  - job-company-journal-benchmark-bootstrap.yaml
   - job-order-reconciler.yaml
   - job-symbol-registry-sync.yaml
   - job-coverage-repair.yaml
-  - deployment-alpaca-ingestor.yaml
-  - deployment-s3-sink.yaml
-  - deployment-clickhouse-loader.yaml
-  - deployment-backfill-worker.yaml
-  - deployment-order-outbox-publisher.yaml
-  - deployment-kis-broker-adapter.yaml
-  - deployment-gops-backend.yaml
-  - deployment-gops-frontend.yaml
-  - service-gops-backend.yaml
-  - service-gops-frontend.yaml
+  - job-news-backfill.yaml
+  - job-sec-fundamentals-backfill.yaml
+  - job-10k-profile-backfill.yaml
+  - job-news-intelligence-rebuild.yaml
+  - job-news-daily-summary-rebuild.yaml
+  - job-agent-queue-smoke.yaml
+  - job-report-store-smoke.yaml
+  - job-graph-expansion-refresh.yaml
+  - job-graph-expansion-smoke.yaml
+  - job-retrieval-latency-benchmark.yaml
+  - job-fanout-policy-benchmark.yaml
+  - job-retrieval-quality-eval.yaml
+  - job-answer-grounding-eval.yaml

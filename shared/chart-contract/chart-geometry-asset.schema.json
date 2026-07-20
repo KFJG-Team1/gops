@@ -1,0 +1,587 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gops.local/contracts/chart-geometry-asset.schema.json",
+  "title": "GOPS Chart Geometry Asset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assetVersion", "algorithmVersion", "symbol", "interval", "sourceInterval", "asOf", "generatedAt", "status", "inputDigest", "coverage", "geometry", "indicators"],
+  "properties": {
+    "assetVersion": {"const": "geometry"},
+    "algorithmVersion": {"type": "string", "minLength": 1},
+    "symbol": {"type": "string", "minLength": 1},
+    "interval": {"$ref": "#/$defs/interval"},
+    "sourceInterval": {"$ref": "#/$defs/interval"},
+    "asOf": {"type": "string", "format": "date-time"},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "status": {"const": "ready"},
+    "inputDigest": {"type": "string", "pattern": "^sha256:"},
+    "coverage": {
+      "type": "object",
+      "required": ["state", "targetBars", "actualBars", "contiguousBars", "missingBars"],
+      "properties": {
+        "state": {"enum": ["full", "partial"]},
+        "targetBars": {"type": "integer", "minimum": 120},
+        "actualBars": {"type": "integer", "minimum": 120},
+        "contiguousBars": {"type": "integer", "minimum": 0},
+        "missingBars": {"type": "integer", "minimum": 0}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "required": ["drawings", "supports", "resistances", "patterns", "primaryPattern", "tradePlan", "primaryTriangle", "historicalTriangle"],
+      "properties": {
+        "drawings": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/drawing"}},
+        "supports": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/level"}},
+        "resistances": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/level"}},
+        "patterns": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/pattern"}},
+        "primaryPattern": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/pattern"}]},
+        "tradePlan": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/tradePlan"}]},
+        "primaryTriangle": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/triangle"}]},
+        "historicalTriangle": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/triangle"}]},
+        "trends": {"type": "array", "maxItems": 1, "items": {"$ref": "#/$defs/trend"}},
+        "primaryTrend": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/trend"}]},
+        "drawingGroups": {"$ref": "#/$defs/drawingGroups"},
+        "analysisTrace": {"$ref": "#/$defs/analysisTrace"},
+        "evidence": {"type": "array"}
+      }
+    },
+    "indicators": {"type": "object"},
+    "commentary": {"$ref": "#/$defs/commentary"}
+  },
+  "$defs": {
+    "commentary": {
+      "oneOf": [
+        {"$ref": "#/$defs/commentaryV1"},
+        {"$ref": "#/$defs/commentaryV2"}
+      ]
+    },
+    "commentaryV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version", "status", "generatedAt", "model", "promptVersion",
+        "sourceIdentity", "blocks", "indicatorRecommendations", "references", "limitations"
+      ],
+      "properties": {
+        "version": {"const": "chart-commentary.v1"},
+        "status": {"const": "ready"},
+        "generatedAt": {"type": "string", "format": "date-time"},
+        "model": {"type": "string", "minLength": 1},
+        "promptVersion": {"const": "chart-commentary.ko.v1"},
+        "sourceIdentity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["geometryInputDigest", "candlesAsOf", "indicatorsAsOf", "contextDigest"],
+          "properties": {
+            "geometryInputDigest": {"type": "string", "pattern": "^sha256:"},
+            "candlesAsOf": {"type": "string", "format": "date-time"},
+            "indicatorsAsOf": {"type": "string", "format": "date-time"},
+            "newsAsOf": {"type": "string", "format": "date-time"},
+            "earningsAsOf": {"type": "string", "format": "date-time"},
+            "contextDigest": {"type": "string", "pattern": "^sha256:"}
+          }
+        },
+        "blocks": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind", "text", "referenceIds"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "kind": {"enum": ["overview", "drawing_guide", "indicator_context", "event_context", "watch_next"]},
+              "text": {"type": "string", "minLength": 1},
+              "referenceIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+            }
+          }
+        },
+        "indicatorRecommendations": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["layer", "label", "reason", "referenceIds"],
+            "properties": {
+              "layer": {"enum": ["volume-profile", "volume", "rsi:14", "macd:12:26:9", "bollinger:20:2", "sma:20", "sma:60", "sma:120", "ema:20"]},
+              "label": {"type": "string", "minLength": 1},
+              "reason": {"type": "string", "minLength": 1},
+              "referenceIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+            }
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object", "additionalProperties": false,
+                "required": ["id", "type", "drawingIds"],
+                "properties": {
+                  "id": {"type": "string"}, "type": {"const": "drawing"},
+                  "drawingIds": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true}
+                }
+              },
+              {
+                "type": "object", "additionalProperties": false,
+                "required": ["id", "type", "timestamp"],
+                "properties": {
+                  "id": {"type": "string"}, "type": {"const": "candle"},
+                  "timestamp": {"type": "string", "format": "date-time"}, "candleKey": {"type": "string"}
+                }
+              },
+              {
+                "type": "object", "additionalProperties": false,
+                "required": ["id", "type", "eventId", "marketDate"],
+                "properties": {
+                  "id": {"type": "string"}, "type": {"const": "news"},
+                  "eventId": {"type": "string"}, "marketDate": {"type": "string", "format": "date"}
+                }
+              },
+              {
+                "type": "object", "additionalProperties": false,
+                "required": ["id", "type", "eventId", "eventAt"],
+                "properties": {
+                  "id": {"type": "string"}, "type": {"const": "earnings"},
+                  "eventId": {"type": "string"}, "eventAt": {"type": "string", "format": "date-time"}
+                }
+              }
+            ]
+          }
+        },
+        "limitations": {"type": "array", "maxItems": 5, "items": {"type": "string"}}
+      }
+    },
+    "commentaryV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"promptVersion": {"const": "chart-commentary.ko.v4"}}},
+          "then": {"properties": {"indicatorRecommendations": {"maxItems": 2}}}
+        },
+        {
+          "if": {"properties": {"promptVersion": {"const": "chart-commentary.ko.v5"}}},
+          "then": {
+            "properties": {
+              "indicatorRecommendations": {
+                "maxItems": 3,
+                "items": {
+                  "properties": {
+                    "layer": {"enum": ["volume-profile", "rsi:14", "macd:12:26:9", "bollinger:20:2", "sma:20", "sma:60", "sma:120", "ema:20"]}
+                  }
+                }
+              },
+              "paragraphs": {
+                "items": {
+                  "properties": {
+                    "segments": {
+                      "items": {
+                        "properties": {
+                          "link": {
+                            "not": {
+                              "type": "object",
+                              "required": ["kind", "layer"],
+                              "properties": {
+                                "kind": {"const": "indicator"},
+                                "layer": {"const": "volume"}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "required": [
+        "version", "status", "generatedAt", "model", "promptVersion",
+        "sourceIdentity", "paragraphs", "indicatorRecommendations", "references", "limitations"
+      ],
+      "properties": {
+        "version": {"const": "chart-commentary.v2"},
+        "status": {"const": "ready"},
+        "generatedAt": {"type": "string", "format": "date-time"},
+        "model": {"type": "string", "minLength": 1},
+        "promptVersion": {"enum": ["chart-commentary.ko.v2", "chart-commentary.ko.v3", "chart-commentary.ko.v4", "chart-commentary.ko.v5"]},
+        "sourceIdentity": {"$ref": "#/$defs/commentaryV1/properties/sourceIdentity"},
+        "paragraphs": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "segments"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "segments": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 24,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "text"],
+                  "properties": {
+                    "id": {"type": "string", "minLength": 1},
+                    "text": {"type": "string", "minLength": 1},
+                    "link": {
+                      "oneOf": [
+                        {
+                          "type": "object", "additionalProperties": false,
+                          "required": ["kind", "referenceIds"],
+                          "properties": {
+                            "kind": {"const": "drawing"},
+                            "referenceIds": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "string"}, "uniqueItems": true}
+                          }
+                        },
+                        {
+                          "type": "object", "additionalProperties": false,
+                          "required": ["kind", "layer", "referenceIds"],
+                          "properties": {
+                            "kind": {"const": "indicator"},
+                            "layer": {"enum": ["volume-profile", "volume", "rsi:14", "macd:12:26:9", "bollinger:20:2", "sma:20", "sma:60", "sma:120", "ema:20"]},
+                            "referenceIds": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "string"}, "uniqueItems": true}
+                          }
+                        },
+                        {
+                          "type": "object", "additionalProperties": false,
+                          "required": ["kind", "referenceId"],
+                          "properties": {
+                            "kind": {"enum": ["candle", "news", "earnings"]},
+                            "referenceId": {"type": "string", "minLength": 1}
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "indicatorRecommendations": {"$ref": "#/$defs/commentaryV1/properties/indicatorRecommendations"},
+        "references": {"$ref": "#/$defs/commentaryV1/properties/references"},
+        "limitations": {"$ref": "#/$defs/commentaryV1/properties/limitations"}
+      }
+    },
+    "interval": {"enum": ["1m", "5m", "10m", "1h", "4h", "1D", "1W"]},
+    "anchor": {
+      "type": "object",
+      "required": ["timestamp", "price"],
+      "properties": {"timestamp": {"type": "string", "format": "date-time"}, "price": {"type": "number", "exclusiveMinimum": 0}}
+    },
+    "level": {
+      "type": "object",
+      "required": ["id", "role", "price", "score", "touches", "anchors"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "role": {"enum": ["support", "resistance"]},
+        "price": {"type": "number", "exclusiveMinimum": 0},
+        "zoneLow": {"type": "number", "exclusiveMinimum": 0},
+        "zoneHigh": {"type": "number", "exclusiveMinimum": 0},
+        "halfWidthAtr": {"type": "number", "minimum": 0},
+        "selectionTier": {"enum": ["confirmed", "contextual", "reference"]},
+        "importanceTier": {"enum": ["major", "standard", "minor"]},
+        "importanceRank": {"type": "integer", "minimum": 1},
+        "score": {"type": "number", "minimum": 0},
+        "touches": {"type": "integer", "minimum": 0},
+        "reactionCount": {"type": "integer", "minimum": 0},
+        "lastTouchAgeBars": {"type": "integer", "minimum": 0},
+        "currentDistanceAtr": {"type": "number", "minimum": 0},
+        "anchors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/anchor"}}
+      }
+    },
+    "drawing": {
+      "type": "object",
+      "required": ["id", "type", "symbol", "interval", "anchors", "sourceInterval", "style", "visible", "createdBy", "sourceProposalId", "createdAt", "updatedAt"],
+      "allOf": [
+        {
+          "if": {"required": ["type"], "properties": {"type": {"const": "trendParallelLines"}}},
+          "then": {
+            "required": ["parallelLineCount"],
+            "properties": {
+              "anchors": {"minItems": 3, "maxItems": 3},
+              "parallelLineCount": {"const": 2}
+            }
+          }
+        },
+        {
+          "if": {"required": ["type"], "properties": {"type": {"enum": ["horizontalLine", "trendLine"]}}},
+          "then": {"properties": {"anchors": {"minItems": 2, "maxItems": 2}}}
+        }
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "type": {"enum": ["horizontalLine", "trendLine", "trendParallelLines"]},
+        "symbol": {"type": "string", "minLength": 1},
+        "interval": {"$ref": "#/$defs/interval"},
+        "anchors": {"type": "array", "minItems": 2, "maxItems": 3, "items": {"$ref": "#/$defs/anchor"}},
+        "sourceInterval": {"$ref": "#/$defs/interval"},
+        "style": {"type": "object"},
+        "label": {"type": "string"},
+        "parallelLineCount": {"type": "integer", "minimum": 2, "maximum": 2},
+        "visible": {"type": "boolean"},
+        "createdBy": {"const": "system"},
+        "sourceProposalId": {"type": "string"},
+        "createdAt": {"type": "string", "format": "date-time"},
+        "updatedAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "trend": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id", "kind", "direction", "score", "drawingId", "anchors",
+        "anchorPivotIds", "touchPivotIds", "reactionPivotIds", "touchCount",
+        "reactionCount", "slopeAtrPerBar", "medianResidualAtr",
+        "currentDistanceAtr", "lastTouchAgeBars"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["uptrend", "downtrend", "channel"]},
+        "direction": {"enum": ["up", "down"]},
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+        "drawingId": {"type": "string", "minLength": 1},
+        "anchors": {"type": "array", "minItems": 2, "maxItems": 3, "items": {"$ref": "#/$defs/anchor"}},
+        "anchorPivotIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "touchPivotIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "reactionPivotIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "touchCount": {"type": "integer", "minimum": 0},
+        "reactionCount": {"type": "integer", "minimum": 0},
+        "slopeAtrPerBar": {"type": "number"},
+        "medianResidualAtr": {"type": "number", "minimum": 0},
+        "currentDistanceAtr": {"type": "number", "minimum": 0},
+        "lastTouchAgeBars": {"type": "integer", "minimum": 0},
+        "channelWidthAtr": {"type": "number", "minimum": 0},
+        "parallelSlopeError": {"type": "number", "minimum": 0},
+        "containment": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "drawingGroups": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["levels", "trend", "pattern"],
+      "properties": {
+        "levels": {"type": "array", "maxItems": 4, "items": {"type": "string"}, "uniqueItems": true},
+        "trend": {"type": "array", "maxItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "pattern": {"type": "array", "maxItems": 3, "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "tracePivot": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "timestamp", "confirmedAt", "price", "kind"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "confirmedAt": {"type": "string", "format": "date-time"},
+        "candleKey": {"type": ["string", "null"]},
+        "barIndex": {"type": "integer", "minimum": 0},
+        "price": {"type": "number", "exclusiveMinimum": 0},
+        "kind": {"enum": ["H", "L"]},
+        "grade": {"enum": ["tactical", "structural"]},
+        "strength": {"type": "number", "minimum": 0, "maximum": 1},
+        "reversalAtr": {"type": "number", "minimum": 0},
+        "prominenceAtr": {"type": "number", "minimum": 0}
+      }
+    },
+    "traceCandidate": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id", "category", "score", "selected", "hardPass", "evidencePass",
+        "activePass", "rejectReasons", "selectionTier", "importanceTier",
+        "importanceRank", "anchors", "evidenceRefs", "anchorPivotIds",
+        "touchPivotIds", "reactionPivotIds", "touchRefs", "reactionRefs",
+        "touches", "metrics"
+      ],
+      "anyOf": [{"required": ["role"]}, {"required": ["kind"]}],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "category": {"enum": ["level", "trend", "pattern"]},
+        "role": {"enum": ["support", "resistance"]},
+        "kind": {"type": "string", "minLength": 1},
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+        "selected": {"type": "boolean"},
+        "hardPass": {"type": "boolean"},
+        "evidencePass": {"type": "boolean"},
+        "activePass": {"type": "boolean"},
+        "rejectReasons": {"type": "array", "items": {"type": "string"}},
+        "selectionTier": {"enum": ["confirmed", "contextual", "reference", null]},
+        "importanceTier": {"enum": ["major", "standard", "minor", null]},
+        "importanceRank": {"type": ["integer", "null"], "minimum": 1},
+        "categoryRank": {"type": "integer", "minimum": 1},
+        "disposition": {"enum": ["selected", "qualified_not_selected", "rejected"]},
+        "selectionReasons": {"type": "array", "items": {"type": "string"}},
+        "direction": {"enum": ["up", "down"]},
+        "render": {"$ref": "#/$defs/traceRender"},
+        "anchors": {"type": "array", "items": {"$ref": "#/$defs/anchor"}},
+        "evidenceRefs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "touchRefs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "reactionRefs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "touches": {"type": "array", "items": {"$ref": "#/$defs/traceTouch"}},
+        "pivotIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "anchorPivotIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "touchPivotIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "reactionPivotIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "metrics": {"type": "object"}
+      }
+    },
+    "traceTouch": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "timestamp", "price"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "price": {"type": "number", "exclusiveMinimum": 0},
+        "barIndex": {"type": "integer", "minimum": 0},
+        "boundary": {"type": "string"},
+        "outcome": {"type": ["string", "null"]},
+        "mfeAtr": {"type": ["number", "null"]},
+        "maeAtr": {"type": ["number", "null"]},
+        "residualAtr": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "traceRender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["drawingType", "extension"],
+      "properties": {
+        "drawingType": {"enum": ["horizontalLine", "trendLine", "trendParallelLines", "segments"]},
+        "extension": {"enum": ["plot", "ray", "segment"]},
+        "direction": {"enum": ["up", "down"]},
+        "parallelLineCount": {"const": 2},
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [{"type": "integer", "minimum": 0}, {"type": "integer", "minimum": 0}],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "analysisTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version", "pivots", "levelCandidates", "trendCandidates",
+        "patternCandidates", "selections", "omittedCounts"
+      ],
+      "properties": {
+        "version": {"enum": ["geometry-analysis-trace-v1", "geometry-analysis-trace-v2"]},
+        "pivots": {"type": "array", "items": {"$ref": "#/$defs/tracePivot"}},
+        "levelCandidates": {"type": "array", "items": {"$ref": "#/$defs/traceCandidate"}},
+        "trendCandidates": {"type": "array", "items": {"$ref": "#/$defs/traceCandidate"}},
+        "patternCandidates": {"type": "array", "items": {"$ref": "#/$defs/traceCandidate"}},
+        "selections": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["levelCandidateIds", "trendCandidateIds", "patternCandidateIds"],
+          "properties": {
+            "levelCandidateIds": {"type": "array", "maxItems": 4, "items": {"type": "string"}, "uniqueItems": true},
+            "trendCandidateIds": {"type": "array", "maxItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+            "patternCandidateIds": {"type": "array", "maxItems": 1, "items": {"type": "string"}, "uniqueItems": true}
+          }
+        },
+        "omittedCounts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "completeness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["complete", "detected", "stored"],
+          "properties": {
+            "complete": {"const": true},
+            "detected": {"$ref": "#/$defs/traceCounts"},
+            "stored": {"$ref": "#/$defs/traceCounts"}
+          }
+        }
+      }
+    },
+    "traceCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["levels", "trends", "patterns"],
+      "properties": {
+        "levels": {"type": "integer", "minimum": 0},
+        "trends": {"type": "integer", "minimum": 0},
+        "patterns": {"type": "integer", "minimum": 0}
+      }
+    },
+    "pattern": {
+      "type": "object",
+      "required": ["kind", "state", "score", "geometryHash"],
+      "properties": {
+        "kind": {"enum": ["ascending_triangle", "descending_triangle", "symmetrical_triangle", "bullish_flag", "bearish_flag", "bullish_pennant", "bearish_pennant", "bullish_rectangle", "bearish_rectangle", "rising_wedge", "falling_wedge", "descending_channel_breakout", "ascending_channel_breakdown"]},
+        "state": {"enum": ["forming", "confirmed", "inactive", "invalidated"]},
+        "bias": {"enum": ["bullish", "bearish", "neutral"]},
+        "breakoutDirection": {"enum": ["up", "down", null]},
+        "confirmation": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/confirmation"}]},
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+        "geometryHash": {"type": "string"}
+      }
+    },
+    "confirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["breakoutAt", "confirmedAt", "mode", "boundaryPrice", "penetrationAtr", "relativeVolume"],
+      "properties": {
+        "breakoutAt": {"type": "string", "format": "date-time"},
+        "confirmedAt": {"type": "string", "format": "date-time"},
+        "mode": {"enum": ["both", "next_close_hold", "relative_volume"]},
+        "boundaryPrice": {"type": "number"},
+        "penetrationAtr": {"type": "number", "minimum": 0},
+        "relativeVolume": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "tradePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "symbol", "interval", "patternId", "patternKind", "patternState", "action", "direction", "signalAt", "entryTrigger", "entryPrice", "stopPrice", "targetPrice", "riskPerShare", "rewardPerShare", "rewardRiskRatio", "minimumRewardRisk", "projectionBars", "reasons"],
+      "properties": {
+        "version": {"const": "pattern-trade-timing-v1"},
+        "symbol": {"type": ["string", "null"]},
+        "interval": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/interval"}]},
+        "patternId": {"type": "string", "minLength": 1},
+        "patternKind": {"type": "string", "minLength": 1},
+        "patternState": {"type": "string", "minLength": 1},
+        "action": {"enum": ["watch", "buy_candidate", "sell_candidate", "no_trade"]},
+        "direction": {"enum": ["long", "exit_long", null]},
+        "signalAt": {"type": ["string", "null"], "format": "date-time"},
+        "entryTrigger": {"type": ["number", "null"]},
+        "entryPrice": {"type": ["number", "null"]},
+        "stopPrice": {"type": ["number", "null"]},
+        "targetPrice": {"type": ["number", "null"]},
+        "riskPerShare": {"type": ["number", "null"]},
+        "rewardPerShare": {"type": ["number", "null"]},
+        "rewardRiskRatio": {"type": ["number", "null"]},
+        "minimumRewardRisk": {"type": "number", "minimum": 0},
+        "projectionBars": {"type": "integer", "minimum": 1},
+        "reasons": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "triangle": {
+      "type": "object",
+      "required": ["kind", "state", "score", "geometryHash"],
+      "properties": {
+        "kind": {"enum": ["ascending_triangle", "descending_triangle", "symmetrical_triangle"]},
+        "state": {"enum": ["forming", "confirmed", "inactive", "invalidated"]},
+        "confirmation": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/confirmation"}]},
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+        "geometryHash": {"type": "string"}
+      }
+    }
+  }
+}

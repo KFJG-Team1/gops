@@ -1,0 +1,64 @@
+# 역할: Kafka Raw Topic을 차트용 Processed Topic과 Redis realtime state로 변환합니다.
+# 사용: 현재 AWS 배포 단계의 Python stream processor runtime입니다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alfaka-market-processor
+  namespace: alfaka-market-data
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: alfaka-market-processor
+  template:
+    metadata:
+      labels:
+        app: alfaka-market-processor
+    spec:
+      serviceAccountName: alfaka-market-data-sa
+      topologySpreadConstraints:
+        - maxSkew: 1
+          minDomains: 3
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: alfaka-market-processor
+      containers:
+        - name: market-processor
+          image: YOUR_ECR_REPOSITORY/gops-market-processor:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-u", "systems/market-data/pods/market-processor/local_main.py"]
+          env:
+            - name: KAFKA_PROCESSOR_RAW_TOPICS
+              value: market.input.realtime.trades.v1,market.input.realtime.quotes.v1,market.input.realtime.bars.1m.v1,market.input.realtime.updated-bars.1m.v1,market.input.realtime.daily-bars.v1,market.input.realtime.events.v1
+            - name: ORDER_FLOW_QUOTE_CACHE_ONLY
+              value: "true"
+          envFrom:
+            - configMapRef:
+                name: alfaka-market-data-config
+            - secretRef:
+                name: alfaka-clickhouse-secret
+                optional: true
+          startupProbe:
+            exec:
+              command: ["python", "-m", "alfaka.common.heartbeat", "--max-age-seconds", "300"]
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["python", "-m", "alfaka.common.heartbeat", "--max-age-seconds", "60"]
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["python", "-m", "alfaka.common.heartbeat", "--max-age-seconds", "120"]
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

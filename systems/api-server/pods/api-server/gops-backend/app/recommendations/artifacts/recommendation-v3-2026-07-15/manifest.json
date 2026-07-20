@@ -1,0 +1,43 @@
+{
+  "algorithmVersion": "deterministic-evidence-v3",
+  "evidenceAsOf": "2026-07-14T16:00:00-04:00",
+  "evidencePoolDigest": "3c72c81d1b3b6ba035e7edbb2e8ac8379b64df4cb3ebf0366340af1fb30abe23",
+  "files": {
+    "recommendation.json": {
+      "bytes": 483662,
+      "sha256": "d8420fc47e5f43090dac85e2832e144872585245dbc6ad24c075ccbe20fa98bd"
+    }
+  },
+  "insertedAtRange": {
+    "maximum": "2026-07-16T15:42:05.460000Z",
+    "minimum": "2026-07-06T09:21:57.216000Z",
+    "usedForEligibility": false
+  },
+  "narrativeMode": "company_grounded",
+  "personalizationMode": "cutoff_user_context",
+  "recommendationDigest": "89d5ce05ea9576742a811ae82923b9b0e858a6377f36b9423e34ff0ff94df7bc",
+  "reconstructedAt": "2026-07-17T09:03:25.293868Z",
+  "ruleSetVersion": "deterministic-evidence-v3.1",
+  "scenarioId": "recommendation-v3-2026-07-15",
+  "schemaVersion": "fixed-recommendation-manifest.v1",
+  "sourceDigests": {
+    "candles": "4c5fa671bbf50e39fabe951d678f7fee359aba566533e150e7db92dc1b3ff127",
+    "daily": "1e145274aaa8d867a0946349581bc18c919fea0312743b4b789296c5fc584bbd",
+    "fundamentals": "805dde25a63826cf47fb3835d662e59dbdf6537b5f80644433964521bc475120",
+    "market": "6c2f1a4ce5c908451c9814230e4a0e676732babbb5c6533706c74f0fb345eeb1",
+    "narrativeContexts": "cff23c1f4848b452f21a5cf28acb598f43ee4b5f89cc98ba986a01722a800c55",
+    "news": "e716b6e56f2440220022225e914af00be7cf3b7088be2bca5999e19628c9d97f",
+    "previousSession": "1e94b478203ef8d1d0b6f846d05c5d8cda4eabab574420e4d69ba660858a5050"
+  },
+  "sourceInputDigest": "78ebd8f7a3d50c623a9ef8d5cf1a85db00e6a370bed401f124dc9555ef1ba0a8",
+  "sourceMode": "historical_reconstruction",
+  "sourceRowCounts": {
+    "candidates": 30,
+    "companyProfiles": 0,
+    "dailyCandles": 55169,
+    "minuteCandles": 23940,
+    "news": 1168,
+    "quotes": 30
+  },
+  "targetSessionDate": "2026-07-15"
+}

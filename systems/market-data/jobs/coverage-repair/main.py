@@ -1,4 +1,4 @@
-"""Audit chart coverage through the API and queue missing backfills."""
+"""Audit chart coverage through the API on-demand fill path."""
 
 from __future__ import annotations
 
@@ -10,38 +10,33 @@ import urllib.parse
 import urllib.request
 
 
-DEFAULT_INTERVALS = ("1m", "5m", "10m", "1D", "1W", "1M")
+DEFAULT_INTERVALS = ("1m", "5m", "10m", "1h", "4h", "1D", "1W", "1M")
 def main() -> None:
     base_url = os.getenv("GOPS_API_BASE_URL", "http://gops-backend:8000").rstrip("/")
     symbols = parse_symbols(os.getenv("COVERAGE_REPAIR_SYMBOLS") or os.getenv("ALPACA_SYMBOLS"))
     intervals = parse_csv(os.getenv("COVERAGE_REPAIR_INTERVALS")) or list(DEFAULT_INTERVALS)
-    force = os.getenv("COVERAGE_REPAIR_FORCE", "false").lower() in {"1", "true", "yes"}
     dry_run = os.getenv("COVERAGE_REPAIR_DRY_RUN", "false").lower() in {"1", "true", "yes"}
 
     if not symbols:
         raise SystemExit("COVERAGE_REPAIR_SYMBOLS or ALPACA_SYMBOLS is required.")
 
     report = []
-    queued = 0
     failures = 0
     for symbol in symbols:
         for interval in intervals:
             status = fetch_snapshot_status(base_url, symbol, interval)
             should_repair = not is_renderable(status)
-            action = "ok"
-            backfill = None
-            if should_repair and status["canBackfill"]:
-                action = "would_queue" if dry_run else "queued"
-                if not dry_run:
-                    backfill = request_backfill(base_url, symbol, interval, force=force)
-                    queued += 1
-            elif should_repair:
-                action = "needs_attention"
+            action = "ok" if not should_repair else "needs_attention"
+            repair_ranges = recommended_repair_ranges(status)
+            if should_repair:
+                fill_status = (status.get("fill") or {}).get("status") if isinstance(status.get("fill"), dict) else None
+                if fill_status in {"filled", "partial", "timeout", "empty", "failed"}:
+                    action = f"fill_{fill_status}"
                 failures += 1
-            report.append({**status, "action": action, "backfill": backfill})
+            report.append({**status, "action": action, "repairRanges": repair_ranges})
 
-    print(json.dumps({"queued": queued, "failures": failures, "items": report}, ensure_ascii=False, indent=2), flush=True)
-    if failures:
+    print(json.dumps({"dryRun": dry_run, "failures": failures, "items": report}, ensure_ascii=False, indent=2), flush=True)
+    if failures and not dry_run:
         raise SystemExit(1)
 
 
@@ -53,18 +48,16 @@ def fetch_snapshot_status(base_url: str, symbol: str, interval: str) -> dict[str
         "interval": interval,
         "sourceInterval": payload.get("sourceInterval"),
         "dataStatus": payload.get("dataStatus"),
-        "backfillStatus": payload.get("backfillStatus"),
-        "canBackfill": bool(payload.get("canBackfill")),
         "candleCount": len(payload.get("candles") or []),
         "coverageState": (payload.get("coverage") or {}).get("state"),
         "coverageReason": (payload.get("coverage") or {}).get("reasonCode"),
         "coverageRenderable": (payload.get("coverage") or {}).get("renderable"),
+        "repairStatus": (payload.get("coverage") or {}).get("repairStatus"),
+        "fill": payload.get("fill"),
+        "targetRangeFrom": (payload.get("coverage") or {}).get("targetRangeFrom") or payload.get("targetRangeFrom"),
+        "availableFrom": (payload.get("coverage") or {}).get("availableFrom") or payload.get("availableFrom"),
+        "availableTo": (payload.get("coverage") or {}).get("availableTo") or payload.get("availableTo"),
     }
-
-
-def request_backfill(base_url: str, symbol: str, interval: str, *, force: bool) -> dict[str, object]:
-    body = json.dumps({"symbol": symbol, "interval": interval, "force": force}).encode("utf-8")
-    return request_json("POST", f"{base_url}/api/charts/backfill", body=body)
 
 
 def request_json(method: str, url: str, body: bytes | None = None) -> dict[str, object]:
@@ -93,6 +86,16 @@ def is_renderable(status: dict[str, object]) -> bool:
     if status["dataStatus"] == "ready":
         return True
     return status["dataStatus"] == "partial" and status.get("coverageRenderable") is not False
+
+
+def recommended_repair_ranges(status: dict[str, object]) -> list[dict[str, str | None]]:
+    target_from = status.get("targetRangeFrom")
+    available_from = status.get("availableFrom")
+    if isinstance(target_from, str) and isinstance(available_from, str) and target_from < available_from:
+        return [{"start": target_from, "end": available_from}]
+    if isinstance(target_from, str) and not available_from:
+        return [{"start": target_from, "end": None}]
+    return [{"start": None, "end": None}]
 
 
 if __name__ == "__main__":

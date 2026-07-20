@@ -25,10 +25,6 @@ output "market_storage_ecr_repository_url" {
   value = aws_ecr_repository.custom_images["market_storage"].repository_url
 }
 
-output "backfill_worker_ecr_repository_url" {
-  value = aws_ecr_repository.custom_images["backfill_worker"].repository_url
-}
-
 output "order_worker_ecr_repository_url" {
   value = aws_ecr_repository.custom_images["order_worker"].repository_url
 }
@@ -37,8 +33,20 @@ output "kis_adapter_ecr_repository_url" {
   value = aws_ecr_repository.custom_images["kis_adapter"].repository_url
 }
 
+output "agent_orchestrator_ecr_repository_url" {
+  value = aws_ecr_repository.custom_images["agent_orchestrator"].repository_url
+}
+
 output "s3_bucket_name" {
   value = local.market_data_bucket_name
+}
+
+output "ai_coach_snapshot_s3_bucket" {
+  value = aws_s3_bucket.ai_coach_snapshots.bucket
+}
+
+output "ai_coach_worker_irsa_role_arn" {
+  value = aws_iam_role.ai_coach_worker_irsa.arn
 }
 
 output "alpaca_secret_name" {
@@ -55,6 +63,22 @@ output "kis_secret_name" {
 
 output "kis_secret_arn" {
   value = local.kis_secret_arn
+}
+
+output "google_oauth_secret_name" {
+  value = var.google_oauth_secret_name
+}
+
+output "google_oauth_secret_arns" {
+  value = local.google_oauth_secret_arns
+}
+
+output "openai_secret_name" {
+  value = var.openai_secret_name
+}
+
+output "openai_secret_arn" {
+  value = local.openai_secret_arn
 }
 
 output "market_data_irsa_role_arn" {

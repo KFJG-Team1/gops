@@ -6,7 +6,9 @@ import type { CandleData, ChartCommand, ChartCommandType, ChartDataStatus, Chart
 const proposalCommandTypes: ChartCommandType[] = [
   "chart.symbol.set",
   "chart.timeframe.set",
+  "chart.type.set",
   "chart.viewport.set",
+  "chart.pane.ratio.set",
   "chart.layer.visibility.set",
   "chart.drawing.add",
   "chart.drawing.update",
@@ -15,13 +17,18 @@ const proposalCommandTypes: ChartCommandType[] = [
   "chart.drawing.clearSelection",
   "chart.comparison.add",
   "chart.comparison.remove",
-  "chart.comparison.update",
-  "chart.measurement.add"
+  "chart.comparison.update"
 ];
 
 export type ChartProposalRequestContext = {
   panelId: string;
-  chartDocument: Pick<ChartDocument, "id" | "symbol" | "timeframe" | "viewport" | "layers" | "drawings" | "comparisons">;
+  chartDocument: Pick<ChartDocument, "id" | "symbol" | "chartType" | "timeframe" | "viewport" | "panes" | "layers" | "drawings" | "comparisons">;
+  entityFallback: {
+    source: "referenced-chart" | "selected-chart";
+    panelId: string;
+    chartDocumentId: string;
+    symbol: string;
+  };
   visibleSummary: {
     high?: string;
     low?: string;
@@ -31,8 +38,6 @@ export type ChartProposalRequestContext = {
   dataStatus: {
     state: ChartDataStatus["state"];
     message?: string;
-    backfillStatus?: ChartDataStatus["backfillStatus"];
-    canBackfill?: boolean;
     candleCount: number;
     hasVisibleCandles: boolean;
   };
@@ -59,11 +64,19 @@ export function buildChartProposalRequest({
     chartDocument: {
       id: document.id,
       symbol: document.symbol,
+      chartType: document.chartType,
       timeframe: document.timeframe,
       viewport: document.viewport,
+      panes: document.panes,
       layers: document.layers,
       drawings: document.drawings,
       comparisons: document.comparisons
+    },
+    entityFallback: {
+      source: "selected-chart",
+      panelId,
+      chartDocumentId: document.id,
+      symbol: document.symbol
     },
     visibleSummary: {
       high: scene?.labels.visibleHigh,
@@ -89,7 +102,8 @@ export function buildChartAgentContext({
   candles,
   dataStatus,
   streamStatus,
-  symbolUniverse
+  symbolUniverse,
+  entityFallbackSource = "selected-chart"
 }: {
   panelId: string;
   document: ChartDocument;
@@ -97,10 +111,11 @@ export function buildChartAgentContext({
   dataStatus?: ChartDataStatus;
   streamStatus: StreamStatus;
   symbolUniverse?: readonly string[];
+  entityFallbackSource?: "referenced-chart" | "selected-chart";
 }): ChartProposalRequestContext {
   const visibleCount = Math.min(document.viewport.visibleCount, candles.length);
-  const rightOffset = Math.min(document.viewport.rightOffset, Math.max(0, candles.length - 1));
-  const end = Math.max(0, candles.length - rightOffset);
+  const rightOffset = document.viewport.rightOffset;
+  const end = Math.max(0, Math.min(candles.length, candles.length - rightOffset));
   const visibleCandles = candles.slice(Math.max(0, end - visibleCount), end);
   const first = visibleCandles[0];
   const last = visibleCandles[visibleCandles.length - 1];
@@ -113,11 +128,19 @@ export function buildChartAgentContext({
     chartDocument: {
       id: document.id,
       symbol: document.symbol,
+      chartType: document.chartType,
       timeframe: document.timeframe,
       viewport: document.viewport,
+      panes: document.panes,
       layers: document.layers,
       drawings: document.drawings,
       comparisons: document.comparisons
+    },
+    entityFallback: {
+      source: entityFallbackSource,
+      panelId,
+      chartDocumentId: document.id,
+      symbol: document.symbol
     },
     visibleSummary: {
       high: highs.length ? Math.max(...highs).toFixed(2) : undefined,
@@ -128,8 +151,6 @@ export function buildChartAgentContext({
     dataStatus: {
       state: dataStatus?.state ?? (candles.length > 0 ? "ready" : "loading"),
       message: dataStatus?.message,
-      backfillStatus: dataStatus?.backfillStatus,
-      canBackfill: dataStatus?.canBackfill,
       candleCount: candles.length,
       hasVisibleCandles: visibleCandles.length > 0
     },
