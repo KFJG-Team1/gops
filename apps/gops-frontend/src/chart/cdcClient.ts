@@ -243,7 +243,7 @@ export function openChartSocket(
   interval: ChartInterval,
   onEvent: (event: CandleEventDto) => void,
   onState: (state: "connecting" | "live" | "idle" | "error") => void,
-  options: { orderFlow?: boolean } = {}
+  options: { orderFlow?: boolean; candles?: boolean } = {}
 ): () => void {
   const normalizedSymbol = symbol.trim().toUpperCase();
   if (!normalizedSymbol) {
@@ -304,10 +304,17 @@ export function openChartSocket(
   };
 }
 
-function chartSocketUrl(symbol: string, interval: ChartInterval, options: { orderFlow?: boolean } = {}): string {
+function chartSocketUrl(
+  symbol: string,
+  interval: ChartInterval,
+  options: { orderFlow?: boolean; candles?: boolean } = {}
+): string {
   const params = new URLSearchParams({ symbol, interval });
   if (options.orderFlow) {
     params.set("orderFlow", "true");
+  }
+  if (options.candles === false) {
+    params.set("candles", "false");
   }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/charts?${params.toString()}`;

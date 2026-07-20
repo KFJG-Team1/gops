@@ -4674,6 +4674,9 @@ assert.match(orderFlowPanelSource, /onWheel=\{handleCanvasWheel\}/);
 assert.match(orderFlowPanelSource, /stepOrderFlowTargetRows/);
 assert.match(orderFlowPanelSource, /data-order-flow-symbol=\{normalizedSymbol\}/);
 assert.match(orderFlowPanelSource, /data-order-flow-resolution=\{resolution\}/);
+assert.match(orderFlowPanelSource, /initialSnapshotSettled/);
+assert.match(orderFlowPanelSource, /\{ orderFlow: true, candles: false \}/);
+assert.match(orderFlowPanelSource, /\.finally\(\(\) => \{[\s\S]*setInitialSnapshotSettled\(true\)/);
 assert.doesNotMatch(orderFlowPanelSource, /fetchOrderFlowDaily|semanticSelection|selectedDay|fallbackDay|dailyMode|disabledWindowBadge|overlayVisible|overlayIntentRef/);
 assert.doesNotMatch(orderFlowPanelSource, /order-flow-control-select|ORDER_FLOW_PRICE_STEPS/);
 const orderFlowRendererBlock = panelContentRendererSource.slice(
@@ -4682,6 +4685,13 @@ const orderFlowRendererBlock = panelContentRendererSource.slice(
 );
 assert.match(orderFlowRendererBlock, /symbol=\{readOrderFlowSymbol\(content\)\}/);
 assert.doesNotMatch(orderFlowRendererBlock, /semanticSelection|defaultToPinnedSymbol|readPanelSymbol/);
+const lightweightCommentaryRequestBlock = chartPanelSource.slice(
+  chartPanelSource.indexOf("fetchChartCommentaryAsset(requestedSymbol, requestedInterval)"),
+  chartPanelSource.indexOf("chartRef.current = chart")
+);
+assert.match(lightweightCommentaryRequestBlock, /commentaryPhase: "error"/);
+assert.doesNotMatch(lightweightCommentaryRequestBlock, /commentaryPhase: "error",\s*commentaryAsset: null/);
+assert.match(chartPanelSource, /const handleSimulatorStatus = \(event: Event\) => \{[\s\S]*?if \(!status\.available\) return;/);
 const chartCanvasSource = readFileSync(fileURLToPath(new URL("../src/chart/ChartCanvas.tsx", import.meta.url)), "utf-8");
 const chartCanvasLayerSource = chartCanvasSource.slice(
   chartCanvasSource.indexOf("const layers: Array<() => void>"),

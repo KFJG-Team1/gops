@@ -114,6 +114,7 @@ export function OrderFlowPanel({
   const [liveQuote, setLiveQuote] = useState<LiveQuote | null>(null);
   const [streamState, setStreamState] = useState<StreamState>("idle");
   const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [initialSnapshotSettled, setInitialSnapshotSettled] = useState(false);
   const [wheelFeedback, setWheelFeedback] = useState<WheelFeedback>(null);
 
   useEffect(() => {
@@ -199,6 +200,7 @@ export function OrderFlowPanel({
   useEffect(() => {
     if (symbolsLoading) {
       setLoadState("loading");
+      setInitialSnapshotSettled(false);
       return;
     }
     if (!normalizedSymbol || !supported) {
@@ -206,6 +208,7 @@ export function OrderFlowPanel({
       setLiveSessionDate("");
       liveSessionDateRef.current = "";
       setLiveQuote(null);
+      setInitialSnapshotSettled(false);
       setLoadState((current) => current === "error"
         ? "error"
         : normalizedSymbol && !symbolsLoading ? "unsupported" : "loading");
@@ -213,6 +216,7 @@ export function OrderFlowPanel({
     }
     const controller = new AbortController();
     setLoadState("loading");
+    setInitialSnapshotSettled(false);
     fetchOrderFlowIntraday(normalizedSymbol, controller.signal)
       .then((response) => {
         if (controller.signal.aborted) {
@@ -230,12 +234,17 @@ export function OrderFlowPanel({
           setLiveQuote(null);
           setLoadState("error");
         }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setInitialSnapshotSettled(true);
+        }
       });
     return () => controller.abort();
   }, [normalizedSymbol, supported, symbolsLoading]);
 
   useEffect(() => {
-    if (!normalizedSymbol || !supported) {
+    if (!normalizedSymbol || !supported || !initialSnapshotSettled) {
       setStreamState("idle");
       return undefined;
     }
@@ -271,9 +280,9 @@ export function OrderFlowPanel({
       "1m",
       handleEvent,
       handleStreamState,
-      { orderFlow: true }
+      { orderFlow: true, candles: false }
     );
-  }, [normalizedSymbol, supported]);
+  }, [initialSnapshotSettled, normalizedSymbol, supported]);
 
   const activeProfile = useMemo(() => {
     const windowMinutes = windowToMinuteCount(windowKey);

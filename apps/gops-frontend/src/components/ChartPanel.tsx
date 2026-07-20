@@ -837,6 +837,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     const handleSimulatorStatus = (event: Event) => {
       const status = (event as CustomEvent<SimulatorStatus>).detail;
+      if (!status.available) return;
       const nextContext = simulatorAnalysisAssetContextKey(status);
       const nextRun = simulatorAnalysisAssetRunKey(status);
       if (nextContext === analysisAssetContextKey && nextRun === analysisAssetSimulatorRunRef.current) return;
@@ -862,7 +863,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         response: null,
         error: null,
         commentaryPhase: "loading",
-        commentaryAsset: null,
         commentaryError: null
       });
       setAnalysisAssetsRevision((current) => current + 1);
@@ -879,7 +879,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     let active = true;
     patchChartAnalysisAssetRuntime(document.id, runtimeIdentity, {
       commentaryPhase: "loading",
-      commentaryAsset: null,
       commentaryError: null
     });
     fetchChartCommentaryAsset(requestedSymbol, requestedInterval)
@@ -910,7 +909,6 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         if (!active || commentaryAssetRequestGenerationRef.current !== requestGeneration) return;
         patchChartAnalysisAssetRuntime(document.id, runtimeIdentity, {
           commentaryPhase: "error",
-          commentaryAsset: null,
           commentaryError: reason instanceof Error ? reason.message : "저장 해설을 불러오지 못했습니다."
         });
       });
