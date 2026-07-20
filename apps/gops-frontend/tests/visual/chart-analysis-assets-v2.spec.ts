@@ -84,13 +84,6 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(proposalToggle).toHaveAttribute("data-state", "off");
   await expect(page.getByText(/상승 삼각형 돌파 확인/).first()).toBeVisible();
   const commentaryPanel = page.locator(".chart-commentary-panel");
-  const commentarySourceIdentity = page.locator(".chart-commentary-source-identity");
-  await expect(commentarySourceIdentity.locator(".stock-logo")).toBeVisible();
-  await expect(commentarySourceIdentity).toHaveText(/NVDA · 1D/);
-  await expect.poll(() => commentarySourceIdentity.evaluate((element) => (
-    element.firstElementChild?.classList.contains("stock-logo")
-    && element.firstElementChild?.nextElementSibling?.tagName === "STRONG"
-  ))).toBe(true);
   const remoteLevelsToggle = commentaryPanel.getByRole("button", { name: "지지·저항 분석 레이어 리모컨 끄기" });
   await expect(remoteLevelsToggle).toHaveAttribute("aria-pressed", "true");
   await remoteLevelsToggle.click();
@@ -267,6 +260,20 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(newsReference).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".chart-event-popover")).toHaveCount(0);
   await expect(chart.locator("[data-chart-event-id^='news:NVDA:']")).toBeVisible();
+});
+
+test("chart commentary source shows the company logo before symbol and interval", async ({ page }, testInfo) => {
+  await page.goto("/?symbol=NVDA");
+  const commentarySource = page.locator(".chart-commentary-source");
+  const commentarySourceIdentity = commentarySource.locator(".chart-commentary-source-identity");
+
+  await expect(commentarySourceIdentity.locator(".stock-logo")).toBeVisible();
+  await expect(commentarySourceIdentity).toHaveText(/NVDA · 1D/);
+  await expect.poll(() => commentarySourceIdentity.evaluate((element) => (
+    element.firstElementChild?.classList.contains("stock-logo")
+    && element.firstElementChild?.nextElementSibling?.tagName === "STRONG"
+  ))).toBe(true);
+  await commentarySource.screenshot({ path: testInfo.outputPath("chart-commentary-source-logo.png") });
 });
 
 test("five analysis layers commentary references center before opening", async ({ page }) => {

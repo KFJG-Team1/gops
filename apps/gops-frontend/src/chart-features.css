@@ -430,6 +430,18 @@
   padding: 9px 12px;
 }
 
+.chart-commentary-source-identity {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.chart-commentary-source-logo {
+  flex: 0 0 22px;
+}
+
 .chart-commentary-source strong {
   flex: 0 1 auto;
   overflow: hidden;
