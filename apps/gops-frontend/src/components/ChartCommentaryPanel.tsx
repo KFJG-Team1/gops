@@ -50,6 +50,7 @@ import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } fro
 import { usePortfolioHoldingsData } from "./PortfolioHoldingsPanel";
 import type { PortfolioPosition } from "./portfolioHoldingsApi";
 import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
+import { StockLogo } from "./StockLogo";
 
 type ChartCommentaryPanelProps = {
   chartDocumentId?: string;
@@ -172,7 +173,10 @@ export function ChartCommentaryPanel({
   return (
     <article className="chart-commentary-shell">
       <header className="chart-commentary-source">
-        <strong>{normalizedSymbol} · {interval}</strong>
+        <span className="chart-commentary-source-identity">
+          <StockLogo symbol={normalizedSymbol} size="xs" className="chart-commentary-source-logo" />
+          <strong>{normalizedSymbol} · {interval}</strong>
+        </span>
         <span className="chart-commentary-source-meta">{freshnessLabel}{displayedAsOf ? ` · ${formatAnalysisAssetAsOf(displayedAsOf)}` : ""}</span>
         {chartOptions.length > 1 && <button type="button" className={chartSelectionActive ? "is-active" : ""} aria-pressed={chartSelectionActive} onClick={onChartSelectionToggle}>연결</button>}
         {hasConversation && <button

@@ -262,6 +262,38 @@ test("five analysis layers render independently with commentary focus and cards"
   await expect(chart.locator("[data-chart-event-id^='news:NVDA:']")).toBeVisible();
 });
 
+test("chart commentary source shows the company logo before symbol and interval", async ({ page }, testInfo) => {
+  await page.goto("/?symbol=NVDA");
+  const commentarySource = page.locator(".chart-commentary-source");
+  const commentarySourceIdentity = commentarySource.locator(".chart-commentary-source-identity");
+
+  await expect(commentarySourceIdentity.locator(".stock-logo")).toBeVisible();
+  await expect(commentarySourceIdentity).toHaveText(/NVDA · 1D/);
+  await expect.poll(() => commentarySourceIdentity.evaluate((element) => (
+    element.firstElementChild?.classList.contains("stock-logo")
+    && element.firstElementChild?.nextElementSibling?.tagName === "STRONG"
+  ))).toBe(true);
+  await commentarySource.screenshot({ path: testInfo.outputPath("chart-commentary-source-logo.png") });
+});
+
+test("chart commentary holding headers use bold primary text", async ({ page }, testInfo) => {
+  await page.goto("/?symbol=NVDA");
+  const holdingSummary = page.getByLabel("실계좌 보유 현황");
+  const headers = holdingSummary.getByRole("columnheader");
+  const primaryTextColor = await page.locator(".chart-commentary-source strong").evaluate((element) => getComputedStyle(element).color);
+
+  await expect(headers).toHaveText(["보유 상태", "평균 매입가", "보유 수량"]);
+  await expect.poll(() => headers.evaluateAll((elements) => elements.map((element) => ({
+    color: getComputedStyle(element).color,
+    weight: getComputedStyle(element).fontWeight
+  })))).toEqual([
+    { color: primaryTextColor, weight: "700" },
+    { color: primaryTextColor, weight: "700" },
+    { color: primaryTextColor, weight: "700" }
+  ]);
+  await holdingSummary.screenshot({ path: testInfo.outputPath("chart-commentary-holding-headers.png") });
+});
+
 test("five analysis layers commentary references center before opening", async ({ page }) => {
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel");
@@ -733,7 +765,7 @@ test("average purchase price marker stays in the right-side scale lane", async (
   showPaperHolding = true;
   await page.goto("/?symbol=NVDA");
   const chart = page.locator(".chart-panel").first();
-  const marker = chart.locator(".chart-holding-price-marker");
+  const marker = chart.getByRole("button", { name: /NVDA 평균 매입가 \$164\.80 · 18주 주문창에 적용/ });
   await expect(marker).toBeVisible();
   await expect(marker).toHaveCSS("left", /px/);
   await expect(marker).toHaveCSS("width", /px/);
@@ -753,6 +785,19 @@ test("average purchase price marker stays in the right-side scale lane", async (
   await expect(tooltip).toBeVisible();
   await expect(tooltip).toHaveCSS("opacity", "1");
   await chart.screenshot({ path: testInfo.outputPath("average-purchase-price-marker.png") });
+});
+
+test("price axis average purchase price fills the order panel without changing quantity", async ({ page }) => {
+  showPaperHolding = true;
+  await page.goto("/?symbol=NVDA");
+  const chart = page.locator(".chart-panel").first();
+  const marker = chart.getByRole("button", { name: /NVDA 평균 매입가 \$164\.80 · 18주 주문창에 적용/ });
+
+  await marker.press("Enter");
+
+  const quickOrder = page.locator(".quick-order-panel");
+  await expect(quickOrder.getByLabel("빠른 주문 가격 직접 입력")).toHaveValue("164.80");
+  await expect(quickOrder.getByLabel("주문 수량 직접 입력")).toHaveValue("3");
 });
 
 test("pattern symbol panel filters active patterns and opens the matching chart interval", async ({ page }) => {
