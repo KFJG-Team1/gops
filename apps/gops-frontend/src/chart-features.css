@@ -597,9 +597,9 @@
 .chart-commentary-holding th {
   border-bottom: 1px solid var(--color-border);
   background: var(--coinbase-panel-muted);
-  color: var(--color-muted);
+  color: var(--color-text);
   font: var(--type-caption);
-  font-weight: 500;
+  font-weight: 700;
 }
 
 .chart-commentary-holding td {

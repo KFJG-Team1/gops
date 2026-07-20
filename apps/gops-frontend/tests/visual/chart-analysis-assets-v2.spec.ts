@@ -276,9 +276,10 @@ test("chart commentary source shows the company logo before symbol and interval"
   await commentarySource.screenshot({ path: testInfo.outputPath("chart-commentary-source-logo.png") });
 });
 
-test("chart commentary holding headers use bold primary text", async ({ page }) => {
+test("chart commentary holding headers use bold primary text", async ({ page }, testInfo) => {
   await page.goto("/?symbol=NVDA");
-  const headers = page.getByLabel("실계좌 보유 현황").getByRole("columnheader");
+  const holdingSummary = page.getByLabel("실계좌 보유 현황");
+  const headers = holdingSummary.getByRole("columnheader");
   const primaryTextColor = await page.locator(".chart-commentary-source strong").evaluate((element) => getComputedStyle(element).color);
 
   await expect(headers).toHaveText(["보유 상태", "평균 매입가", "보유 수량"]);
@@ -290,6 +291,7 @@ test("chart commentary holding headers use bold primary text", async ({ page }) 
     { color: primaryTextColor, weight: "700" },
     { color: primaryTextColor, weight: "700" }
   ]);
+  await holdingSummary.screenshot({ path: testInfo.outputPath("chart-commentary-holding-headers.png") });
 });
 
 test("five analysis layers commentary references center before opening", async ({ page }) => {
