@@ -32,7 +32,13 @@ export type OrderFlowDemoContext = {
 };
 
 const symbolsCache = new Map<string, OrderFlowSymbolsResponse>();
-const intradayCache = new Map<string, { expiresAt: number; promise: Promise<OrderFlowIntradayResponseDto> }>();
+type IntradayCacheEntry = {
+  expiresAt: number;
+  pending: boolean;
+  promise: Promise<OrderFlowIntradayResponseDto>;
+};
+
+const intradayCache = new Map<string, IntradayCacheEntry>();
 const intradayCacheTtlMs = 5_000;
 const intradayCacheMaxEntries = 32;
 const orderFlowDemoBuildEnabled = typeof import.meta.env !== "undefined" && import.meta.env.DEV === true;
@@ -79,29 +85,46 @@ export async function fetchOrderFlowDaily(
 export async function fetchOrderFlowIntraday(
   symbol: string,
   signal?: AbortSignal,
-  demoAnchor?: OrderFlowDemoAnchor
+  demoAnchor?: OrderFlowDemoAnchor,
+  windowMinutes?: number | "session"
 ): Promise<OrderFlowIntradayResponseDto> {
   if (isOrderFlowDemoRuntimeEnabled()) {
     const demo = await import("./orderFlowDemoData");
     return demo.fetchDemoOrderFlowIntraday(symbol, demoAnchor);
   }
   const normalizedSymbol = symbol.trim().toUpperCase();
-  const cacheKey = `${orderFlowRuntimeIdentity()}|${normalizedSymbol}`;
+  const normalizedWindow = windowMinutes === "session"
+    ? "session"
+    : typeof windowMinutes === "number" && Number.isFinite(windowMinutes)
+      ? String(Math.max(1, Math.min(390, Math.round(windowMinutes))))
+      : "all";
+  const cacheKey = `${orderFlowRuntimeIdentity()}|${normalizedSymbol}|${normalizedWindow}`;
   const now = Date.now();
   pruneIntradayCache(now);
   let entry = intradayCache.get(cacheKey);
-  if (!entry || entry.expiresAt <= now) {
+  if (!entry || (!entry.pending && entry.expiresAt <= now)) {
     const params = new URLSearchParams({ symbol: normalizedSymbol });
+    if (normalizedWindow !== "session" && normalizedWindow !== "all") {
+      params.set("windowMinutes", normalizedWindow);
+    }
     let promise: Promise<OrderFlowIntradayResponseDto>;
-    promise = fetchJson(`/api/charts/order-flow/intraday?${params.toString()}`)
+    promise = fetchIntradayWithColdProjectionRetry(`/api/charts/order-flow/intraday?${params.toString()}`)
       .then(normalizeIntradayResponse)
+      .then((response) => {
+        const current = intradayCache.get(cacheKey);
+        if (current?.promise === promise) {
+          current.pending = false;
+          current.expiresAt = Date.now() + intradayCacheTtlMs;
+        }
+        return response;
+      })
       .catch((error) => {
         if (intradayCache.get(cacheKey)?.promise === promise) {
           intradayCache.delete(cacheKey);
         }
         throw error;
       });
-    entry = { expiresAt: now + intradayCacheTtlMs, promise };
+    entry = { expiresAt: now + intradayCacheTtlMs, pending: true, promise };
     intradayCache.set(cacheKey, entry);
     while (intradayCache.size > intradayCacheMaxEntries) {
       const oldest = intradayCache.keys().next().value;
@@ -137,7 +160,7 @@ function orderFlowRuntimeIdentity(): string {
 
 function pruneIntradayCache(now: number): void {
   intradayCache.forEach((entry, key) => {
-    if (entry.expiresAt <= now) {
+    if (!entry.pending && entry.expiresAt <= now) {
       intradayCache.delete(key);
     }
   });
@@ -224,6 +247,18 @@ async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown> {
     throw new ChartApiError(`Order flow API failed: ${response.status}`, response.status);
   }
   return response.json();
+}
+
+async function fetchIntradayWithColdProjectionRetry(url: string): Promise<unknown> {
+  try {
+    return await fetchJson(url);
+  } catch (error) {
+    if (!(error instanceof ChartApiError) || !error.retryable) {
+      throw error;
+    }
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 750));
+    return fetchJson(url);
+  }
 }
 
 function normalizeSymbolsResponse(payload: unknown): OrderFlowSymbolsResponse {

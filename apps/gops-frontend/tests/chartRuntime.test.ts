@@ -147,7 +147,12 @@ import {
   type DrawingEntity,
   type VolumeProfileResponseDto
 } from "../src/chart/types";
-import { fetchOrderFlowSymbols, orderFlowDemoContextFromCandles } from "../src/chart/orderFlowClient";
+import {
+  clearOrderFlowCaches,
+  fetchOrderFlowIntraday,
+  fetchOrderFlowSymbols,
+  orderFlowDemoContextFromCandles
+} from "../src/chart/orderFlowClient";
 import { fetchDemoOrderFlowIntraday } from "../src/chart/orderFlowDemoData";
 import {
   autoOrderFlowTargetRows,
@@ -2625,6 +2630,77 @@ try {
   globalThis.fetch = originalFetch;
 }
 
+clearOrderFlowCaches();
+let orderFlowIntradayFetchCalls = 0;
+const orderFlowIntradayUrls: string[] = [];
+try {
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    orderFlowIntradayFetchCalls += 1;
+    orderFlowIntradayUrls.push(String(input));
+    if (orderFlowIntradayFetchCalls === 1) {
+      return { ok: false, status: 503, json: async () => ({}) } as Response;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        symbol: "NVDA",
+        sessionDate: "2026-07-14",
+        priceBinSize: 0.01,
+        dataStatus: "ready",
+        minutes: [],
+        liveQuote: null
+      })
+    } as Response;
+  }) as typeof fetch;
+
+  const intraday = await fetchOrderFlowIntraday("NVDA", undefined, undefined, 10);
+
+  assert.equal(intraday.symbol, "NVDA");
+  assert.equal(orderFlowIntradayFetchCalls, 2);
+  assert.ok(orderFlowIntradayUrls.every((url) => url.includes("windowMinutes=10")));
+} finally {
+  globalThis.fetch = originalFetch;
+  clearOrderFlowCaches();
+}
+
+clearOrderFlowCaches();
+const originalDateNow = Date.now;
+let cacheClock = 1_000;
+let resolveIntradayFetch: ((response: Response) => void) | undefined;
+let inFlightIntradayCalls = 0;
+try {
+  Date.now = () => cacheClock;
+  globalThis.fetch = (() => {
+    inFlightIntradayCalls += 1;
+    return new Promise<Response>((resolve) => {
+      resolveIntradayFetch = resolve;
+    });
+  }) as typeof fetch;
+
+  const firstInFlight = fetchOrderFlowIntraday("AMD", undefined, undefined, 60);
+  cacheClock += 6_000;
+  const secondInFlight = fetchOrderFlowIntraday("AMD", undefined, undefined, 60);
+  assert.equal(inFlightIntradayCalls, 1);
+  resolveIntradayFetch?.({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      symbol: "AMD",
+      sessionDate: "2026-07-14",
+      priceBinSize: 0.01,
+      dataStatus: "empty",
+      minutes: [],
+      liveQuote: null
+    })
+  } as Response);
+  assert.strictEqual(await firstInFlight, await secondInFlight);
+} finally {
+  Date.now = originalDateNow;
+  globalThis.fetch = originalFetch;
+  clearOrderFlowCaches();
+}
+
 assert.equal(
   stableVolumeProfileRangeKey({
     symbol: "nvda",
@@ -4654,7 +4730,7 @@ assert.doesNotMatch(chartPanelSource, /fetchOrderFlowDaily|orderFlowDaily|visibl
 assert.match(chartPanelSource, /orderFlow: orderFlowActive \? \{[\s\S]*minutes: orderFlowToday[\s\S]*\} : null/);
 assert.match(chartPanelSource, /chart\.chartType === "bidask" && isBidAskChartInterval\(chart\.interval\)/);
 assert.match(chartPanelSource, /orderFlowDemoContextFromCandles\(chart\.candles, chart\.interval\)/);
-assert.match(chartPanelSource, /fetchOrderFlowIntraday\(chart\.symbol, controller\.signal, orderFlowDemoAnchor\)/);
+assert.match(chartPanelSource, /fetchOrderFlowIntraday\([\s\S]*chart\.symbol,[\s\S]*orderFlowWindowMinutesForInterval\(chart\.interval\)[\s\S]*\)/);
 assert.doesNotMatch(chartPanelSource, /\}, \[\s*chart\.interval,\s*chart\.symbol,\s*orderFlowActive/);
 assert.doesNotMatch(chartPanelSource, /setInterval\([\s\S]{0,240}fetchCandles/);
 assert.match(chartPanelSource, /toggleAgentSemanticUnitSelection/);

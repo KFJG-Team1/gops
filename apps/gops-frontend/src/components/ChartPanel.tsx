@@ -194,7 +194,7 @@ import {
   orderFlowDemoContextFromCandles,
   subscribeOrderFlowDemoTicks
 } from "../chart/orderFlowClient";
-import { replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowMinuteDto } from "../chart/orderFlow";
+import { orderFlowWindowMinutesForInterval, replaceOrderFlowMinute, sessionDateFromTimestamp, type OrderFlowMinuteDto } from "../chart/orderFlow";
 import { activeBelowPaneIds, chartPriceAxisPoint, createCoordinateTransform, formatPriceAxisValue, getPaneRatio, hitTestSemanticNode, hitTestTimeAxisUnit, isChartRightAxisPoint, priceAxisLabelWidth, priceToY, unitBoundsX, viewportAnchorRatioAtX, type ChartScene } from "../chart/scene";
 import {
   viewportCenteredOnLogicalIndex,
@@ -2095,7 +2095,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       setOrderFlowPriceBinSize(normalizeOrderFlowPriceBinSize(event.data.priceBinSize));
       setOrderFlowToday((current) => replaceOrderFlowMinute(current, event.data, previousSessionDate));
     };
-    fetchOrderFlowIntraday(chart.symbol, controller.signal, orderFlowDemoAnchor)
+    fetchOrderFlowIntraday(
+      chart.symbol,
+      controller.signal,
+      orderFlowDemoAnchor,
+      orderFlowWindowMinutesForInterval(chart.interval)
+    )
       .then((response) => {
         if (
           controller.signal.aborted ||

@@ -65,6 +65,7 @@ export function OrderFlowPanel({
   const scheduleDrawRef = useRef<(() => void) | null>(null);
   const wheelAccumulatorRef = useRef(0);
   const feedbackTimerRef = useRef<number | null>(null);
+  const snapshotSymbolRef = useRef("");
   const resolutionMetricsRef = useRef({
     autoRows: 12,
     maxRows: 12,
@@ -215,9 +216,21 @@ export function OrderFlowPanel({
       return;
     }
     const controller = new AbortController();
+    if (snapshotSymbolRef.current !== normalizedSymbol) {
+      snapshotSymbolRef.current = normalizedSymbol;
+      setMinutes(new Map());
+      setLiveSessionDate("");
+      liveSessionDateRef.current = "";
+      setLiveQuote(null);
+    }
     setLoadState("loading");
     setInitialSnapshotSettled(false);
-    fetchOrderFlowIntraday(normalizedSymbol, controller.signal)
+    fetchOrderFlowIntraday(
+      normalizedSymbol,
+      controller.signal,
+      undefined,
+      windowToMinuteCount(windowKey)
+    )
       .then((response) => {
         if (controller.signal.aborted) {
           return;
@@ -230,8 +243,6 @@ export function OrderFlowPanel({
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setMinutes(new Map());
-          setLiveQuote(null);
           setLoadState("error");
         }
       })
@@ -241,7 +252,7 @@ export function OrderFlowPanel({
         }
       });
     return () => controller.abort();
-  }, [normalizedSymbol, supported, symbolsLoading]);
+  }, [normalizedSymbol, supported, symbolsLoading, windowKey]);
 
   useEffect(() => {
     if (!normalizedSymbol || !supported || !initialSnapshotSettled) {
