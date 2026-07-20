@@ -12,7 +12,7 @@ import {
 import { useAuth } from "./auth/AuthProvider";
 import { submitAlertCommand } from "./alerts/alertApi";
 import { PresetDock } from "./components/PresetDock";
-import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migrateCompanyComparePanelSnapshot, migratePortfolioInvestmentSnapshot, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
+import { applyLayoutLoadProposalToPresets, buildAgentLayoutPresetSummaries, buildPresetLayout, directAgentPresetIdForPrompt, ensurePortfolioInvestedPanelState, isLikelyPresetLoadPrompt, migrateCompanyComparePanelSnapshot, migratePortfolioInvestmentSnapshot, type LayoutLoadPresetResult, type LayoutPreset } from "./layout/layoutPresets";
 import { useLayoutPresets } from "./layout/useLayoutPresets";
 import {
   chartRuntimeReducer,
@@ -1295,6 +1295,16 @@ export function App() {
     if (!canUseAgent) {
       showAgentNotice(authLoading ? "계정 상태를 확인한 뒤 다시 시도해주세요." : "로그인 후 Agent를 사용할 수 있습니다.", "error");
       return "notice";
+    }
+    const directPresetId = directAgentPresetIdForPrompt(prompt);
+    if (directPresetId) {
+      if (!presetControls.presets.some((preset) => preset.id === directPresetId)) {
+        showAgentNotice("추천종목 프리셋을 찾지 못했습니다.", "error");
+        return "notice";
+      }
+      presetControls.applyPreset(directPresetId);
+      showAgentNotice("추천종목 화면을 열었습니다.");
+      return "ui-action";
     }
     const tradeAutomationIntent = resolveTradeAutomationCommandIntent(prompt);
     if (tradeAutomationIntent.status === "missing_price" && !chartPriceSelection) {

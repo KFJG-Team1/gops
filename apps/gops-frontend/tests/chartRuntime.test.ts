@@ -211,6 +211,7 @@ import {
   applyLayoutLoadProposalToPresets,
   buildAgentLayoutPresetSummaries,
   buildPresetLayout,
+  directAgentPresetIdForPrompt,
   isLikelyPresetLoadPrompt
 } from "../src/layout/layoutPresets";
 import { createMainViewUrl, resolveMainViewFromUrl } from "../src/navigation/mainViewUrl";
@@ -4317,10 +4318,14 @@ assert.match(appSource, /chartTargetSymbol/);
 assert.match(appSource, /isInternalLayoutRationale/);
 assert.match(appSource, /ui_clarify/);
 assert.match(appSource, /isLikelyPresetLoadPrompt\(prompt, agentPresetSummaries\)/);
+assert.match(appSource, /directAgentPresetIdForPrompt\(prompt\)/);
 assert.doesNotMatch(appSource, /showPresetApplyFeedback/);
 assert.match(appSource, /return presetLoadStatus === "applied" \? "ui-action" : "notice";/);
 const agentShortcutIndex = appSource.indexOf("resolveAgentChartShortcut(prompt)");
 const presetShortcutIndex = appSource.indexOf("isLikelyPresetLoadPrompt(prompt, agentPresetSummaries)");
+const directPresetShortcutIndex = appSource.indexOf("directAgentPresetIdForPrompt(prompt)");
+assert.ok(directPresetShortcutIndex > -1);
+assert.ok(directPresetShortcutIndex < presetShortcutIndex);
 assert.ok(presetShortcutIndex > -1);
 assert.ok(presetShortcutIndex < agentShortcutIndex);
 assert.ok(agentShortcutIndex >= 0);
@@ -5047,6 +5052,9 @@ assert.equal(isLikelyPresetLoadPrompt("시장분석 프리셋 띄워줘", preset
 assert.equal(isLikelyPresetLoadPrompt("시장분석 보여줘", presetSummaries), true);
 assert.equal(isLikelyPresetLoadPrompt("시장분석창 보여줘", presetSummaries), true);
 assert.equal(isLikelyPresetLoadPrompt("오늘의 추천 종목 보여줘", presetSummaries), true);
+assert.equal(directAgentPresetIdForPrompt("오늘의 추천 종목 보여줘."), "market");
+assert.equal(directAgentPresetIdForPrompt("오늘의 추천 종목 보여줘!"), "market");
+assert.equal(directAgentPresetIdForPrompt("추천종목 페이지 열어줘"), null);
 assert.equal(isLikelyPresetLoadPrompt("추천종목 페이지 열어줘", presetSummaries), true);
 assert.equal(isLikelyPresetLoadPrompt("내 입맛 화면으로 바꿔줘", presetSummaries), true);
 assert.equal(isLikelyPresetLoadPrompt("장전 체크 대시보드 열어줘", presetSummaries), true);
