@@ -514,6 +514,7 @@ assert.match(commentarySource, /holdingsLoading=\{simulationActive \? false : ho
 assert.match(commentarySource, /<HoldingSummary/);
 assert.match(commentarySource, /aria-label="실계좌 보유 현황"/);
 assert.match(commentarySource, /<th>보유 상태<\/th><th>평균 매입가<\/th><th>보유 수량<\/th>/);
+assert.match(chartFeatureStylesSource, /\.chart-commentary-holding th \{[^}]*color: var\(--color-text\);[^}]*font-weight: 700;[^}]*\}/);
 assert.match(commentarySource, /buildChartCommentaryViewModel\(diagnostics\.resolvedAsset, setup, currentPrice\)/);
 assert.match(commentarySource, /ConversationView/);
 assert.match(semanticCatalogSource, /하락 채널 상단 돌파/);
