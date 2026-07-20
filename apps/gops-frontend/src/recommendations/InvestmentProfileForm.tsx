@@ -12,7 +12,7 @@ import {
 
 const defaultProfile: InvestmentProfile = {
   riskLevel: "balanced",
-  recommendationStyle: "balanced",
+  recommendationStyle: "stable",
   horizon: "intraday",
   maxDrawdownPct: 6,
   preferredSectors: [],

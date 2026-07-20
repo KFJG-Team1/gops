@@ -589,7 +589,7 @@ function normalizeReason(value: unknown): RecommendationReason | null {
 function normalizeProfile(value: unknown): InvestmentProfile | null {
   const source = asRecord(value);
   const riskLevel = asString(source.riskLevel ?? source.risk_level) as RiskLevel | undefined;
-  const recommendationStyle = (asString(source.recommendationStyle ?? source.recommendation_style) || "balanced") as RecommendationStyle;
+  const recommendationStyle = (asString(source.recommendationStyle ?? source.recommendation_style) || "stable") as RecommendationStyle;
   const maxDrawdownPct = asNumber(source.maxDrawdownPct ?? source.max_drawdown_pct);
   if (!riskLevel || !["conservative", "balanced", "aggressive"].includes(riskLevel) || !["momentum", "balanced", "stable"].includes(recommendationStyle) || !maxDrawdownPct) {
     return null;
@@ -612,7 +612,7 @@ function normalizeScoreProfilesPayload(value: unknown): ScoreProfilesPayload {
   const source = asRecord(value);
   const presets = Array.isArray(source.presets) ? source.presets.map(normalizeScoreProfile).filter(isScoreProfile) : [];
   const customProfiles = Array.isArray(source.customProfiles) ? source.customProfiles.map(normalizeScoreProfile).filter(isScoreProfile) : [];
-  const active = normalizeScoreProfile(source.active) ?? presets.find((item) => item.presetStyle === "balanced");
+  const active = normalizeScoreProfile(source.active) ?? presets.find((item) => item.presetStyle === "stable");
   if (!active) throw new RecommendationApiError(500, "점수 프로필 목록을 읽지 못했습니다.");
   return {
     schemaVersion: "recommendation-score-profile.v1",
