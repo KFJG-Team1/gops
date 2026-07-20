@@ -4,8 +4,11 @@ import type {
   GeometryLevel,
   GeometryPattern,
   GeometryPatternKind,
-  GeometryTradePlan
+  GeometryTradePlan,
+  GeometryTraceCandidate,
+  GeometryTracePivot
 } from "./analysisAssetsApi";
+import { buildAnalysisTraceOverlay } from "./analysisTraceOverlay";
 import type { CandleDto, DrawingEntity } from "./types";
 
 const bullishPatternKinds = new Set<GeometryPatternKind>([
@@ -35,13 +38,20 @@ const defaultProjectionBars = 10;
 export type ChartTradeSetupPriceSource = {
   label: string;
   drawingIds: string[];
-  derivation: "pattern_boundary" | "pattern_measure" | "level";
+  derivation: "pattern_boundary" | "pattern_measure" | "level" | "channel" | "trend" | "trace_level" | "pivot";
+};
+
+export type ChartTradeSetupReferenceGuide = {
+  id: string;
+  price: number;
+  label: string;
 };
 
 export type ChartTradeSetup = {
   version: "chart-trade-setup-v1";
   action: "buy_candidate" | "sell_candidate";
   sourceKind: "confirmed" | "conditional";
+  evidenceKind: "final" | "reference";
   sourceInterval: AnalysisAssetInterval;
   entryPrice: number;
   entryTrigger: number;
@@ -60,6 +70,7 @@ export type ChartTradeSetup = {
     target: ChartTradeSetupPriceSource;
     stop: ChartTradeSetupPriceSource;
   };
+  referenceGuides: ChartTradeSetupReferenceGuide[];
   assetIdentity: {
     algorithmVersion: string;
     inputDigest: string;
@@ -80,6 +91,16 @@ type LevelDrawingSource = {
   price: number;
 };
 
+type PriceEvidence = {
+  id: string;
+  price: number;
+  label: string;
+  drawingIds: string[];
+  derivation: ChartTradeSetupPriceSource["derivation"];
+  final: boolean;
+  guide?: ChartTradeSetupReferenceGuide;
+};
+
 export function projectChartTradeSetup(
   asset: ChartAnalysisAsset | null,
   candles: CandleDto[],
@@ -92,7 +113,9 @@ export function projectChartTradeSetup(
   if (!latest || !positive(latest.close) || asOfIndex < 0) return null;
 
   return patternSetup(asset, candles, latest.close, asOfIndex)
-    ?? levelSetup(asset, latest.close, latestLogicalIndex);
+    ?? levelSetup(asset, latest.close, latestLogicalIndex)
+    ?? channelSetup(asset, candles, latest.close, latestLogicalIndex)
+    ?? referenceSetup(asset, candles, latest.close, latestLogicalIndex);
 }
 
 function patternSetup(
@@ -104,8 +127,8 @@ function patternSetup(
   const pattern = primaryPattern(asset);
   if (!pattern || (pattern.state !== "forming" && pattern.state !== "confirmed")) return null;
   const action = patternAction(pattern);
-  const patternDrawings = action ? finalPatternDrawings(asset, pattern) : null;
-  if (!action || !patternDrawings) return null;
+  const patternDrawings = action === "buy_candidate" ? finalPatternDrawings(asset, pattern) : null;
+  if (action !== "buy_candidate" || !patternDrawings) return null;
 
   let sourceKind: ChartTradeSetup["sourceKind"];
   let signalIndex: number;
@@ -153,6 +176,7 @@ function patternSetup(
     version: "chart-trade-setup-v1",
     action,
     sourceKind,
+    evidenceKind: "final",
     sourceInterval: asset.interval,
     entryPrice: roundedEntry,
     entryTrigger: roundedEntry,
@@ -181,6 +205,7 @@ function patternSetup(
         "pattern_boundary"
       )
     },
+    referenceGuides: [],
     assetIdentity: identityFromAsset(asset)
   };
 }
@@ -197,48 +222,38 @@ function levelSetup(
     .filter((item) => item.price > currentPrice)
     .sort((left, right) => left.price - right.price || left.drawing.id.localeCompare(right.drawing.id));
 
-  const candidates: ChartTradeSetup[] = [];
   if (supports.length >= 1 && resistances.length >= 2) {
-    candidates.push(levelScenario(asset, "buy_candidate", latestLogicalIndex, {
-      entry: resistances[0], target: resistances[1], stop: supports[0]
-    }));
+    const candidate = evidenceScenario(asset, latestLogicalIndex, {
+      entry: finalEvidence(resistances[0], "저항선"),
+      target: finalEvidence(resistances[1], "다음 저항선"),
+      stop: finalEvidence(supports[0], "지지선")
+    }, "prices_from_selected_h_lines");
+    return validScenarioPrices(
+      candidate.action, candidate.sourceKind, currentPrice,
+      candidate.entryPrice, candidate.targetPrice, candidate.stopPrice
+    ) ? candidate : null;
   }
-  if (supports.length >= 2 && resistances.length >= 1) {
-    candidates.push(levelScenario(asset, "sell_candidate", latestLogicalIndex, {
-      entry: supports[0], target: supports[1], stop: resistances[0]
-    }));
-  }
-  return candidates
-    .filter((candidate) => validScenarioPrices(
-      candidate.action,
-      candidate.sourceKind,
-      currentPrice,
-      candidate.entryPrice,
-      candidate.targetPrice,
-      candidate.stopPrice
-    ))
-    .sort((left, right) => (
-      Math.abs(left.entryPrice - currentPrice) - Math.abs(right.entryPrice - currentPrice)
-      || left.action.localeCompare(right.action)
-      || left.patternId.localeCompare(right.patternId)
-    ))[0] ?? null;
+  return null;
 }
 
-function levelScenario(
+function evidenceScenario(
   asset: ChartAnalysisAsset,
-  action: ChartTradeSetup["action"],
   latestLogicalIndex: number,
-  levels: { entry: LevelDrawingSource; target: LevelDrawingSource; stop: LevelDrawingSource }
+  levels: { entry: PriceEvidence; target: PriceEvidence; stop: PriceEvidence },
+  reason: string
 ): ChartTradeSetup {
   const entryPrice = rounded(levels.entry.price);
   const targetPrice = rounded(levels.target.price);
   const stopPrice = rounded(levels.stop.price);
-  const ids = [levels.entry.drawing.id, levels.target.drawing.id, levels.stop.drawing.id];
+  const ids = [levels.entry.id, levels.target.id, levels.stop.id];
   const patternId = `levels:${ids.join("|")}`;
+  const referenceGuides = [levels.entry, levels.target, levels.stop]
+    .flatMap((item) => item.guide ? [item.guide] : []);
   return {
     version: "chart-trade-setup-v1",
-    action,
+    action: "buy_candidate",
     sourceKind: "conditional",
+    evidenceKind: referenceGuides.length ? "reference" : "final",
     sourceInterval: asset.interval,
     entryPrice,
     entryTrigger: entryPrice,
@@ -250,15 +265,234 @@ function levelScenario(
     patternId,
     patternKind: null,
     projectionBars: defaultProjectionBars,
-    reasons: ["prices_from_selected_h_lines"],
-    drawingIds: setupDrawingIds(asset, patternId, "conditional", action),
+    reasons: [reason],
+    drawingIds: setupDrawingIds(asset, patternId, "conditional", "buy_candidate"),
     priceSources: {
-      entry: source(action === "buy_candidate" ? "저항선" : "지지선", [levels.entry.drawing.id], "level"),
-      target: source(action === "buy_candidate" ? "다음 저항선" : "다음 지지선", [levels.target.drawing.id], "level"),
-      stop: source(action === "buy_candidate" ? "지지선" : "저항선", [levels.stop.drawing.id], "level")
+      entry: source(levels.entry.label, levels.entry.drawingIds, levels.entry.derivation),
+      target: source(levels.target.label, levels.target.drawingIds, levels.target.derivation),
+      stop: source(levels.stop.label, levels.stop.drawingIds, levels.stop.derivation)
     },
+    referenceGuides,
     assetIdentity: identityFromAsset(asset)
   };
+}
+
+function channelSetup(
+  asset: ChartAnalysisAsset,
+  candles: CandleDto[],
+  currentPrice: number,
+  latestLogicalIndex: number
+): ChartTradeSetup | null {
+  const trend = asset.geometry.primaryTrend;
+  if (!trend || trend.kind !== "channel" || trend.activeInvalidation === true || trend.invalidation) return null;
+  const drawing = asset.geometry.drawings.find((candidate) => (
+    candidate.id === trend.drawingId
+    && candidate.type === "trendParallelLines"
+    && candidate.anchors.length >= 3
+  ));
+  if (!drawing) return null;
+  const base = linePriceAt(drawing, candles, latestLogicalIndex, asset.interval);
+  const offsetAnchor = drawing.anchors[2];
+  const offsetIndex = anchorLogicalIndex(offsetAnchor, candles, asset.interval);
+  const baseAtOffset = offsetIndex === null ? null : linePriceAt(drawing, candles, offsetIndex, asset.interval);
+  if (!positive(base) || !positive(offsetAnchor?.price) || !positive(baseAtOffset)) return null;
+  const parallel = base + (offsetAnchor.price - baseAtOffset);
+  const lower = Math.min(base, parallel);
+  const upper = Math.max(base, parallel);
+  const middle = (lower + upper) / 2;
+  if (!(lower < currentPrice && currentPrice <= middle && middle < upper)) return null;
+  const channelEvidence = (price: number, label: string): PriceEvidence => ({
+    id: `${drawing.id}:${label}`,
+    price,
+    label,
+    drawingIds: [drawing.id],
+    derivation: "channel",
+    final: true
+  });
+  const setup = evidenceScenario(asset, latestLogicalIndex, {
+    entry: channelEvidence(middle, "채널 중단"),
+    target: channelEvidence(upper, "채널 상단"),
+    stop: channelEvidence(lower, "채널 하단")
+  }, "prices_from_active_parallel_channel");
+  return validScenarioPrices(
+    setup.action, setup.sourceKind, currentPrice,
+    setup.entryPrice, setup.targetPrice, setup.stopPrice
+  ) ? setup : null;
+}
+
+function referenceSetup(
+  asset: ChartAnalysisAsset,
+  candles: CandleDto[],
+  currentPrice: number,
+  latestLogicalIndex: number
+): ChartTradeSetup | null {
+  const finalSupports = finalLevelDrawings(asset, asset.geometry.supports)
+    .map((item) => finalEvidence(item, "지지선"));
+  const finalResistances = finalLevelDrawings(asset, asset.geometry.resistances)
+    .map((item) => finalEvidence(item, "저항선"));
+  const finalTrends = finalTrendEvidence(asset, candles, latestLogicalIndex);
+  if (!finalSupports.length && !finalResistances.length && !finalTrends.length) return null;
+
+  const trace = asset.geometry.analysisTrace;
+  const interpretationLevelIds = new Set(
+    buildAnalysisTraceOverlay(asset, { visible: true })?.candidates
+      .filter((candidate) => candidate.category === "levels")
+      .map((candidate) => candidate.id) ?? []
+  );
+  const traceLevels = (trace?.levelCandidates ?? [])
+    .filter((candidate) => interpretationLevelIds.has(candidate.id) && eligibleReferenceLevelCandidate(candidate))
+    .map((candidate) => traceCandidateEvidence(asset, candidate))
+    .filter((item): item is PriceEvidence & { role: "support" | "resistance" } => item !== null);
+  const pivots = (trace?.pivots ?? [])
+    .filter((pivot) => pivotIsPointInTime(pivot, asset.asOf))
+    .map((pivot) => pivotEvidence(asset, pivot))
+    .filter((item): item is PriceEvidence & { role: "support" | "resistance" } => item !== null);
+
+  const supports = dedupeEvidence([
+    ...finalSupports.map((item) => ({ ...item, role: "support" as const })),
+    ...finalTrends.filter((item) => item.role === "support"),
+    ...traceLevels.filter((item) => item.role === "support"),
+    ...pivots.filter((item) => item.role === "support")
+  ].filter((item) => item.price < currentPrice))
+    .sort((left, right) => right.price - left.price || evidenceOrder(left, right));
+  const resistances = dedupeEvidence([
+    ...finalResistances.map((item) => ({ ...item, role: "resistance" as const })),
+    ...finalTrends.filter((item) => item.role === "resistance"),
+    ...traceLevels.filter((item) => item.role === "resistance"),
+    ...pivots.filter((item) => item.role === "resistance")
+  ].filter((item) => item.price > currentPrice))
+    .sort((left, right) => left.price - right.price || evidenceOrder(left, right));
+  if (supports.length < 1 || resistances.length < 2) return null;
+  const setup = evidenceScenario(asset, latestLogicalIndex, {
+    entry: { ...resistances[0], label: resistances[0].final ? "저항선" : resistances[0].label },
+    target: { ...resistances[1], label: resistances[1].final ? "다음 저항선" : resistances[1].label },
+    stop: { ...supports[0], label: supports[0].final ? "지지선" : supports[0].label }
+  }, "prices_from_final_and_reference_geometry");
+  const referenceScenario = { ...setup, evidenceKind: "reference" as const };
+  return validScenarioPrices(
+    referenceScenario.action, referenceScenario.sourceKind, currentPrice,
+    referenceScenario.entryPrice, referenceScenario.targetPrice, referenceScenario.stopPrice
+  ) ? referenceScenario : null;
+}
+
+function finalTrendEvidence(
+  asset: ChartAnalysisAsset,
+  candles: CandleDto[],
+  latestLogicalIndex: number
+): Array<PriceEvidence & { role: "support" | "resistance" }> {
+  const trend = asset.geometry.primaryTrend;
+  if (!trend || trend.kind === "channel" || trend.activeInvalidation === true || trend.invalidation) return [];
+  const drawing = asset.geometry.drawings.find((candidate) => (
+    candidate.id === trend.drawingId
+    && candidate.type === "trendLine"
+    && candidate.anchors.length >= 2
+  ));
+  if (!drawing) return [];
+  const price = linePriceAt(drawing, candles, latestLogicalIndex, asset.interval);
+  if (!positive(price)) return [];
+  const role = trend.direction === "up" ? "support" as const : "resistance" as const;
+  return [{
+    id: drawing.id,
+    price,
+    label: role === "support" ? "상승 추세선" : "하락 추세선",
+    role,
+    drawingIds: [drawing.id],
+    derivation: "trend",
+    final: true
+  }];
+}
+
+function finalEvidence(item: LevelDrawingSource, label: string): PriceEvidence {
+  return {
+    id: item.drawing.id,
+    price: item.price,
+    label,
+    drawingIds: [item.drawing.id],
+    derivation: "level",
+    final: true
+  };
+}
+
+function eligibleReferenceLevelCandidate(candidate: GeometryTraceCandidate): boolean {
+  if (candidate.selected || !candidate.hardPass) return false;
+  const role = String(candidate.role ?? "").toLowerCase();
+  if (role !== "support" && role !== "resistance") return false;
+  return !(candidate.rejectReasons ?? []).some((reason) => (
+    /stale|breach|invalid|role.?conflict|break.?pending/i.test(reason)
+  ));
+}
+
+function traceCandidateEvidence(
+  asset: ChartAnalysisAsset,
+  candidate: GeometryTraceCandidate
+): (PriceEvidence & { role: "support" | "resistance" }) | null {
+  const metricPrice = Number(candidate.metrics?.price);
+  const price = positive(metricPrice)
+    ? metricPrice
+    : candidate.anchors?.find((anchor) => positive(anchor.price))?.price;
+  const role = candidate.role === "support" || candidate.role === "resistance" ? candidate.role : null;
+  if (!positive(price) || !role) return null;
+  const guideId = referenceGuideId(asset, `level-${candidate.id}`);
+  const label = role === "support" ? "후보 지지선" : "후보 저항선";
+  return {
+    id: candidate.id,
+    price,
+    label,
+    role,
+    drawingIds: [guideId],
+    derivation: "trace_level",
+    final: false,
+    guide: { id: guideId, price, label }
+  };
+}
+
+function pivotIsPointInTime(pivot: GeometryTracePivot, asOf: string): boolean {
+  const confirmedAt = Date.parse(pivot.confirmedAt ?? pivot.timestamp);
+  const cutoff = Date.parse(asOf);
+  return positive(pivot.price) && Number.isFinite(confirmedAt) && Number.isFinite(cutoff) && confirmedAt <= cutoff;
+}
+
+function pivotEvidence(
+  asset: ChartAnalysisAsset,
+  pivot: GeometryTracePivot
+): (PriceEvidence & { role: "support" | "resistance" }) | null {
+  const kind = String(pivot.kind ?? "").trim().toLowerCase();
+  const descriptor = `${kind} ${pivot.role ?? ""}`.toLowerCase();
+  const role = kind === "h" || /high|resistance|peak/.test(descriptor)
+    ? "resistance" as const
+    : kind === "l" || /low|support|trough/.test(descriptor)
+      ? "support" as const
+      : null;
+  if (!role || !positive(pivot.price)) return null;
+  const guideId = referenceGuideId(asset, `pivot-${pivot.id}`);
+  const label = role === "support" ? "확인된 저점" : "확인된 전고점";
+  return {
+    id: pivot.id,
+    price: pivot.price,
+    label,
+    role,
+    drawingIds: [guideId],
+    derivation: "pivot",
+    final: false,
+    guide: { id: guideId, price: pivot.price, label }
+  };
+}
+
+function referenceGuideId(asset: ChartAnalysisAsset, sourceId: string): string {
+  return `chart-plan:${asset.symbol}:${asset.interval}:reference:${sourceId.replace(/[^0-9A-Za-z:_-]/g, "-")}`;
+}
+
+function dedupeEvidence<T extends PriceEvidence>(items: T[]): T[] {
+  const sorted = [...items].sort((left, right) => (
+    Number(right.final) - Number(left.final) || evidenceOrder(left, right)
+  ));
+  return sorted.filter((item, index) => !sorted.slice(0, index).some((previous) => (
+    Math.abs(previous.price - item.price) <= Math.max(0.000001, item.price * 0.00001)
+  )));
+}
+
+function evidenceOrder(left: PriceEvidence, right: PriceEvidence): number {
+  return Number(right.final) - Number(left.final) || left.id.localeCompare(right.id);
 }
 
 function finalPatternDrawings(asset: ChartAnalysisAsset, pattern: GeometryPattern): PatternDrawingSet | null {

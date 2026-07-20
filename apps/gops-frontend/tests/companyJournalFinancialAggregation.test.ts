@@ -97,6 +97,7 @@ assert.equal(annual[0]?.sharesOutstanding, 5);
 assert.equal(annual[0]?.debtRatio, 0.6);
 assert.equal(annual[0]?.currentRatio, 3);
 assert.equal(annual[0]?.netDebt, 5);
+
 assert.equal(
   totalLiabilitiesFor({ period: "2025FY", totalAssets: 211_429, totalEquity: 114_281 }),
   97_148,
@@ -328,6 +329,7 @@ for (const glossaryId of ["current_ratio", "interest_coverage", "net_debt", "bps
 const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 const journalPanelSource = await readFile(new URL("../src/components/CompanyJournalPanel.tsx", import.meta.url), "utf8");
 const journalSummarySource = await readFile(new URL("../src/components/CompanyJournalSummaryPanel.tsx", import.meta.url), "utf8");
+assert.match(styles, /\.company-journal-body \{[\s\S]*?grid-template-columns: minmax\(0, 2fr\) minmax\(340px, 1fr\)/);
 assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-body[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
 assert.match(styles, /@container \(max-width: 960px\)[\s\S]*?\.company-journal-reading[\s\S]*?overflow: visible/);
 assert.match(styles, /\.company-journal-evidence \{[\s\S]*?overflow-y: auto/);
@@ -368,9 +370,16 @@ assert.match(styles, /::-webkit-scrollbar-thumb[\s\S]*?background-clip: padding-
 assert.match(styles, /\.workspace-panel-frame \.company-journal-panel :is\([\s\S]*?\.company-journal-evidence[\s\S]*?scrollbar-width: thin !important/);
 assert.match(styles, /::-webkit-scrollbar[\s\S]*?display: block !important/);
 assert.doesNotMatch(styles, /scrollbar-color:[^;]*var\(--coinbase-primary\)/);
-assert.match(styles, /\.company-journal-quote \{[\s\S]*?width: 92%;[\s\S]*?max-width: 1200px;[\s\S]*?font-size: clamp\(24px, 1\.65cqw, 30px\)/);
+assert.match(styles, /\.company-journal-quote \{[\s\S]*?width: 96%;[\s\S]*?max-width: 1660px;[\s\S]*?font-size: clamp\(23px, 1\.45cqw, 30px\)/);
+assert.match(styles, /\.company-journal-analyst-opinion \{[\s\S]*?justify-items: start;[\s\S]*?text-align: left/);
+assert.match(styles, /\.company-journal-analyst-opinion h3 \{[\s\S]*?width: 100%;[\s\S]*?justify-self: start;[\s\S]*?text-align: left/);
+assert.match(styles, /\.company-journal-analyst-opinion p \{[\s\S]*?max-width: 100%;[\s\S]*?justify-self: start/);
+assert.match(styles, /\.company-journal-analyst-opinion p \{[\s\S]*?font-size: clamp\(21px, 1\.55cqw, 26px\)/);
+assert.match(styles, /\.company-journal-insight\[data-insight-kind="comparison"\] \.company-journal-insight-tags > button \{[\s\S]*?min-height: 42px;[\s\S]*?font-size: 16px/);
 assert.match(styles, /\.company-journal-tabs button\.is-positive[\s\S]*?var\(--color-up\)/);
 assert.match(styles, /\.company-journal-tabs button\.is-negative[\s\S]*?var\(--color-down\)/);
+assert.match(styles, /\.company-journal-tabs button\.is-appropriate \{ --company-journal-tab-signal: var\(--color-muted\); \}/);
+assert.doesNotMatch(styles, /\.company-journal-tabs button\.is-appropriate[^\n]*var\(--coinbase-primary\)/);
 assert.match(styles, /\.company-journal-insight \{[\s\S]*?--company-journal-insight-tone: var\(--color-muted\)/);
 assert.match(
   styles,
@@ -390,6 +399,9 @@ assert.match(journalPanelSource, /focusedFinancialYear/);
 assert.match(journalPanelSource, /comparisonFinancialYear/);
 assert.match(journalPanelSource, /selectReadingTarget/);
 assert.match(journalPanelSource, /onFinancialSelectionChange=\{clearMetricFocus\}/);
+assert.match(journalPanelSource, /financialPeriodMode: FinancialPeriodMode = activeView === "earnings" \? "quarterly" : "annual"/);
+assert.doesNotMatch(journalPanelSource, /company-journal-period-toggle/);
+assert.doesNotMatch(journalPanelSource, /setFinancialPeriodMode/);
 assert.doesNotMatch(journalPanelSource, /previewEnabled \|\| hasStoredCompanyEvidence/);
 assert.match(journalSummarySource, /data-journal-stability-focus/);
 assert.match(journalSummarySource, /data-journal-financial-metric/);
@@ -398,9 +410,30 @@ assert.match(journalSummarySource, /focus\?\.periods\.includes/);
 assert.match(journalSummarySource, /comparisonPeriod/);
 assert.match(journalSummarySource, /onFinancialSelectionChange\?\.\(\)/);
 assert.match(journalSummarySource, /focusedMetric === "fcf-yield"/);
+assert.match(journalSummarySource, /const barGap = Math\.max\(2, Math\.min\(5, barWidth \* 0\.28\)\)/);
+assert.match(journalSummarySource, /const barStep = barWidth \+ barGap/);
+assert.match(journalSummarySource, /definition\.offset \* barStep - barWidth \/ 2/);
 assert.match(journalSummarySource, /title=\{<GlossaryText text="가치배수 추이" \/>\}/);
 assert.match(journalSummarySource, /<h3><GlossaryText text="현재 가치배수" \/><\/h3>/);
-assert.match(journalSummarySource, /<GlossaryText text="PER · PBR · PSR · FCF Yield" \/>/);
+assert.doesNotMatch(journalSummarySource, /company-historical-valuation-legend/);
+assert.match(journalSummarySource, /aria-label="현재 가치배수 색상 범례"/);
+assert.match(journalSummarySource, /company-valuation-metric-swatch/);
+assert.match(journalSummarySource, /is-\$\{metricKey\}/);
+assert.match(styles, /\.company-valuation-metric-row\.is-per[\s\S]*?--company-valuation-metric-color: var\(--coinbase-primary\)/);
+assert.match(styles, /\.company-valuation-metric-row\.is-pbr[\s\S]*?--company-valuation-metric-color: var\(--company-negative-strong\)/);
+assert.match(styles, /\.company-valuation-metric-row\.is-psr[\s\S]*?--company-valuation-metric-color: var\(--company-positive-strong\)/);
+assert.match(styles, /\.company-valuation-metric-row\.is-fcf-yield[\s\S]*?--company-valuation-metric-color: var\(--company-brass\)/);
+assert.match(styles, /\.company-journal-evidence \.company-financial-metric-block \{\s*gap: 2px/);
+assert.match(styles, /\.company-valuation-panel \.company-section-heading h3 \.glossary-term[\s\S]*?font-size: clamp\(19px, 1\.35cqw, 22px\)/);
+assert.match(
+  styles,
+  /data-evidence-targets~="stability-ratios-latest"[\s\S]*?box-shadow:[\s\S]*?var\(--coinbase-primary\)/,
+  "selected explanations must illuminate the full related chart card in blue"
+);
+assert.match(styles, /data-evidence-targets~="profitability-latest"\] \.company-financial-static-card:has/);
+assert.match(styles, /data-evidence-targets~="returns-latest"\] \.company-financial-static-card:has/);
+assert.doesNotMatch(styles, /data-evidence-targets~="profitability-latest"\] \.company-financial-chart-card:has/);
+assert.doesNotMatch(styles, /data-evidence-targets~="returns-latest"\] \.company-financial-chart-card:has/);
 assert.match(journalSummarySource, /company-stability-money-dot/);
 assert.match(journalSummarySource, /formatUsdCompactTable\(point\.revenue\)/);
 assert.match(journalSummarySource, /formatUsdCompactTable\(point\.netIncome\)/);
@@ -411,10 +444,11 @@ assert.match(journalSummarySource, /company-journal-analyst-opinion/);
 assert.doesNotMatch(journalPanelSource, /company-journal-brand/, "the company journal must not render a separate brand row");
 assert.doesNotMatch(journalPanelSource, /gopsai/i, "the company journal must not render the gopsai wordmark");
 assert.match(journalSummarySource, /export function CompanyJournalAnalystOpinionPanel/);
+assert.match(journalSummarySource, /useState<FinancialPeriodMode>\("quarterly"\)/);
 assert.match(journalSummarySource, /showAnalystOpinion && <CompanyJournalAnalystOpinionPanel/);
 assert.doesNotMatch(journalSummarySource, /<time dateTime=\{analystOpinion\.actionAt\}/);
-assert.match(styles, /\.company-journal-analyst-opinion \{[^}]*padding: 15px 0 4px/);
-assert.match(styles, /\.company-journal-analyst-opinion p \{[^}]*font-size: clamp\(18px, 1\.45cqw, 22px\)/);
+assert.match(styles, /\.company-journal-analyst-opinion \{[^}]*padding: 18px 12px 12px/);
+assert.match(styles, /\.company-journal-analyst-opinion p \{[^}]*font-size: clamp\(21px, 1\.55cqw, 26px\)/);
 assert.doesNotMatch(styles, /\.company-journal-analyst-opinion \{[^}]*background:/);
 assert.doesNotMatch(journalSummarySource, /comparisonGap/);
 assert.match(

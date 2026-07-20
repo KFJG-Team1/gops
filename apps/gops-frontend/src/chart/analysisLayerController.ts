@@ -17,7 +17,7 @@ export type InterpretationFinalDrawing = {
 
 export type ChartAnalysisLayerToggleRequest = {
   chartDocumentId: string;
-  layer: "proposal";
+  layer: AnalysisLayerKey;
 };
 
 export function dispatchChartAnalysisLayerToggle(request: ChartAnalysisLayerToggleRequest): void {

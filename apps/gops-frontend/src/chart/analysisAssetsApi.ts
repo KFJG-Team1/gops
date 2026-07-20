@@ -345,7 +345,18 @@ export type ChartAnalysisAsset = {
 export type AnalysisAssetsResponse = {
   symbol: string;
   assets: Record<AnalysisAssetInterval, ChartAnalysisAsset | null>;
-  meta?: { servedAt?: string };
+  meta?: ChartAnalysisAssetResponseMeta;
+};
+
+export type ChartAnalysisAssetResponseMeta = {
+  servedAt?: string;
+  assetContext?: "live" | "simulation";
+  simulation?: boolean;
+  cutoff?: string;
+  runId?: string | null;
+  datasetId?: string;
+  snapshotCutoff?: string;
+  snapshotStatus?: "ready" | "missing" | "regeneration_required";
 };
 
 export type ChartCommentaryAsset = {
@@ -362,7 +373,7 @@ export type ChartCommentaryAssetResponse = {
   symbol: string;
   interval: AnalysisAssetInterval;
   asset: ChartCommentaryAsset | null;
-  meta?: { servedAt?: string; simulation?: boolean; cutoff?: string };
+  meta?: ChartAnalysisAssetResponseMeta;
 };
 
 const responseCache = new Map<string, AnalysisAssetsResponse>();
@@ -526,7 +537,7 @@ export function normalizeAnalysisAssetsResponse(value: unknown, fallbackSymbol: 
       "1D": normalizeAsset(rawAssets["1D"], "1D"),
       "1W": normalizeAsset(rawAssets["1W"], "1W")
     },
-    meta: asRecord(source.meta)
+    meta: normalizeAnalysisAssetMeta(source.meta)
   };
 }
 
@@ -544,7 +555,27 @@ export function normalizeChartCommentaryAssetResponse(
     symbol,
     interval,
     asset: interval === fallbackInterval ? normalizeChartCommentaryAsset(source.asset) : null,
-    meta: asRecord(source.meta)
+    meta: normalizeAnalysisAssetMeta(source.meta)
+  };
+}
+
+function normalizeAnalysisAssetMeta(value: unknown): ChartAnalysisAssetResponseMeta {
+  const source = asRecord(value);
+  const assetContext = source.assetContext === "simulation" ? "simulation" : source.assetContext === "live" ? "live" : undefined;
+  const snapshotStatus = source.snapshotStatus === "ready"
+    || source.snapshotStatus === "missing"
+    || source.snapshotStatus === "regeneration_required"
+    ? source.snapshotStatus
+    : undefined;
+  return {
+    ...(asString(source.servedAt) ? { servedAt: asString(source.servedAt) } : {}),
+    ...(assetContext ? { assetContext } : {}),
+    ...(source.simulation === true ? { simulation: true } : {}),
+    ...(asString(source.cutoff) ? { cutoff: asString(source.cutoff) } : {}),
+    ...(typeof source.runId === "string" || source.runId === null ? { runId: source.runId } : {}),
+    ...(asString(source.datasetId) ? { datasetId: asString(source.datasetId) } : {}),
+    ...(asString(source.snapshotCutoff) ? { snapshotCutoff: asString(source.snapshotCutoff) } : {}),
+    ...(snapshotStatus ? { snapshotStatus } : {})
   };
 }
 

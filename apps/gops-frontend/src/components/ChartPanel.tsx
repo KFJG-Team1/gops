@@ -76,6 +76,7 @@ import {
   chartCommentaryAssetIdentity,
   fetchAnalysisAssets,
   fetchChartCommentaryAsset,
+  invalidateAnalysisAssets,
   subscribeAnalysisAssetsInvalidation,
   type AnalysisAssetInterval,
   type AnalysisAssetsResponse,
@@ -215,7 +216,12 @@ import {
   type SemanticSelectionSnapshot
 } from "../chart/semanticTimeline";
 import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
-import { simulationAwareNowMs } from "../simulator/simulatorApi";
+import {
+  latestSimulatorStatus,
+  simulationAwareNowMs,
+  simulatorStatusEvent,
+  type SimulatorStatus
+} from "../simulator/simulatorApi";
 import {
   defaultBidAskInterval,
   defaultVisibleBarsForBidAskInterval,
@@ -537,6 +543,10 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const [analysisAssetsLoadError, setAnalysisAssetsLoadError] = useState<string | null>(null);
   const [analysisAssetsLoadPhase, setAnalysisAssetsLoadPhase] = useState<ChartAnalysisAssetLoadPhase>("waiting-for-chart");
   const [analysisAssetsRevision, setAnalysisAssetsRevision] = useState(0);
+  const [analysisAssetContextKey, setAnalysisAssetContextKey] = useState(() => (
+    simulatorAnalysisAssetContextKey(latestSimulatorStatus())
+  ));
+  const analysisAssetSimulatorRunRef = useRef(simulatorAnalysisAssetRunKey(latestSimulatorStatus()));
   const [analysisSceneReadyToken, setAnalysisSceneReadyToken] = useState<{ requestKey: string; generation: number } | null>(null);
   const [analysisLayerVisibility, setAnalysisLayerVisibility] = useState<AnalysisLayerVisibility>(() => ({
     ...defaultAnalysisLayerVisibility
@@ -578,7 +588,9 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       ? { ...sourceChart, candles: bidAskCandlesForSession(sourceChart.candles, bidAskSessionDate) }
       : sourceChart
   ), [bidAskSessionDate, sourceChart]);
-  const analysisRuntimeIdentity = chartAnalysisAssetRuntimeIdentity(document.id, chart.symbol, chart.interval);
+  const analysisRuntimeIdentity = chartAnalysisAssetRuntimeIdentity(
+    document.id, chart.symbol, chart.interval, analysisAssetContextKey
+  );
   const holdingOverlay = useMemo(() => (
     findPaperHoldingOverlay(paperAccountSnapshot?.positions ?? [], chart.symbol)
   ), [chart.symbol, paperAccountSnapshot?.positions]);
@@ -815,10 +827,27 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       error: null,
       commentaryPhase: isAnalysisAssetInterval(chart.interval) ? "loading" : "missing",
       commentaryAsset: null,
-      commentaryError: null
+      commentaryError: null,
+      layerVisibility: analysisLayerVisibilityRef.current,
+      layerDisabled: { interpretation: true, levels: true, trend: true, pattern: true, proposal: true }
     });
     return () => clearChartAnalysisAssetRuntime(document.id, analysisRuntimeIdentity);
   }, [analysisRuntimeIdentity, chart.interval, document.id]);
+
+  useEffect(() => {
+    const handleSimulatorStatus = (event: Event) => {
+      const status = (event as CustomEvent<SimulatorStatus>).detail;
+      const nextContext = simulatorAnalysisAssetContextKey(status);
+      const nextRun = simulatorAnalysisAssetRunKey(status);
+      if (nextContext === analysisAssetContextKey && nextRun === analysisAssetSimulatorRunRef.current) return;
+      analysisAssetSimulatorRunRef.current = nextRun;
+      invalidateAnalysisAssets();
+      clearChartCommentaryInteraction(document.id);
+      setAnalysisAssetContextKey(nextContext);
+    };
+    window.addEventListener(simulatorStatusEvent, handleSimulatorStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleSimulatorStatus);
+  }, [analysisAssetContextKey, document.id]);
 
   useEffect(() => subscribeAnalysisAssetsInvalidation((invalidatedSymbol) => {
     const activeSymbol = chart.symbol.trim().toUpperCase();
@@ -861,6 +890,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           || response.symbol !== requestedSymbol
           || response.interval !== requestedInterval
         ) return;
+        const responseContext = analysisAssetResponseContextKey(response.meta);
+        if (responseContext !== analysisAssetContextKey) {
+          setAnalysisAssetContextKey(responseContext);
+          invalidateAnalysisAssets();
+          return;
+        }
         const currentRuntime = getChartAnalysisAssetRuntimeSnapshot(document.id);
         if (currentRuntime.identity === runtimeIdentity && currentRuntime.phase === "ready") {
           return;
@@ -1086,6 +1121,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       fetchAnalysisAssets(requestedSymbol, requestedInterval)
         .then((response) => {
           if (!active || response.symbol !== requestedSymbol) return;
+          const responseContext = analysisAssetResponseContextKey(response.meta);
+          if (responseContext !== analysisAssetContextKey) {
+            setAnalysisAssetContextKey(responseContext);
+            invalidateAnalysisAssets();
+            return;
+          }
           setAnalysisAssets(response);
           setAnalysisAssetsLoadError(null);
           setAnalysisAssetsLoadPhase("ready");
@@ -1128,6 +1169,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
     };
   }, [
     analysisAssetsRevision,
+    analysisAssetContextKey,
     analysisRuntimeIdentity,
     analysisSceneReadyToken,
     chart.interval,
@@ -1147,6 +1189,20 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   const activeAnalysisAssetFreshness = useMemo(() => activeAnalysisAsset
     ? analysisAssetFreshness(activeAnalysisAsset, chart.candles)
     : null, [activeAnalysisAsset, chart.candles]);
+  const analysisLayerDisabled = useMemo<Record<AnalysisLayerKey, boolean>>(() => ({
+    interpretation: !hasAnalysisLayerDrawings(activeAnalysisAsset, "interpretation"),
+    levels: !hasAnalysisLayerDrawings(activeAnalysisAsset, "levels"),
+    trend: !hasAnalysisLayerDrawings(activeAnalysisAsset, "trend"),
+    pattern: !hasAnalysisLayerDrawings(activeAnalysisAsset, "pattern"),
+    proposal: !hasAnalysisLayerDrawings(activeAnalysisAsset, "proposal")
+  }), [activeAnalysisAsset]);
+
+  useEffect(() => {
+    patchChartAnalysisAssetRuntime(document.id, analysisRuntimeIdentity, {
+      layerVisibility: analysisLayerVisibility,
+      layerDisabled: analysisLayerDisabled
+    });
+  }, [analysisLayerDisabled, analysisLayerVisibility, analysisRuntimeIdentity, document.id]);
   const commentaryInteractionIdentity = [
     chart.symbol.trim().toUpperCase(),
     chart.interval,
@@ -1277,8 +1333,8 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   useEffect(() => {
     const handleLayerToggle = (event: Event) => {
       const detail = (event as CustomEvent<{ chartDocumentId?: string; layer?: string }>).detail;
-      if (detail?.chartDocumentId !== document.id || detail.layer !== "proposal") return;
-      toggleAnalysisLayer("proposal");
+      if (detail?.chartDocumentId !== document.id || !isAnalysisLayerKey(detail.layer)) return;
+      toggleAnalysisLayer(detail.layer);
     };
     window.addEventListener(chartAnalysisLayerToggleEventName, handleLayerToggle);
     return () => window.removeEventListener(chartAnalysisLayerToggleEventName, handleLayerToggle);
@@ -3657,19 +3713,19 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         )}
         <ChartAnalysisLayerToggles
           visibility={analysisLayerVisibility}
-          disabled={{
-            interpretation: !hasAnalysisLayerDrawings(activeAnalysisAsset, "interpretation"),
-            levels: !hasAnalysisLayerDrawings(activeAnalysisAsset, "levels"),
-            trend: !hasAnalysisLayerDrawings(activeAnalysisAsset, "trend"),
-            pattern: !hasAnalysisLayerDrawings(activeAnalysisAsset, "pattern"),
-            proposal: !hasAnalysisLayerDrawings(activeAnalysisAsset, "proposal")
-          }}
+          disabled={analysisLayerDisabled}
           asOf={activeAnalysisAsset?.asOf}
+          contextLabel={analysisAssets?.meta?.assetContext === "simulation" ? "SIM 시작 기준 · 분석 시각" : "분석 기준"}
           freshness={activeAnalysisAssetFreshness}
           interpretationMode={analysisTraceDataMode(activeAnalysisAsset)}
           candidateCounts={analysisCandidateCounts}
           loadPhase={analysisAssetsLoadPhase}
           loadError={analysisAssetsLoadError}
+          emptyStatus={analysisAssets?.meta?.assetContext === "simulation" && !activeAnalysisAsset
+            ? analysisAssets.meta?.snapshotStatus === "regeneration_required"
+              ? "시뮬레이션 작도 자산 재생성 필요"
+              : "시뮬레이션 작도 자산 없음 · 개발 패널에서 생성 필요"
+            : undefined}
           onToggle={toggleAnalysisLayer}
         />
         {selectedSemanticNode && onAgentAsk && (
@@ -5358,6 +5414,27 @@ function isRegularSessionCandle(candle: CandleDto): boolean {
   }
   const minutes = Number(parts.hour) * 60 + Number(parts.minute);
   return minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+}
+
+function simulatorAnalysisAssetContextKey(status: SimulatorStatus | null): string {
+  const datasetId = status?.datasetId?.trim();
+  return status?.available && status.mode === "simulation" && datasetId
+    ? `simulation:${datasetId}`
+    : "live";
+}
+
+function simulatorAnalysisAssetRunKey(status: SimulatorStatus | null): string {
+  return `${simulatorAnalysisAssetContextKey(status)}|${status?.runId ?? "no-run"}`;
+}
+
+function analysisAssetResponseContextKey(meta?: { assetContext?: "live" | "simulation"; datasetId?: string }): string {
+  const datasetId = meta?.datasetId?.trim();
+  return meta?.assetContext === "simulation" && datasetId ? `simulation:${datasetId}` : "live";
+}
+
+function isAnalysisLayerKey(value: unknown): value is AnalysisLayerKey {
+  return value === "interpretation" || value === "levels" || value === "trend"
+    || value === "pattern" || value === "proposal";
 }
 
 function TrendExtensionIcon({ extension }: { extension: ChartLineExtension }) {

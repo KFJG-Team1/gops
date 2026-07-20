@@ -85,9 +85,9 @@ export function buildAnalysisTraceOverlay(
     ...(trace.selections?.patternCandidateIds ?? [])
   ]);
   const allCandidates = [
-    ...trace.levelCandidates.map((candidate) => normalizeCandidate(candidate, "levels", selectionIds)),
-    ...trace.trendCandidates.map((candidate) => normalizeCandidate(candidate, "trend", selectionIds)),
-    ...trace.patternCandidates.map((candidate) => normalizeCandidate(candidate, "pattern", selectionIds))
+    ...(trace.levelCandidates ?? []).map((candidate) => normalizeCandidate(candidate, "levels", selectionIds)),
+    ...(trace.trendCandidates ?? []).map((candidate) => normalizeCandidate(candidate, "trend", selectionIds)),
+    ...(trace.patternCandidates ?? []).map((candidate) => normalizeCandidate(candidate, "pattern", selectionIds))
   ];
   const focusedCandidates = focused
     ? allCandidates.filter((candidate) => candidateFilter.has(candidate.id))
@@ -104,7 +104,7 @@ export function buildAnalysisTraceOverlay(
     candidate.touchPivotIds.forEach((id) => referencedPivotIds.add(id));
     candidate.reactionPivotIds.forEach((id) => referencedPivotIds.add(id));
   });
-  const tracePivots = trace.pivots.filter((pivot) => referencedPivotIds.has(pivot.id));
+  const tracePivots = (trace.pivots ?? []).filter((pivot) => referencedPivotIds.has(pivot.id));
   const touchPivots = markerCandidates.flatMap((candidate) => (candidate.touches ?? []).map((touch) => ({
     id: touch.id,
     timestamp: touch.timestamp,

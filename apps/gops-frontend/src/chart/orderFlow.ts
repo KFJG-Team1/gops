@@ -114,6 +114,12 @@ export type OrderFlowPriceStep = typeof ORDER_FLOW_PRICE_STEPS[number];
 export type OrderFlowPriceStepSelection = "auto" | OrderFlowPriceStep;
 export type OrderFlowResolutionSelection = "auto" | number;
 
+export function orderFlowUnsupportedMessage(symbol: string, supportedSymbols: string[] | undefined): string {
+  const supportedCount = supportedSymbols?.length ?? 0;
+  const supported = supportedCount > 0 ? ` · 지원 종목 ${supportedCount}개` : "";
+  return `Order Flow는 아직 ${symbol.trim().toUpperCase()}을 지원하지 않아요${supported}`;
+}
+
 const orderFlowTargetRowSteps = [8, 10, 12, 16, 20, 24, 32, 44, 64, 80, 96, 128] as const;
 
 export function autoPriceStep(priceRange: number, maxRows: number): OrderFlowPriceStep {

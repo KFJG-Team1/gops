@@ -2,6 +2,7 @@ import { ChevronRight } from "lucide-react";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { fetchCandles } from "../chart/cdcClient";
 import type { CandleDto } from "../chart/types";
+import { formatKoreanCompactUsd, formatUsd } from "../currencyFormat";
 import { GlossaryText } from "../glossary/GlossaryText";
 import { fetchCompanyEarningsSeries, fetchCompanyFinancialSeries } from "../market/heatmapApi";
 import type { CompanyEarningsSeriesPoint, CompanyFinancialSeriesPoint, Sp500UniverseItem } from "../market/sp500Universe.seed";
@@ -201,7 +202,7 @@ function JournalChartAnnotation({
 
 export function CompanySummaryPanel({ symbol, item, items = [], view, onEvidenceChange, disableRemoteFetch = false, valuationContent = "combined", valuationPriceSeries = emptyValuationPriceSeries, stabilityContent = "stability", journalPresentation = false, focusedValuationMetric = null, focusedStabilityMetric = null, focusedFinancialMetric = null, focusedFinancialYear = null, comparisonFinancialYear = null, financialPeriodMode: controlledFinancialPeriodMode, onFinancialPeriodModeChange, onFinancialSelectionChange, analystActions = emptyAnalystActions, showAnalystOpinion = true }: CompanySummaryPanelProps) {
   const [earningsMetric, setEarningsMetric] = useState<EarningsMetric>("eps");
-  const [internalFinancialPeriodMode, setInternalFinancialPeriodMode] = useState<FinancialPeriodMode>(journalPresentation ? "annual" : "quarterly");
+  const [internalFinancialPeriodMode, setInternalFinancialPeriodMode] = useState<FinancialPeriodMode>("quarterly");
   const financialPeriodMode = controlledFinancialPeriodMode ?? internalFinancialPeriodMode;
   const [selectedFinancialPeriod, setSelectedFinancialPeriod] = useState<string | null>(null);
   const [financialSeries, setFinancialSeries] = useState<CompanyFinancialSeriesPoint[] | null>(null);
@@ -558,7 +559,9 @@ function ProfitabilityDashboard({
   comparisonYear?: number | null;
 }) {
   const renderablePoints = series.filter(isRenderableProfitabilityPoint);
-  const points = periodMode === "annual" ? companyJournalAnnualHistory(renderablePoints) : renderablePoints.slice(-12);
+  const points = periodMode === "annual"
+    ? companyJournalAnnualHistory(renderablePoints)
+    : renderablePoints.slice(-12);
   const tablePoints = points.slice(periodMode === "annual" ? -companyJournalHistoryYears() : -8);
   const selectedPoint = points.find((point) => financialPointKey(point) === selectedPeriod) ?? points.at(-1);
   const focusedPoint = focusedYear == null ? null : tablePoints.find((point) => financialPointYear(point) === focusedYear);
@@ -809,7 +812,9 @@ function StabilityDashboard({
   comparisonYear?: number | null;
 }) {
   const renderablePoints = financialSeries.filter(isRenderableStabilityPoint);
-  const points = periodMode === "annual" ? companyJournalAnnualHistory(renderablePoints) : renderablePoints.slice(-12);
+  const points = periodMode === "annual"
+    ? companyJournalAnnualHistory(renderablePoints)
+    : renderablePoints.slice(-12);
   const tablePoints = points.slice(periodMode === "annual" ? -companyJournalHistoryYears() : -8);
   const focusedPoint = focusedYear == null
     ? tablePoints.at(-1)
@@ -1206,7 +1211,9 @@ function ValuationPagedPanel({
   companyName: string;
 }) {
   const renderablePoints = financialSeries.filter(isRenderablePerSharePoint);
-  const points = periodMode === "annual" ? companyJournalAnnualHistory(renderablePoints) : renderablePoints.slice(-12);
+  const points = periodMode === "annual"
+    ? companyJournalAnnualHistory(renderablePoints)
+    : renderablePoints.slice(-12);
   const tablePoints = points.slice(periodMode === "annual" ? -companyJournalHistoryYears() : -8);
   const selectedPoint = points.find((point) => financialPointKey(point) === selectedPeriod) ?? points.at(-1);
   const historicalValuationSeries = buildHistoricalValuationSeries(points, valuationPrices);
@@ -1326,14 +1333,6 @@ function HistoricalValuationChart({
     <FinancialStaticChartCard
       title={<GlossaryText text="가치배수 추이" />}
       className={historicalFocus ? "has-focused-valuation-metric" : ""}
-      legend={(
-        <div className="company-profitability-legend company-historical-valuation-legend" aria-label="가치지표 범례">
-          <span className={historicalFocus === "per" ? "is-focused" : ""}><i className="per" /><GlossaryText text="PER" /></span>
-          <span className={historicalFocus === "pbr" ? "is-focused" : ""}><i className="pbr" /><GlossaryText text="PBR" /></span>
-          <span className={historicalFocus === "psr" ? "is-focused" : ""}><i className="psr" /><GlossaryText text="PSR" /></span>
-          <span className={historicalFocus === "fcf-yield" ? "is-focused" : ""}><i className="fcf-yield" /><GlossaryText text="FCF Yield" /></span>
-        </div>
-      )}
     >
       <HistoricalValuationPlot points={points} selectedPeriod={selectedPeriod} comparisonPeriod={comparisonPeriod} onPeriodSelect={onPeriodSelect} focusedMetric={historicalFocus} />
     </FinancialStaticChartCard>
@@ -1426,9 +1425,12 @@ function PerShareIndicatorsPlot({ points, selectedPeriod, comparisonPeriod, onPe
   const innerHeight = chartHeight - plot.top - plot.bottom;
   const slot = innerWidth / points.length;
   const barWidth = Math.max(4, Math.min(15, slot * 0.17));
+  const barGap = Math.max(2, Math.min(5, barWidth * 0.28));
+  const barStep = barWidth + barGap;
+  const groupHalfWidth = barStep * 1.5 + barWidth / 2;
   const zeroY = valueToY(0, domain, plot.top, innerHeight);
   const valueY = (value: number) => valueToY(value, domain, plot.top, innerHeight);
-  const xFor = (index: number) => financialChartPointX(index, points.length, plot.left, innerWidth, barWidth * 2 + 4);
+  const xFor = (index: number) => financialChartPointX(index, points.length, plot.left, innerWidth, groupHalfWidth + 4);
   const seriesDefinitions = [
     { key: "eps", className: "eps", offset: -1.5 },
     { key: "bps", className: "bps", offset: -0.5 },
@@ -1459,7 +1461,7 @@ function PerShareIndicatorsPlot({ points, selectedPeriod, comparisonPeriod, onPe
               if (!Number.isFinite(value ?? NaN)) return null;
               const y = valueY(value as number);
               const exactFocus = (key === selectedPeriod || key === comparisonPeriod) && definition.key === focusedMetric;
-              return <rect key={definition.key} data-journal-financial-metric={exactFocus ? definition.key : undefined} data-journal-financial-year={exactFocus ? financialPointYear(point) ?? undefined : undefined} className={`company-per-share-bar ${definition.className} ${exactFocus ? "is-focused" : ""}`} x={x + definition.offset * barWidth - barWidth / 2} y={Math.min(y, zeroY)} width={barWidth} height={Math.max(2, Math.abs(zeroY - y))} rx={3} />;
+              return <rect key={definition.key} data-journal-financial-metric={exactFocus ? definition.key : undefined} data-journal-financial-year={exactFocus ? financialPointYear(point) ?? undefined : undefined} className={`company-per-share-bar ${definition.className} ${exactFocus ? "is-focused" : ""}`} x={x + definition.offset * barStep - barWidth / 2} y={Math.min(y, zeroY)} width={barWidth} height={Math.max(2, Math.abs(zeroY - y))} rx={3} />;
             })}
             {shouldShowPeriodLabel(index, points.length) && <text className="company-profitability-period" x={x} y={chartHeight - 12}>{formatPeriod(point.period, point.periodEndDate)}</text>}
           </g>
@@ -1555,12 +1557,11 @@ function EarningsPanel({
 
 function ValuationMetricsPanel({ metrics, focusedMetric }: { metrics: ValuationMetric[]; focusedMetric: string | null }) {
   return (
-    <section className="company-valuation-panel" aria-label="가치평가">
+    <section className="company-valuation-panel" aria-label="현재 가치배수와 색상 범례">
       <div className="company-section-heading">
         <h3><GlossaryText text="현재 가치배수" /></h3>
-        <span><GlossaryText text="PER · PBR · PSR · FCF Yield" /></span>
       </div>
-      <dl className="company-valuation-metric-list">
+      <dl className="company-valuation-metric-list" aria-label="현재 가치배수 색상 범례">
         {metrics.map((metric) => (
           <ValuationRow key={metric.label} metric={metric} focused={valuationMetricKey(metric.label) === focusedMetric} />
         ))}
@@ -1572,8 +1573,8 @@ function ValuationMetricsPanel({ metrics, focusedMetric }: { metrics: ValuationM
 function ValuationRow({ metric, focused }: { metric: ValuationMetric; focused: boolean }) {
   const metricKey = valuationMetricKey(metric.label);
   return (
-    <div className={`company-valuation-metric-row ${focused ? "is-focused" : ""}`} data-journal-metric-row={metricKey} aria-label={`${metric.label} ${metric.valueLabel}${focused ? " 강조됨" : ""}`}>
-      <dt><GlossaryText text={metric.label} /></dt>
+    <div className={`company-valuation-metric-row is-${metricKey} ${focused ? "is-focused" : ""}`} data-journal-metric-row={metricKey} aria-label={`${metric.label} ${metric.valueLabel}${focused ? " 강조됨" : ""}`}>
+      <dt><i className="company-valuation-metric-swatch" aria-hidden="true" /><GlossaryText text={metric.label} /></dt>
       <dd>
         <strong>{metric.valueLabel}</strong>
       </dd>
@@ -2358,7 +2359,7 @@ function formatEarningsAxisValue(value: number, metric: EarningsMetric): string 
     minimumFractionDigits: abs > 0 && abs < 10 ? 2 : 0,
     maximumFractionDigits: abs > 0 && abs < 10 ? 2 : 0
   }).format(abs);
-  return metric === "eps" ? `${sign}US$${formatted}` : `${sign}US$${formatted}억`;
+  return metric === "eps" ? `${sign}$${formatted}` : `${sign}$${formatted}억`;
 }
 
 function formatKoreanMoneyAxis(value: number): string {
@@ -2446,28 +2447,14 @@ function formatUsdCompact(value: number | null | undefined): string {
   if (!Number.isFinite(value ?? NaN)) {
     return "확인 중";
   }
-  return `${formatKoreanCompact(value as number)} 달러`;
+  return formatKoreanCompactUsd(value as number, { invalidValue: "확인 중" });
 }
 
 function formatUsdCompactTable(value: number | null | undefined): string {
   if (!Number.isFinite(value ?? NaN)) {
     return "확인 중";
   }
-  return `US$${formatKoreanCompact(value as number)}`;
-}
-
-function formatKoreanCompact(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000_000) {
-    return `${formatFixed(value / 1_000_000_000_000)}조`;
-  }
-  if (abs >= 100_000_000) {
-    return `${formatFixed(value / 100_000_000)}억`;
-  }
-  if (abs >= 10_000) {
-    return `${formatFixed(value / 10_000)}만`;
-  }
-  return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 }).format(value);
+  return formatKoreanCompactUsd(value as number, { invalidValue: "확인 중" });
 }
 
 function formatFixed(value: number): string {
@@ -2504,13 +2491,12 @@ function formatMultipleAxis(value: number): string {
 
 function formatPerShareValue(value: number | null | undefined): string {
   if (!Number.isFinite(value ?? NaN)) return "확인 중";
-  return `US$${new Intl.NumberFormat("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value as number)}`;
+  return formatUsd(value as number);
 }
 
 function formatPerShareAxis(value: number): string {
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";
-  if (abs >= 1_000) return `${sign}$${formatFixed(abs / 1_000)}K`;
   return `${sign}$${new Intl.NumberFormat("ko-KR", { maximumFractionDigits: abs < 10 ? 1 : 0 }).format(abs)}`;
 }
 

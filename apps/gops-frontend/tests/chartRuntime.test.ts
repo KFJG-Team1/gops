@@ -157,6 +157,7 @@ import {
   effectiveOrderFlowPriceStep,
   maxOrderFlowTargetRowsForHeight,
   orderFlowMinutesForBucket,
+  orderFlowUnsupportedMessage,
   orderFlowWindowMinutesForInterval,
   rebinLevels,
   replaceOrderFlowMinute,
@@ -2407,6 +2408,14 @@ const bidAskBucketMinutes = [
 assert.equal(orderFlowWindowMinutesForInterval("1m"), 1);
 assert.equal(orderFlowWindowMinutesForInterval("10m"), 10);
 assert.equal(orderFlowWindowMinutesForInterval("1h"), 60);
+assert.equal(
+  orderFlowUnsupportedMessage("nvda", Array.from({ length: 502 }, (_, index) => `S${index}`)),
+  "Order Flow는 아직 NVDA을 지원하지 않아요 · 지원 종목 502개"
+);
+assert.doesNotMatch(
+  orderFlowUnsupportedMessage("NVDA", ["AAPL", "MSFT"]),
+  /AAPL|MSFT/
+);
 assert.deepEqual(
   orderFlowMinutesForBucket(bidAskBucketMinutes, "2026-07-08T13:30:00.000Z", 10).map((minute) => minute.eventMinute),
   ["2026-07-08T13:30:00.000Z", "2026-07-08T13:39:00.000Z"]
@@ -4558,6 +4567,11 @@ assert.match(portfolioHoldingsPanelSource, /new Map<PortfolioHoldingsSource, Por
 assert.match(portfolioHoldingsPanelSource, /new URLSearchParams\(\{ market: "overseas", currency: "USD", source \}\)/);
 assert.match(portfolioHoldingsPanelSource, /subscribePortfolioHoldingsStore/);
 assert.match(portfolioHoldingsPanelSource, /onClick=\{\(\) => void loadHoldings\(\)\}/);
+assert.doesNotMatch(portfolioHoldingsPanelSource, /Total Balance|자산 비중 아님|배당률|배당금은 자산 구성에 포함되지/);
+assert.match(portfolioHoldingsPanelSource, /className="portfolio-multi-view-tabs" role="tablist"/);
+assert.match(portfolioHoldingsPanelSource, /\{ id: "summary", title: "자산" \}/);
+assert.doesNotMatch(portfolioHoldingsPanelSource, /portfolio-multi-page-arrow|이전 포트폴리오 화면|다음 포트폴리오 화면/);
+assert.doesNotMatch(portfolioHoldingsPanelSource, /className="portfolio-multi-refresh"/);
 
 const companySummaryPanelSource = readFileSync(fileURLToPath(new URL("../src/components/CompanySummaryPanel.tsx", import.meta.url)), "utf-8");
 assert.equal(companySummaryPanelSource.match(/preserveAspectRatio="xMidYMid meet"/g)?.length, 1);
@@ -5339,9 +5353,11 @@ assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.a
 assert.match(frontendStylesSource, /\.chart-add-dock \.chart-add-layer-button\.active \{[\s\S]*color: #ffffff;/);
 assert.match(frontendStylesSource, /\.treemap-panel \{[\s\S]*position: absolute;/);
 assert.match(frontendStylesSource, /\.treemap-panel \{[\s\S]*overflow: hidden;/);
-assert.match(frontendStylesSource, /\.order-flow-hover-overlay \{[\s\S]*grid-template-rows: 26px 22px;/);
+assert.match(frontendStylesSource, /\.order-flow-hover-overlay \{[\s\S]*grid-template-rows: 32px 32px;/);
 assert.match(frontendStylesSource, /\.order-flow-panel:hover \.order-flow-hover-overlay,[\s\S]*\.order-flow-panel:focus-within \.order-flow-hover-overlay/);
 assert.match(frontendStylesSource, /\.order-flow-window-grid \{[\s\S]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/);
+assert.match(frontendStylesSource, /\.order-flow-window-grid button\.active \{[\s\S]*border-bottom-color: var\(--color-signal\);[\s\S]*background: transparent;/);
+assert.match(frontendStylesSource, /\.chart-commentary-generated\.is-collapsed \.chart-commentary-inline-reference,[\s\S]*border-radius: 7px;[\s\S]*text-decoration: none;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*left: 0;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*right: 0;/);
 assert.match(frontendStylesSource, /\.layout-palette-dock \{[\s\S]*justify-content: center;/);
@@ -5356,6 +5372,12 @@ assert.match(frontendStylesSource, /\.layout-preset-dock \{[\s\S]*scroll-padding
 assert.match(frontendStylesSource, /\.portfolio-holdings-list \{[\s\S]*grid-template-rows: auto minmax\(0, 1fr\);/);
 assert.match(frontendStylesSource, /\.portfolio-holdings-table-head,[\s\S]*\.portfolio-holding-row \{[\s\S]*display: grid;/);
 assert.match(frontendStylesSource, /\.portfolio-multi-panel \{[\s\S]*display: flex;/);
+assert.match(frontendStylesSource, /\.portfolio-multi-summary-page \{[\s\S]*grid-template-rows: auto auto;[\s\S]*align-content: center;/);
+assert.match(frontendStylesSource, /--portfolio-summary-offset-y: -5cqh;[\s\S]*transform: translateY\(var\(--portfolio-summary-offset-y\)\);/);
+assert.match(frontendStylesSource, /\.portfolio-multi-summary-page \.portfolio-multi-summary-hero > div \{[\s\S]*gap: clamp\(10px, 2cqh, 14px\);/);
+assert.match(frontendStylesSource, /\.portfolio-multi-summary-page \.portfolio-multi-summary-hero > div > strong \{[\s\S]*font: var\(--type-display-xl\);/);
+assert.match(frontendStylesSource, /\.portfolio-multi-summary-page \.portfolio-multi-summary-hero > div > span \{[\s\S]*font: var\(--type-title-md\);/);
+assert.match(frontendStylesSource, /\.portfolio-multi-view-tabs \{[\s\S]*justify-content: flex-start;/);
 assert.match(frontendStylesSource, /Local dark-theme compatibility for the restored dev portfolio panels/);
 assert.match(frontendStylesSource, /\.layout-preset-dock-tail \{[\s\S]*display: inline-flex;/);
 assert.doesNotMatch(frontendStylesSource, /\.layout-preset-status/);

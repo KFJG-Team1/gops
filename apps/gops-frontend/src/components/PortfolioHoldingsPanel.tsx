@@ -1,10 +1,12 @@
-import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCcw } from "lucide-react";
+import { LoaderCircle, RefreshCcw } from "lucide-react";
 import { type CSSProperties, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatKoreanCompactUsd, formatUsd } from "../currencyFormat";
 import { sp500UniverseSeed } from "../market/sp500Universe.seed";
 import { usePaperAccount } from "../orders/PaperAccountProvider";
 import type { PaperAccountSnapshot } from "../orders/paperTradingClient";
 import { PortfolioHoldingsApiError, parsePortfolioHoldingsApiResponse, validPortfolioCash, type PortfolioHoldingsResponse, type PortfolioPosition } from "./portfolioHoldingsApi";
 import {
+  buildPortfolioPrincipalBands,
   fetchPortfolioPerformance,
   type PortfolioPerformanceRange,
   type PortfolioPerformanceResponse
@@ -145,7 +147,7 @@ const portfolioPerformanceRanges: readonly { value: PortfolioPerformanceRange; l
 ];
 
 const portfolioMultiViews = [
-  { id: "summary", title: "포트폴리오" },
+  { id: "summary", title: "자산" },
   { id: "flow", title: "투자" },
   { id: "diversification", title: "분산투자" }
 ] as const;
@@ -802,7 +804,7 @@ export function PortfolioDiversificationPanel() {
 }
 
 export function PortfolioMultiPanel() {
-  const { loading, refreshing, error, positions, dashboard, loadHoldings } = usePortfolioHoldingsData();
+  const { loading, error, positions, dashboard } = usePortfolioHoldingsData();
   const [activeView, setActiveView] = useState<PortfolioMultiView>("summary");
   const [transitionDirection, setTransitionDirection] = useState<"next" | "previous">("next");
   const wheelAccumulatorRef = useRef(0);
@@ -845,6 +847,21 @@ export function PortfolioMultiPanel() {
 
   return (
     <section className="portfolio-multi-panel" aria-label="멀티 포트폴리오 패널" onWheel={handleWheelPageChange}>
+      <nav className="portfolio-multi-view-tabs" role="tablist" aria-label="포트폴리오 화면">
+        {portfolioMultiViews.map((view, index) => (
+          <button
+            key={view.id}
+            type="button"
+            role="tab"
+            aria-selected={activeView === view.id}
+            aria-controls={`portfolio-multi-view-${view.id}`}
+            className={activeView === view.id ? "active" : ""}
+            onClick={() => selectViewByIndex(index)}
+          >
+            {view.title}
+          </button>
+        ))}
+      </nav>
       <div className="portfolio-multi-stage">
         <div
           key={activeView}
@@ -855,19 +872,13 @@ export function PortfolioMultiPanel() {
           {statusMessage ? (
             <PortfolioPanelStatus message={statusMessage} loading={loading} error={Boolean(error)} />
           ) : activeView === "summary" ? (
-            <PortfolioMultiSummaryView dashboard={dashboard} refreshing={refreshing} onRefresh={loadHoldings} />
+            <PortfolioMultiSummaryView dashboard={dashboard} />
           ) : activeView === "flow" ? (
             <PortfolioMultiFlowView dashboard={dashboard} positions={positions} />
           ) : (
             <PortfolioMultiDiversificationView dashboard={dashboard} />
           )}
         </div>
-        <button type="button" className="portfolio-multi-page-arrow previous" aria-label="이전 포트폴리오 화면" disabled={activeIndex === 0} onClick={() => selectViewByIndex(activeIndex - 1)}>
-          <ChevronLeft aria-hidden="true" />
-        </button>
-        <button type="button" className="portfolio-multi-page-arrow next" aria-label="다음 포트폴리오 화면" disabled={activeIndex === portfolioMultiViews.length - 1} onClick={() => selectViewByIndex(activeIndex + 1)}>
-          <ChevronRight aria-hidden="true" />
-        </button>
       </div>
     </section>
   );
@@ -882,7 +893,7 @@ function PortfolioMultiPageHeader({ title, subtitle, aside }: { title: string; s
   );
 }
 
-function PortfolioMultiSummaryView({ dashboard, refreshing, onRefresh }: { dashboard: PortfolioDashboard; refreshing: boolean; onRefresh: () => void }) {
+function PortfolioMultiSummaryView({ dashboard }: { dashboard: PortfolioDashboard }) {
   const allocationItems = buildPortfolioAssetMetrics(dashboard);
   const stock = allocationItems.find((item) => item.key === "stock");
   const cash = allocationItems.find((item) => item.key === "cash");
@@ -897,11 +908,7 @@ function PortfolioMultiSummaryView({ dashboard, refreshing, onRefresh }: { dashb
   } as CSSProperties;
   return (
     <article className="portfolio-multi-page portfolio-multi-summary-page">
-      <button className="portfolio-multi-refresh" type="button" aria-label="포트폴리오 새로고침" onClick={() => void onRefresh()} disabled={refreshing}>
-        {refreshing ? <LoaderCircle className="spin" aria-hidden="true" /> : <RefreshCcw aria-hidden="true" />}
-      </button>
       <div className="portfolio-multi-summary-hero">
-        <em>Total Balance</em>
         <div>
           <strong>{formatPanelMoney(dashboard.totalValue, "USD")}</strong>
           <span className={directionClass(dashboard.totalPnl ?? dashboard.totalPnlRate)}>
@@ -1361,6 +1368,9 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
   const displayedPortfolioPoints = hasMoneyHistory ? portfolioValuePoints : reportedReturnPoints;
   const displayedPrincipalPoints = hasMoneyHistory ? principalPoints : [];
   const displayedBenchmarkPoints = hasMoneyHistory ? benchmarkValuePoints : benchmarkReturnPoints;
+  const principalBands = hasMoneyHistory
+    ? buildPortfolioPrincipalBands(displayedPortfolioPoints, displayedPrincipalPoints)
+    : [];
   const allPoints = [...displayedPortfolioPoints, ...displayedPrincipalPoints, ...displayedBenchmarkPoints];
   const portfolioBaseValue = portfolioValuePoints[0]?.value;
   const portfolioPeriodReturn = portfolioBaseValue != null && portfolioBaseValue !== 0 && portfolioValuePoints.at(-1)
@@ -1394,6 +1404,13 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
     const y = yFor(point.value).toFixed(1);
     return index === 0 ? `M ${x} ${y}` : `H ${x} V ${y}`;
   }).join(" ");
+  const bandPathFor = (band: (typeof principalBands)[number]) => [
+    `M ${xFor(band.start.time).toFixed(1)} ${yFor(band.start.portfolioValue).toFixed(1)}`,
+    `L ${xFor(band.end.time).toFixed(1)} ${yFor(band.end.portfolioValue).toFixed(1)}`,
+    `L ${xFor(band.end.time).toFixed(1)} ${yFor(band.end.principalValue).toFixed(1)}`,
+    `L ${xFor(band.start.time).toFixed(1)} ${yFor(band.start.principalValue).toFixed(1)}`,
+    "Z"
+  ].join(" ");
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => maxValue - valueSpan * ratio);
   const xTicks = timestamps.length
     ? [0, 0.25, 0.5, 0.75, 1].map((ratio) => minTime + (maxTime - minTime) * ratio)
@@ -1472,6 +1489,14 @@ function PortfolioPerformanceChart({ refreshToken }: { refreshToken?: string | n
             {!hasMoneyHistory && (
               <line x1={padding.left} x2={width - padding.right} y1={yFor(0)} y2={yFor(0)} className="portfolio-terminal-zero-line" />
             )}
+            {principalBands.map((band, index) => (
+              <path
+                key={`${band.start.time}-${band.end.time}-${band.tone}-${index}`}
+                d={bandPathFor(band)}
+                className={`portfolio-performance-principal-band is-${band.tone}`}
+                aria-hidden="true"
+              />
+            ))}
             <path d={smoothPathFor(displayedPortfolioPoints)} className="portfolio-performance-return-line portfolio" />
             {displayedPrincipalPoints.length >= 2 && <path d={stepPathFor(displayedPrincipalPoints)} className="portfolio-performance-return-line principal" />}
             {displayedBenchmarkPoints.length >= 2 && <path d={smoothPathFor(displayedBenchmarkPoints)} className="portfolio-performance-return-line benchmark" />}
@@ -2263,6 +2288,9 @@ function formatMoney(value: number | null | undefined, currency: string) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "-";
   }
+  if (currency === "USD") {
+    return formatUsd(value, { invalidValue: "-" });
+  }
   return new Intl.NumberFormat("ko-KR", {
     style: "currency",
     currency,
@@ -2291,6 +2319,9 @@ function formatHoldingQuantity(value: number | null | undefined) {
 function formatCompactMoney(value: number | null | undefined, currency: string) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "-";
+  }
+  if (currency === "USD") {
+    return formatKoreanCompactUsd(value, { invalidValue: "-" });
   }
   return new Intl.NumberFormat("en-US", {
     style: "currency",

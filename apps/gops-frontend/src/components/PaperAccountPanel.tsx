@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import type { OrderSnapshot } from "../orders/orderClient";
 import { useAuth } from "../auth/AuthProvider";
 import type { ChartSymbolDto } from "../chart/types";
+import { formatUsd as formatUsdAmount } from "../currencyFormat";
 import {
   cancelPaperOrder
 } from "../orders/paperTradingClient";
@@ -216,7 +217,7 @@ function EmptyState({ message }: { message: string }) {
 }
 
 function formatUsd(value: number): string {
-  return new Intl.NumberFormat("ko-KR", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(Number(value || 0));
+  return formatUsdAmount(Number(value || 0));
 }
 
 function formatSignedUsd(value: number): string {

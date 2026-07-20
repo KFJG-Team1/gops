@@ -54,6 +54,25 @@ export function buildTradeTimingDrawings(
   }] : [];
   const latestCompletedIndex = latestClosedCandleIndex(candles);
   const projectionIndex = Math.max(0, latestCompletedIndex) + Math.max(1, Math.round(setup.projectionBars));
+  setup.referenceGuides.forEach((guide) => drawings.push({
+    ...common,
+    id: guide.id,
+    type: "horizontalLine",
+    anchors: [
+      { ...signalAnchor, price: guide.price },
+      { logicalIndex: projectionIndex, price: guide.price, paneId: "price", symbol: asset.symbol, interval: asset.interval }
+    ],
+    style: {
+      colorToken: token,
+      lineWidth: 1.25,
+      lineDash: [5, 4],
+      opacity: 0.58,
+      labelPlacement: "none",
+      proposalAction: setup.action,
+      proposalKind: setup.sourceKind
+    },
+    label: guide.label
+  }));
   drawings.push({
     ...common,
     id: ids.plan,

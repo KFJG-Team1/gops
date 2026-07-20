@@ -504,7 +504,7 @@ assert.match(chartFeatureStylesSource, /\.chart-commentary-inline-reference[\s\S
 assert.match(chartFeatureStylesSource, /\.chart-commentary-inline-reference\[aria-pressed="true"\][\s\S]*text-decoration-thickness: 2px/);
 assert.match(chartFeatureStylesSource, /\.chart-commentary-generated\.is-collapsed \.chart-commentary-inline-reference[\s\S]*color: var\(--color-text\)/);
 assert.match(chartFeatureStylesSource, /\.chart-commentary-disclosure[\s\S]*font: var\(--type-caption\)/);
-assert.match(commentarySource, /usePortfolioHoldingsData\(undefined, "active"\)/);
+assert.match(commentarySource, /usePortfolioHoldingsData\(undefined, "kis"\)/);
 assert.match(commentarySource, /<HoldingSummary/);
 assert.match(commentarySource, /aria-label="실계좌 보유 현황"/);
 assert.match(commentarySource, /<th>보유 상태<\/th><th>평균 매입가<\/th><th>보유 수량<\/th>/);
@@ -528,7 +528,7 @@ assert.match(toggleSource, /label="패턴"/);
 assert.match(toggleSource, /label="제안"/);
 assert.match(toggleSource, /data-state=\{state\}/);
 assert.match(toggleSource, /unavailable \? undefined : visibility\[layer\]/);
-assert.match(toggleSource, /분석 레이어 사용 불가/);
+assert.match(toggleSource, /분석 레이어.*사용 불가/);
 assert.match(toggleSource, /차트 준비 후 작도를 불러옵니다/);
 assert.doesNotMatch(toggleSource, /차트 로드 후 작도·해설을 불러옵니다/);
 assert.doesNotMatch(toggleSource, /lucide-react|chart-analysis-layer-state|icon=/);

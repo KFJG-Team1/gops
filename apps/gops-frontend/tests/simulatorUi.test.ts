@@ -16,7 +16,11 @@ import {
   type SimulatorStatus
 } from "../src/simulator/simulatorApi";
 import { visiblePaperAccountError } from "../src/orders/paperAccountPresentation";
-import { companyJournalRequestKey } from "../src/components/CompanyJournalPanel";
+import {
+  companyJournalRequestKey,
+  journalMetricEvidenceTargets,
+  readingEvidenceTargets
+} from "../src/components/CompanyJournalPanel";
 import { shouldReloadMarketIndicesForSimulatorStatus } from "../src/market/useMarketIndices";
 import { relatedIndicesSimulatorContextKey } from "../src/market/relatedIndicesApi";
 
@@ -103,12 +107,34 @@ const replayStatus: SimulatorStatus = {
 const observedAtMs = Date.parse("2026-07-16T14:00:00.000Z");
 assert.equal(companyJournalRequestKey(replayStatus), "simulation:run-clock:2026-07-15");
 assert.equal(
+  companyJournalRequestKey({ ...replayStatus, mode: "live", runId: null }),
+  "live",
+  "leaving SIM must invalidate the replay journal cache and restore LIVE evidence"
+);
+assert.equal(
   companyJournalRequestKey({ ...replayStatus, virtualTime: "2026-07-15T08:59:59+09:00" }),
   "simulation:run-clock:2026-07-15"
 );
 assert.equal(
   companyJournalRequestKey({ ...replayStatus, runId: "run-next" }),
   "simulation:run-next:2026-07-15"
+);
+assert.deepEqual(journalMetricEvidenceTargets("valuation", "eps"), ["per-share-latest"]);
+assert.deepEqual(journalMetricEvidenceTargets("valuation", "per"), ["valuation-latest"]);
+assert.deepEqual(journalMetricEvidenceTargets("profitability", "revenue"), ["profitability-latest"]);
+assert.deepEqual(journalMetricEvidenceTargets("profitability", "fcf-margin"), ["returns-latest"]);
+assert.deepEqual(journalMetricEvidenceTargets("stability", "debt-ratio"), ["stability-capital-latest"]);
+assert.deepEqual(journalMetricEvidenceTargets("stability", "current-ratio"), ["stability-ratios-latest"]);
+assert.deepEqual(
+  readingEvidenceTargets("valuation", {
+    id: "current-state",
+    links: [
+      { label: "EPS", view: "valuation", metric: "eps", years: [2026, 2025] },
+      { label: "PER", view: "valuation", metric: "per", years: [2026, 2025] }
+    ]
+  }),
+  ["per-share-latest", "valuation-latest"],
+  "detail explanations must illuminate every chart they discuss"
 );
 assert.equal(
   simulationAwareNowMs(observedAtMs + 2_000, replayStatus, observedAtMs),
@@ -251,6 +277,8 @@ assert.match(chartPanelSource, /fetchAnalysisAssets\(requestedSymbol, requestedI
 assert.match(chartPanelSource, /fetchChartCommentaryAsset\(requestedSymbol, requestedInterval\)/);
 assert.match(companyJournalSource, /fetchCompanyJournalEvidence/);
 assert.match(companyJournalSource, /previewEnabled \|\| simulatorMode === "simulation"/);
+assert.match(companyJournalSource, /key=\{`\$\{journalRequestKey\}:\$\{normalizedSymbol\}:\$\{activeView\}`\}/);
+assert.match(companyJournalSource, /focusedEvidenceTargets\.length > 0/);
 assert.match(companyJournalSource, /buildEvidenceBackedJournalItem/);
 assert.match(companyJournalSource, /disableRemoteFetch/);
 assert.match(
