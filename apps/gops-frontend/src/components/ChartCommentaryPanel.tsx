@@ -46,6 +46,7 @@ import { projectChartTradeSetup } from "../chart/chartTradeSetup";
 import { getActiveTradePlan, subscribeActiveTradePlans, type ActiveTradePlan } from "../chart/tradePlanStore";
 import type { CandleDto, ChartInterval } from "../chart/types";
 import { GlossaryText } from "../glossary/GlossaryText";
+import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 import { usePortfolioHoldingsData } from "./PortfolioHoldingsPanel";
 import type { PortfolioPosition } from "./portfolioHoldingsApi";
 import { ChartAnalysisLayerToggles } from "./ChartAnalysisLayerToggles";
@@ -99,12 +100,22 @@ export function ChartCommentaryPanel({
     () => chartDocumentId ? getActiveTradePlan(chartDocumentId) : null,
     () => null
   );
+  const [simulatorStatus, setSimulatorStatus] = useState<SimulatorStatus | null>(() => latestSimulatorStatus());
+  const simulationActive = simulatorStatus?.mode === "simulation";
   const holdings = usePortfolioHoldingsData(undefined, "kis");
   const holding = useMemo(
     () => holdings.positions.find((position) => position.symbol.trim().toUpperCase() === normalizedSymbol) ?? null,
     [holdings.positions, normalizedSymbol]
   );
-  const verifiedHolding = holdings.loading || holdings.error ? null : holding;
+  const verifiedHolding = simulationActive || holdings.loading || holdings.error ? null : holding;
+
+  useEffect(() => {
+    const handleStatus = (event: Event) => {
+      setSimulatorStatus((event as CustomEvent<SimulatorStatus>).detail ?? null);
+    };
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
+  }, []);
   const subscribeAssetRuntime = useCallback(
     (listener: () => void) => subscribeChartAnalysisAssetRuntime(chartDocumentId, listener),
     [chartDocumentId]
@@ -204,9 +215,9 @@ export function ChartCommentaryPanel({
           assetMeta={assets?.meta}
           chartLayers={chartLayers}
           holding={verifiedHolding}
-          holdingsLoading={holdings.loading}
-          holdingsError={holdings.error}
-          holdingsErrorStatus={holdings.errorStatus}
+          holdingsLoading={simulationActive ? false : holdings.loading}
+          holdingsError={simulationActive ? undefined : holdings.error}
+          holdingsErrorStatus={simulationActive ? undefined : holdings.errorStatus}
           assetLoadPhase={assetLoadPhase}
           assetLoadError={assetLoadError}
           layerVisibility={assetRuntime.layerVisibility ?? defaultAnalysisLayerVisibility}
