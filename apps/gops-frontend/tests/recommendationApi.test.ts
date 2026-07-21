@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { fetchScoreProfiles, fetchStockRecommendations, suggestScoreProfile } from "../src/recommendations/recommendationApi";
-import { suggestionRationaleSummary } from "../src/recommendations/ScoreProfileManager";
+import {
+  shouldAutoApplySimulationDemoSuggestion,
+  suggestionRationaleSummary
+} from "../src/recommendations/ScoreProfileManager";
 
 const item = {
   symbol: "JPM",
@@ -155,6 +158,16 @@ assert.equal(suggested.provenance.source, "llm");
 assert.equal(suggested.profile.type, "custom");
 assert.deepEqual(suggested.intent.matchedKeywords, ["뉴스", "거래량"]);
 assert.equal(suggested.evidence.news[0].symbol, "MSFT");
+assert.equal(shouldAutoApplySimulationDemoSuggestion(suggested), false);
+assert.equal(shouldAutoApplySimulationDemoSuggestion({
+  ...suggested,
+  query: "거래대금이 강하고 추세가 이어지는 종목",
+  provenance: {
+    ...suggested.provenance,
+    source: "deterministic",
+    promptVersion: "simulation-demo-score-profile.v1"
+  }
+}), true);
 assert.equal(
   suggestionRationaleSummary({
     ...suggested,
