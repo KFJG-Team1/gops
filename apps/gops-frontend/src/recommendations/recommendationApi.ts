@@ -3,6 +3,7 @@ import { normalizeSector, normalizeSectorList, sectorLabelKo } from "../market/s
 export type RiskLevel = "conservative" | "balanced" | "aggressive";
 export type RecommendationStyle = "momentum" | "balanced" | "stable";
 export type RecommendationStatus = "profile_required" | "market_closed" | "data_not_ready" | "loading" | "empty" | "ready" | "stale" | "error" | "completed";
+export type SimulationDemoRecommendationStage = "baseline" | "volume_trend";
 
 export type ScoreProfileType = "preset" | "custom";
 export type ScoreProfile = {
@@ -314,18 +315,23 @@ export async function suggestScoreProfile(query: string, signal?: AbortSignal): 
   return normalizeScoreProfileSuggestion(payload.suggestion);
 }
 
-export async function fetchStockRecommendations(signal?: AbortSignal): Promise<StockRecommendationPayload> {
-  return normalizeRecommendationPayload(await apiJson("/api/recommendations/stocks/latest", { signal }));
+export async function fetchStockRecommendations(
+  signal?: AbortSignal,
+  simulationDemoStage?: SimulationDemoRecommendationStage | null
+): Promise<StockRecommendationPayload> {
+  const query = simulationDemoStage ? `?simulationDemoStage=${encodeURIComponent(simulationDemoStage)}` : "";
+  return normalizeRecommendationPayload(await apiJson(`/api/recommendations/stocks/latest${query}`, { signal }));
 }
 
 export async function refreshStockRecommendations(
   activeSymbol?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  simulationDemoStage?: SimulationDemoRecommendationStage | null
 ): Promise<StockRecommendationPayload> {
   return normalizeRecommendationPayload(await apiJson("/api/recommendations/stocks/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ activeSymbol }),
+    body: JSON.stringify({ activeSymbol, simulationDemoStage: simulationDemoStage ?? undefined }),
     signal
   }));
 }

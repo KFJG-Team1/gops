@@ -476,6 +476,8 @@ assert.match(semanticCatalogSource, /상승 페넌트/);
 assert.match(opsSource, /<th>감지 패턴<\/th>/);
 assert.match(opsSource, /formatDetectedPattern\(item\.primaryPattern\)/);
 const commentarySource = readFileSync(fileURLToPath(new URL("../src/components/ChartCommentaryPanel.tsx", import.meta.url)), "utf-8");
+assert.match(commentarySource, /<StockLogo symbol=\{normalizedSymbol\}[^>]*className="chart-commentary-source-logo"/);
+assert.match(commentarySource, /className="chart-commentary-source-identity"/);
 assert.match(commentarySource, /buildChartCommentaryViewModel/);
 assert.match(commentarySource, /aria-pressed=\{pinned\}/);
 assert.match(commentarySource, /수치 근거 자세히/);
@@ -512,6 +514,7 @@ assert.match(commentarySource, /holdingsLoading=\{simulationActive \? false : ho
 assert.match(commentarySource, /<HoldingSummary/);
 assert.match(commentarySource, /aria-label="실계좌 보유 현황"/);
 assert.match(commentarySource, /<th>보유 상태<\/th><th>평균 매입가<\/th><th>보유 수량<\/th>/);
+assert.match(chartFeatureStylesSource, /\.chart-commentary-holding th \{[^}]*color: var\(--color-text\);[^}]*font-weight: 700;[^}]*\}/);
 assert.match(commentarySource, /buildChartCommentaryViewModel\(diagnostics\.resolvedAsset, setup, currentPrice\)/);
 assert.match(commentarySource, /ConversationView/);
 assert.match(semanticCatalogSource, /하락 채널 상단 돌파/);

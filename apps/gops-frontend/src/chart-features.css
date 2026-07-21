@@ -177,6 +177,7 @@
 }
 
 .chart-holding-price-marker {
+  appearance: none;
   position: absolute;
   z-index: 7;
   top: var(--chart-holding-price-y);
@@ -186,8 +187,13 @@
   width: var(--chart-holding-axis-width);
   height: 22px;
   align-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   transform: translateY(-50%);
-  cursor: help;
+  cursor: pointer;
   pointer-events: auto;
 }
 
@@ -424,6 +430,18 @@
   padding: 9px 12px;
 }
 
+.chart-commentary-source-identity {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.chart-commentary-source-logo {
+  flex: 0 0 22px;
+}
+
 .chart-commentary-source strong {
   flex: 0 1 auto;
   overflow: hidden;
@@ -579,9 +597,9 @@
 .chart-commentary-holding th {
   border-bottom: 1px solid var(--color-border);
   background: var(--coinbase-panel-muted);
-  color: var(--color-muted);
+  color: var(--color-text);
   font: var(--type-caption);
-  font-weight: 500;
+  font-weight: 700;
 }
 
 .chart-commentary-holding td {

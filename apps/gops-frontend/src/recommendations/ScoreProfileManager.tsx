@@ -51,12 +51,38 @@ const factorLabels: Record<string, string> = {
   liquidityCashCompatibility: "유동성/현금 적합도"
 };
 
+export const simulationDemoScoreProfileQuery = "거래대금이 강하고 추세가 이어지는 종목";
+export const simulationDemoScoreProfilePromptVersion = "simulation-demo-score-profile.v1";
+
 const recommendationQueryExamples = [
-  "거래대금이 강하고 추세가 이어지는 종목",
+  simulationDemoScoreProfileQuery,
   "돌파 후 VWAP을 지키는 종목",
   "실적 뉴스와 성장성이 좋은 종목",
   "저변동·하방 방어 중심 종목"
 ];
+
+export function shouldAutoApplySimulationDemoSuggestion(suggestion: ScoreProfileSuggestion): boolean {
+  return suggestion.provenance.promptVersion === simulationDemoScoreProfilePromptVersion
+    && suggestion.query.trim().replace(/\s+/g, " ") === simulationDemoScoreProfileQuery;
+}
+
+export function isSimulationDemoScoreProfile(profile: ScoreProfile | null | undefined): boolean {
+  if (!profile || profile.type !== "custom" || profile.portfolioWeight !== 0) return false;
+  const blocks = profile.blockWeights;
+  const trend = profile.factorWeights.trendStrength ?? {};
+  const price = profile.factorWeights.priceStructure ?? {};
+  const execution = profile.factorWeights.executionQuality ?? {};
+  return blocks.trendStrength === 15
+    && blocks.participationConfirmation === 10
+    && blocks.priceStructure === 15
+    && blocks.catalystQuality === 0
+    && blocks.executionQuality === 60
+    && blocks.qualityStability === 0
+    && trend.oneDayRelativeStrength === 100
+    && price.vwapHoldQuality === 100
+    && execution.medianDollarVolume === 70
+    && execution.quotedSpreadBps === 30;
+}
 
 export function ScoreProfileManager({
   disabled,

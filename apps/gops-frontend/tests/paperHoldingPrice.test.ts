@@ -139,6 +139,8 @@ assert.match(chartPanelSource, /className="chart-holding-price-tooltip"/);
 assert.match(chartPanelSource, /role="tooltip"/);
 assert.match(chartPanelSource, /ref=\{holdingPriceMarkerRef\}/);
 assert.match(chartPanelSource, /syncPaperHoldingPriceMarkerPosition/);
+assert.match(chartPanelSource, /type="button"/);
+assert.match(chartPanelSource, /applyExactChartPrice\(holdingOverlay\.averagePrice, holdingOverlay\.averagePrice\.toFixed\(2\)\)/);
 assert.doesNotMatch(chartPanelSource, /className="chart-holding-price-pill"/);
 
 const chartFeatureStyles = readFileSync(

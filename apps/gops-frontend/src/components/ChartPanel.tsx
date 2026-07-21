@@ -754,7 +754,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
   ]);
   const chartPanelRef = useRef<HTMLElement | null>(null);
   const holdingPriceTooltipId = useId();
-  const holdingPriceMarkerRef = useRef<HTMLSpanElement | null>(null);
+  const holdingPriceMarkerRef = useRef<HTMLButtonElement | null>(null);
   const chartControlTooltip = useImmediateChartTooltip();
   const sceneRef = useRef<ChartScene | null>(null);
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
@@ -3633,18 +3633,18 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
           </div>
         )}
         {holdingOverlay && holdingPriceMarker && (
-          <span
+          <button
             ref={holdingPriceMarkerRef}
+            type="button"
             className={`chart-holding-price-marker is-tooltip-${holdingPriceMarker.tooltipPlacement}`}
             style={{
               "--chart-holding-price-y": `${holdingPriceMarker.y}px`,
               "--chart-holding-axis-left": `${holdingPriceMarker.axisLeft}px`,
               "--chart-holding-axis-width": `${holdingPriceMarker.axisWidth}px`
             } as CSSProperties}
-            role="img"
-            tabIndex={0}
-            aria-label={`${chart.symbol} ${paperHoldingOverlayLabel(holdingOverlay)}`}
+            aria-label={`${chart.symbol} ${paperHoldingOverlayLabel(holdingOverlay)} 주문창에 적용`}
             aria-describedby={holdingPriceTooltipId}
+            onClick={() => applyExactChartPrice(holdingOverlay.averagePrice, holdingOverlay.averagePrice.toFixed(2))}
           >
             <span id={holdingPriceTooltipId} className="chart-holding-price-tooltip" role="tooltip">
               <span className="chart-holding-price-tooltip-heading">
@@ -3660,7 +3660,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
                 <strong>{formatPaperHoldingQuantity(holdingOverlay.quantity)}</strong>
               </span>
             </span>
-          </span>
+          </button>
         )}
         <ChartEventOverlay
           containerRef={chartWrapRef}
