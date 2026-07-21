@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import type { Sp500UniverseItem } from "../src/market/sp500Universe.seed";
 import {
   DISCOVERY_PAGE_SIZE,
+  applySimulationDemoRecommendationOrder,
   buildDiscoveryRows,
   discoveryPage,
   effectiveRecommendationScore,
   emptyMetricRanges,
   filterDiscoveryRows,
-  recommendationScoreBreakdown
+  recommendationScoreBreakdown,
+  resolveSimulationDemoRecommendationStage,
+  simulationDemoRecommendationStorageKey
 } from "../src/recommendations/StockDiscoveryPanel";
 import type { StockRecommendationItem } from "../src/recommendations/recommendationApi";
 import { rebalanceWeights } from "../src/recommendations/ScoreProfileManager";
@@ -33,6 +36,68 @@ assert.equal(rows[0].recommendation?.score, 78, "the highest-score duplicate rec
 assert.equal(rows[0].volumeRank, 4);
 assert.equal(rows[1].volumeRank, 1);
 assert.equal(effectiveRecommendationScore({ ...recommendations[0], customRankScore: 94.5 }), 94.5);
+
+const alreadyPersonalizedPayload = {
+  status: "completed" as const,
+  items: [
+    recommendation("NVDA", 1, 96),
+    recommendation("JPM", 2, 91),
+    recommendation("AAPL", 3, 87)
+  ]
+};
+const baselinePayload = applySimulationDemoRecommendationOrder(alreadyPersonalizedPayload, "baseline");
+assert.deepEqual(
+  baselinePayload.items.map((item) => item.symbol),
+  ["JPM", "NVDA", "AAPL"],
+  "a new simulator run always starts with NVDA in second place even if the saved profile already ranks it first"
+);
+assert.deepEqual(
+  baselinePayload.items.map((item) => item.rank),
+  [1, 2, 3],
+  "the forced simulator ordering exposes consecutive ranks"
+);
+assert.ok(
+  effectiveRecommendationScore(baselinePayload.items[0]) > effectiveRecommendationScore(baselinePayload.items[1]),
+  "the effective scores agree with the forced baseline order used by the UI sorter"
+);
+assert.deepEqual(
+  alreadyPersonalizedPayload.items.map((item) => item.symbol),
+  ["NVDA", "JPM", "AAPL"],
+  "demo ordering does not mutate the API response"
+);
+const appliedPayload = applySimulationDemoRecommendationOrder(baselinePayload, "volume_trend");
+assert.deepEqual(
+  appliedPayload.items.map((item) => item.symbol),
+  ["NVDA", "JPM", "AAPL"],
+  "saving the volume-and-trend suggestion moves NVDA from second to first"
+);
+assert.ok(
+  effectiveRecommendationScore(appliedPayload.items[0]) > effectiveRecommendationScore(appliedPayload.items[1]),
+  "the effective scores agree with the applied demo order"
+);
+assert.equal(
+  resolveSimulationDemoRecommendationStage({ mode: "simulation", runId: "run-new" }, () => null),
+  "baseline",
+  "a simulator run without a stored interaction starts at the baseline stage"
+);
+assert.equal(
+  resolveSimulationDemoRecommendationStage(
+    { mode: "simulation", runId: "run-current" },
+    (key) => key === simulationDemoRecommendationStorageKey("run-current") ? "volume_trend" : null
+  ),
+  "volume_trend",
+  "the applied stage is restored only for the same simulator run"
+);
+assert.equal(
+  resolveSimulationDemoRecommendationStage({ mode: "simulation", runId: "run-next" }, () => null),
+  "baseline",
+  "a different simulator run resets the recommendation demo"
+);
+assert.equal(
+  resolveSimulationDemoRecommendationStage({ mode: "live", runId: null }, () => "volume_trend"),
+  null,
+  "live recommendations are never hardcoded"
+);
 assert.deepEqual(recommendationScoreBreakdown({
   ...recommendations[0],
   metricsSnapshot: {
