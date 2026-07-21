@@ -307,15 +307,14 @@ export function StockDiscoveryPanel({
         </>
       ) : (
         <section className="stock-discovery-logic-page" aria-label="추천 로직 세부 가중치">
-          <header><strong>추천 점수 설계</strong></header>
-            <div className="stock-discovery-logic-scroll">
-              <ScoreProfileManager
-                onActivated={() => {
-                  setActiveTab("list");
-                  void refresh();
-                }}
-              />
-            </div>
+          <div className="stock-discovery-logic-scroll">
+            <ScoreProfileManager
+              onActivated={() => {
+                setActiveTab("list");
+                void refresh();
+              }}
+            />
+          </div>
         </section>
       )}
     </section>

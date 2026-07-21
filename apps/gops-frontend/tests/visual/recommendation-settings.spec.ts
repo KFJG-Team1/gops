@@ -17,6 +17,47 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/**", async (route) => fulfillApi(route));
 });
 
+test("recommendation formula editor keeps every draft editable in the requested visual order", async ({ page }, testInfo) => {
+  await openRecommendationsLayout(page, recommendationSyncLayout());
+
+  const panel = page.locator(".stock-discovery-panel").first();
+  await panel.getByRole("button", { name: "추천 수식 설정" }).click();
+
+  await expect(panel.getByText("추천 점수 설계", { exact: true })).toHaveCount(0);
+  const stablePreset = panel.getByRole("button", { name: "안정 기본 수식 사용" });
+  await expect(stablePreset).toHaveAttribute("aria-pressed", "true");
+  await expect(stablePreset).toHaveClass(/is-selected/);
+
+  const currentName = panel.getByRole("textbox", { name: "현재 선택한 로직 이름" });
+  await expect(currentName).toHaveValue("안정 조정");
+  await expect(panel.getByRole("slider").first()).toBeEnabled();
+
+  await panel.getByRole("button", { name: "균형 기본 수식 사용" }).click();
+  await expect(currentName).toHaveValue("균형 조정");
+  await currentName.fill("수정 중인 균형 로직");
+  const reset = panel.getByRole("button", { name: "변경사항 되돌리기" });
+  await expect(reset).toBeEnabled();
+  await reset.click();
+  await expect(currentName).toHaveValue("균형 조정");
+
+  await panel.getByRole("button", { name: "실적 뉴스와 성장성이 좋은 종목" }).click();
+  await panel.getByRole("button", { name: "AI 제안" }).click();
+  await expect(currentName).toHaveValue("성장 촉매 로직");
+  await expect(panel.getByText("편집 중", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "초안에 적용" })).toHaveCount(0);
+
+  const savedLogic = panel.locator(".score-profile-list-select").filter({ hasText: "내 균형" });
+  await expect(savedLogic).toBeVisible();
+  await savedLogic.click();
+  await expect(currentName).toHaveValue("내 균형");
+  await expect(panel.locator(".score-profile-list-item.is-selected")).toContainText("내 균형");
+  const sectionOrder = await panel.locator(".score-profile-current-editor, .score-profile-saved-library, .score-profile-editor").evaluateAll((elements) => (
+    elements.map((element) => element.className)
+  ));
+  expect(sectionOrder).toEqual(["score-profile-current-editor", "score-profile-saved-library", "score-profile-editor"]);
+  await panel.screenshot({ path: testInfo.outputPath("recommendation-formula-editor.png") });
+});
+
 test("empty recommendation responses stay empty in live mode", async ({ page }) => {
   recommendationResponseMode = "empty";
   await openRecommendationsLayout(page);
@@ -376,6 +417,10 @@ async function fulfillApi(route: Route): Promise<void> {
       profileSaved = true;
       payload = { status: "ready", profile: savedProfile };
     }
+  } else if (url.pathname === "/api/recommendations/score-profiles" && request.method() === "GET") {
+    payload = scoreProfileCatalog();
+  } else if (url.pathname === "/api/recommendations/score-profiles/suggestions" && request.method() === "POST") {
+    payload = { status: "ready", suggestion: scoreProfileSuggestion() };
   } else if (url.pathname === "/api/notification-preferences") {
     payload = { settings: { master: true }, companyOverrides: {}, thresholds: {} };
   } else if (url.pathname === "/api/notifications") {
@@ -391,6 +436,76 @@ async function fulfillApi(route: Route): Promise<void> {
   }
 
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(payload) });
+}
+
+function scoreProfileCatalog(): Record<string, unknown> {
+  const momentum = scoreProfileFixture("preset", "모멘텀", null, "momentum", 1);
+  const balanced = scoreProfileFixture("preset", "균형", null, "balanced", 1);
+  const stable = scoreProfileFixture("preset", "안정", null, "stable", 1);
+  return {
+    schemaVersion: "recommendation-score-profile.v1",
+    maxCustomProfiles: 20,
+    presets: [momentum, balanced, stable],
+    customProfiles: [scoreProfileFixture("custom", "내 균형", 7, null, 2)],
+    active: stable
+  };
+}
+
+function scoreProfileFixture(type: "preset" | "custom", name: string, id: number | null, presetStyle: string | null, revision: number): Record<string, unknown> {
+  return {
+    type,
+    id,
+    name,
+    ...(presetStyle ? { presetStyle } : {}),
+    revision,
+    schemaVersion: "recommendation-score-profile.v1",
+    blockWeights: {
+      trendStrength: 20,
+      participationConfirmation: 20,
+      priceStructure: 20,
+      catalystQuality: 15,
+      executionQuality: 15,
+      qualityStability: 10
+    },
+    factorWeights: {
+      trendStrength: { currentSessionRelativeStrength: 100 },
+      participationConfirmation: { clockAdjustedVolumeRatio: 100 },
+      priceStructure: { vwapHoldQuality: 100 },
+      catalystQuality: { catalystQuality: 100 },
+      executionQuality: { quotedSpreadBps: 100 },
+      qualityStability: { realizedVolatility: 100 }
+    },
+    portfolioWeight: 20,
+    portfolioFactorWeights: {
+      sectorDiversification: 25,
+      correlationBenefit: 25,
+      marginalVariance: 25,
+      liquidityCashCompatibility: 25
+    }
+  };
+}
+
+function scoreProfileSuggestion(): Record<string, unknown> {
+  return {
+    schemaVersion: "recommendation-score-suggestion.v1",
+    query: "실적 뉴스와 성장성이 좋은 종목",
+    name: "성장 촉매 로직",
+    rationale: "실적과 성장 촉매를 중심으로 구성했습니다.",
+    confidence: 0.86,
+    intent: {
+      matchedKeywords: ["실적", "성장"],
+      documents: [{ id: "growth-catalyst", title: "성장 촉매 확인", reason: "성장과 실적을 반영합니다.", matchedKeywords: ["실적", "성장"] }]
+    },
+    profile: scoreProfileFixture("custom", "성장 촉매 로직", null, null, 0),
+    evidence: { summary: ["고정 evidence snapshot을 사용했습니다."], news: [] },
+    provenance: {
+      source: "deterministic",
+      promptVersion: "recommendation-score-profile-rag.ko.v1",
+      generatedAt: "2026-07-21T00:00:00Z",
+      retrievalDigest: "visual-score-profile-suggestion",
+      evidenceRefs: ["evidence:visual"]
+    }
+  };
 }
 
 function investmentProfile(): Record<string, unknown> {
