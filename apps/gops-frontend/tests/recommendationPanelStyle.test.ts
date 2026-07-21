@@ -44,9 +44,13 @@ assert.doesNotMatch(profileSource, /현재 기준|>불러오기</, "preset cards
 assert.match(profileSource, /customProfiles\.map/, "saved user logic is separated from preset templates");
 assert.match(profileSource, /aria-label="추천 로직 요청"/, "the custom logic library accepts a natural-language profile request");
 assert.match(profileSource, /suggestScoreProfile/, "the natural-language request calls the grounded suggestion API");
-assert.match(profileSource, /score-profile-ai-suggestion[\s\S]*제안 근거/, "the proposed preset exposes its grounded rationale on hover or focus");
+assert.doesNotMatch(profileSource, /score-profile-ai-suggestion-state|>편집 중</, "AI suggestions do not render a second editing-state card");
+assert.match(profileSource, /score-profile-current-rationale[\s\S]*AI 제안 근거[\s\S]*score-profile-ai-rationale/, "AI rationale stays inside the selected custom logic row");
 assert.doesNotMatch(profileSource, /초안에 적용/, "an AI proposal becomes the editable draft without an extra apply step");
 assert.match(profileSource, /suggestScoreProfile\(query\)[\s\S]*setDraft\(suggestedDraft\)[\s\S]*setDraftBaseline/, "an AI proposal immediately establishes an editable draft and reset baseline");
+assert.match(profileSource, /selectedPresetKey[\s\S]*selectedCustomKey/, "immutable presets and user logic use separate selection state");
+assert.match(profileSource, /if \(selectedProfile\.type === "custom"\)[\s\S]*setSelectedPresetKey\(""\)[\s\S]*setDraft\(nextDraft\)[\s\S]*else[\s\S]*setSelectedPresetKey\(profileKey\(selectedProfile\)\)[\s\S]*setDraft\(null\)/, "only custom profiles establish the current editable logic on load");
+assert.match(profileSource, /if \(!selectedPreset\) return;[\s\S]*editableDraftFromProfile\(selectedPreset, profiles\)[\s\S]*setSelectedPresetKey\(""\)/, "the first preset weight edit creates a custom draft and clears preset selection");
 assert.match(profileSource, /score-profile-current-editor[\s\S]*현재 선택한 로직 이름[\s\S]*변경사항 되돌리기[\s\S]*추천 로직 저장[\s\S]*저장하고 추천 재계산/, "the selected logic uses one editable action row with accessible icon actions");
 assert.match(profileSource, /score-profile-saved-library[\s\S]*customProfiles\.map/, "saved logic remains below the selected editor and includes the selected profile");
 assert.match(profileSource, /score-profile-list-delete[\s\S]*Trash2/, "saved logic deletion remains available from the library row");
@@ -114,7 +118,7 @@ assert.match(workspaceStyles, /\.score-profile-preset-shelf button \{[\s\S]*just
 assert.match(workspaceStyles, /\.score-profile-preset-shelf button\.is-selected \{[\s\S]*border-bottom-color: var\(--color-signal\);[\s\S]*background: color-mix\(in srgb, var\(--color-signal\) 14%/, "the selected starting preset uses a blue underline and subtle signal surface");
 assert.match(workspaceStyles, /\.score-profile-ai-workbench \{[\s\S]*border: 1px solid var\(--color-border\);[\s\S]*background: var\(--color-surface-strong\);/, "the AI query and autofill examples share one bounded workbench");
 assert.match(workspaceStyles, /\.score-profile-current-editor \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;[\s\S]*background: color-mix/, "the selected logic is a prominent one-row editor");
-assert.match(workspaceStyles, /\.score-profile-ai-suggestion:hover \.score-profile-ai-rationale/, "profile suggestion evidence appears on hover");
+assert.match(workspaceStyles, /\.score-profile-current-rationale:hover \.score-profile-ai-rationale[\s\S]*\.score-profile-current-rationale:focus-within/, "AI suggestion evidence appears from the current logic row on hover and focus");
 assert.match(workspaceStyles, /\.score-profile-mixer-grid/, "signal controls use a responsive direct-edit grid");
 
 const recommendationStyles = workspaceStyles.slice(

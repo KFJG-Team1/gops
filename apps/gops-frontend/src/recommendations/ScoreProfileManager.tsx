@@ -1,4 +1,4 @@
-import { LoaderCircle, Plus, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
+import { Info, LoaderCircle, Plus, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   activateScoreProfile,
@@ -93,7 +93,8 @@ export function ScoreProfileManager({
 }) {
   const [profiles, setProfiles] = useState<ScoreProfile[]>([]);
   const [activeKey, setActiveKey] = useState("");
-  const [selectedKey, setSelectedKey] = useState("");
+  const [selectedPresetKey, setSelectedPresetKey] = useState("");
+  const [selectedCustomKey, setSelectedCustomKey] = useState("");
   const [draft, setDraft] = useState<ScoreProfile | null>(null);
   const [draftBaseline, setDraftBaseline] = useState<ScoreProfile | null>(null);
   const [maxCustomProfiles, setMaxCustomProfiles] = useState(20);
@@ -111,19 +112,27 @@ export function ScoreProfileManager({
       const payload = await fetchScoreProfiles(signal);
       const nextProfiles = [...payload.presets, ...payload.customProfiles];
       const nextActiveKey = profileKey(payload.active);
-      const nextSelectedKey = preferredKey && nextProfiles.some((item) => profileKey(item) === preferredKey)
-        ? preferredKey
-        : nextProfiles.some((item) => profileKey(item) === selectedKey)
-          ? selectedKey
-          : nextActiveKey;
+      const preferredProfile = preferredKey
+        ? nextProfiles.find((item) => profileKey(item) === preferredKey)
+        : undefined;
+      const preservedCustom = nextProfiles.find((item) => profileKey(item) === selectedCustomKey && item.type === "custom");
+      const preservedPreset = nextProfiles.find((item) => profileKey(item) === selectedPresetKey && item.type === "preset");
+      const selectedProfile = preferredProfile ?? preservedCustom ?? preservedPreset ?? payload.active;
       setProfiles(nextProfiles);
       setMaxCustomProfiles(payload.maxCustomProfiles);
       setActiveKey(nextActiveKey);
-      setSelectedKey(nextSelectedKey);
-      const sourceProfile = nextProfiles.find((item) => profileKey(item) === nextSelectedKey) ?? payload.active;
-      const nextDraft = editableDraftFromProfile(sourceProfile, nextProfiles);
-      setDraft(nextDraft);
-      setDraftBaseline(cloneProfile(nextDraft));
+      if (selectedProfile.type === "custom") {
+        const nextDraft = cloneProfile(selectedProfile);
+        setSelectedPresetKey("");
+        setSelectedCustomKey(profileKey(selectedProfile));
+        setDraft(nextDraft);
+        setDraftBaseline(cloneProfile(nextDraft));
+      } else {
+        setSelectedPresetKey(profileKey(selectedProfile));
+        setSelectedCustomKey("");
+        setDraft(null);
+        setDraftBaseline(null);
+      }
       setError(null);
     } catch (caught) {
       if (!(caught instanceof DOMException && caught.name === "AbortError")) {
@@ -132,7 +141,7 @@ export function ScoreProfileManager({
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [selectedKey]);
+  }, [selectedCustomKey, selectedPresetKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -142,31 +151,24 @@ export function ScoreProfileManager({
 
   const presetProfiles = profiles.filter((item) => item.type === "preset");
   const customProfiles = profiles.filter((item) => item.type === "custom");
+  const selectedPreset = presetProfiles.find((item) => profileKey(item) === selectedPresetKey) ?? null;
+  const mixerProfile = draft ?? selectedPreset;
   const customCount = customProfiles.length;
-  const validationError = useMemo(() => validateDraft(draft), [draft]);
+  const validationError = useMemo(() => draft ? validateDraft(draft) : null, [draft]);
   const dirty = useMemo(() => profileSignature(draft) !== profileSignature(draftBaseline), [draft, draftBaseline]);
   const needsCustomSlot = Boolean(draft?.type === "custom" && !draft.id);
   const customSlotUnavailable = needsCustomSlot && customCount >= maxCustomProfiles;
   const editorDisabled = Boolean(disabled || working);
 
-  const select = (profile: ScoreProfile) => {
-    const nextDraft = editableDraftFromProfile(profile, profiles);
-    setSelectedKey(profileKey(profile));
+  const selectCustom = (profile: ScoreProfile) => {
+    if (profile.type !== "custom") return;
+    const nextDraft = cloneProfile(profile);
+    setSelectedPresetKey("");
+    setSelectedCustomKey(profileKey(profile));
     setDraft(nextDraft);
     setDraftBaseline(cloneProfile(nextDraft));
     setSuggestion(null);
     setMessage(null);
-    setError(null);
-  };
-
-  const startFromPreset = (profile: ScoreProfile) => {
-    if (profile.type !== "preset") return;
-    const nextDraft = editableDraftFromProfile(profile, profiles);
-    setSelectedKey(profileKey(profile));
-    setDraft(nextDraft);
-    setDraftBaseline(cloneProfile(nextDraft));
-    setSuggestion(null);
-    setMessage(`${profile.name} 프리셋을 새 로직에 불러왔습니다.`);
     setError(null);
   };
 
@@ -176,6 +178,23 @@ export function ScoreProfileManager({
       if (!current) return current;
       return update(cloneProfile(current));
     });
+    setMessage(null);
+    setError(null);
+  };
+
+  const updateMixerProfile = (next: ScoreProfile) => {
+    if (draft) {
+      updateEditableDraft(() => next);
+      return;
+    }
+    if (!selectedPreset) return;
+    const baseline = editableDraftFromProfile(selectedPreset, profiles);
+    const nextDraft = copyProfileWeights(baseline, next);
+    setSelectedPresetKey("");
+    setSelectedCustomKey("");
+    setDraft(nextDraft);
+    setDraftBaseline(cloneProfile(baseline));
+    setSuggestion(null);
     setMessage(null);
     setError(null);
   };
@@ -204,6 +223,15 @@ export function ScoreProfileManager({
     setSuggestion(null);
     setMessage("추천 로직을 저장했습니다. 적용하면 새 추천 순위를 계산합니다.");
     await load(undefined, profileKey(saved));
+  });
+
+  const activatePreset = (profile: ScoreProfile) => run(async () => {
+    if (profile.type !== "preset") return;
+    const investmentProfile = await activateScoreProfile(profile);
+    setSuggestion(null);
+    setMessage(`${profile.name} 기본 수식을 적용했습니다.`);
+    await load(undefined, profileKey(profile));
+    onActivated?.(investmentProfile);
   });
 
   const activate = () => run(async () => {
@@ -244,7 +272,8 @@ export function ScoreProfileManager({
       const nextSuggestion = await suggestScoreProfile(query);
       const suggestedDraft = suggestionDraft(nextSuggestion, profiles);
       setSuggestion(nextSuggestion);
-      setSelectedKey("");
+      setSelectedPresetKey("");
+      setSelectedCustomKey("");
       setDraft(suggestedDraft);
       setDraftBaseline(cloneProfile(suggestedDraft));
       setMessage(customCount >= maxCustomProfiles
@@ -272,11 +301,11 @@ export function ScoreProfileManager({
               <button
                 key={key}
                 type="button"
-                className={key === selectedKey ? "is-selected" : ""}
-                aria-pressed={key === selectedKey}
+                className={key === selectedPresetKey ? "is-selected" : ""}
+                aria-pressed={key === selectedPresetKey}
                 disabled={disabled || working}
                 aria-label={`${profile.name} 기본 수식 사용`}
-                onClick={() => startFromPreset(profile)}
+                onClick={() => activatePreset(profile)}
               >
                 <strong>{profile.name}</strong>
               </button>
@@ -316,96 +345,99 @@ export function ScoreProfileManager({
             </button>
           ))}
         </div>
-        {suggestion && (
-          <article className="score-profile-ai-suggestion" tabIndex={0} aria-label={`${suggestion.name} 제안 근거 보기`}>
-            <div>
-              <Sparkles size={14} aria-hidden="true" />
-              <strong>{suggestion.name}</strong>
-              <span>{topSuggestedBlocks(suggestion.profile).join(" · ")}</span>
-            </div>
-            <span className="score-profile-ai-suggestion-state">편집 중</span>
-            <div className="score-profile-ai-rationale" role="tooltip">
-              <strong>제안 근거</strong>
-              <p>{suggestionRationaleSummary(suggestion)}</p>
-            </div>
-          </article>
-        )}
       </section>
 
-      {draft && !loading && (
+      {!loading && mixerProfile && (
         <>
-          <section className="score-profile-current-editor" aria-label="현재 선택한 로직">
-            <label className="score-profile-current-name">
-              <input
-                value={draft.name}
-                maxLength={40}
-                disabled={editorDisabled}
-                aria-label="현재 선택한 로직 이름"
-                onChange={(event) => updateEditableDraft((current) => ({ ...current, name: event.target.value }))}
-              />
-            </label>
-            <div className="score-profile-current-actions">
-              <button
-                type="button"
-                className="is-icon"
-                disabled={editorDisabled || !dirty}
-                aria-label="변경사항 되돌리기"
-                title="변경사항 되돌리기"
-                onClick={resetDraft}
-              ><RotateCcw size={14} aria-hidden="true" /></button>
-              <button
-                type="button"
-                className="is-icon"
-                disabled={editorDisabled || Boolean(validationError) || customSlotUnavailable || Boolean(draft.id && !dirty)}
-                aria-label="추천 로직 저장"
-                title={customSlotUnavailable ? `사용자 프로필은 최대 ${maxCustomProfiles}개까지 저장할 수 있습니다.` : "추천 로직 저장"}
-                onClick={save}
-              ><Save size={14} aria-hidden="true" /></button>
-              <button
-                type="button"
-                className="is-primary"
-                disabled={editorDisabled || Boolean(validationError) || customSlotUnavailable}
-                title={customSlotUnavailable ? `사용자 프로필은 최대 ${maxCustomProfiles}개까지 저장할 수 있습니다.` : undefined}
-                onClick={activate}
-              >저장하고 추천 재계산</button>
-            </div>
-          </section>
-
-          <section className="score-profile-saved-library" aria-label="저장된 추천 로직">
-            <header><strong>저장된 로직</strong></header>
-            <div className="score-profile-list" role="listbox" aria-label="내 추천 로직 목록">
-              {customProfiles.map((profile) => {
-                const key = profileKey(profile);
-                const selected = key === selectedKey;
-                return (
-                  <div key={key} className={`score-profile-list-item ${selected ? "is-selected" : ""}`} role="option" aria-selected={selected}>
-                    <button type="button" className="score-profile-list-select" disabled={disabled || working} onClick={() => select(profile)}>
-                      <span>{profile.name}</span>
-                      <em>{key === activeKey ? "활성" : `r${profile.revision}`}</em>
+          {draft && (
+            <section className="score-profile-current-editor" aria-label="현재 선택한 로직">
+              <div className="score-profile-current-identity">
+                <label className="score-profile-current-name">
+                  <input
+                    value={draft.name}
+                    maxLength={40}
+                    disabled={editorDisabled}
+                    aria-label="현재 선택한 로직 이름"
+                    onChange={(event) => updateEditableDraft((current) => ({ ...current, name: event.target.value }))}
+                  />
+                </label>
+                {suggestion && (
+                  <span className="score-profile-current-rationale">
+                    <button type="button" aria-label="AI 제안 근거" title="AI 제안 근거">
+                      <Info size={14} aria-hidden="true" />
                     </button>
-                    <button
-                      type="button"
-                      className="score-profile-list-delete"
-                      disabled={disabled || working}
-                      aria-label={`${profile.name} 삭제`}
-                      title={`${profile.name} 삭제`}
-                      onClick={() => remove(profile)}
-                    ><Trash2 size={13} aria-hidden="true" /></button>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+                    <span className="score-profile-ai-rationale" role="tooltip">
+                      <strong>제안 근거</strong>
+                      <p>{suggestionRationaleSummary(suggestion)}</p>
+                    </span>
+                  </span>
+                )}
+              </div>
+              <div className="score-profile-current-actions">
+                <button
+                  type="button"
+                  className="is-icon"
+                  disabled={editorDisabled || !dirty}
+                  aria-label="변경사항 되돌리기"
+                  title="변경사항 되돌리기"
+                  onClick={resetDraft}
+                ><RotateCcw size={14} aria-hidden="true" /></button>
+                <button
+                  type="button"
+                  className="is-icon"
+                  disabled={editorDisabled || Boolean(validationError) || customSlotUnavailable || Boolean(draft.id && !dirty)}
+                  aria-label="추천 로직 저장"
+                  title={customSlotUnavailable ? `사용자 프로필은 최대 ${maxCustomProfiles}개까지 저장할 수 있습니다.` : "추천 로직 저장"}
+                  onClick={save}
+                ><Save size={14} aria-hidden="true" /></button>
+                <button
+                  type="button"
+                  className="is-primary"
+                  disabled={editorDisabled || Boolean(validationError) || customSlotUnavailable}
+                  title={customSlotUnavailable ? `사용자 프로필은 최대 ${maxCustomProfiles}개까지 저장할 수 있습니다.` : undefined}
+                  onClick={activate}
+                >저장하고 추천 재계산</button>
+              </div>
+            </section>
+          )}
+
+          {customProfiles.length > 0 && (
+            <section className="score-profile-saved-library" aria-label="저장된 추천 로직">
+              <header><strong>저장된 로직</strong></header>
+              <div className="score-profile-list" role="listbox" aria-label="내 추천 로직 목록">
+                {customProfiles.map((profile) => {
+                  const key = profileKey(profile);
+                  const selected = key === selectedCustomKey;
+                  return (
+                    <div key={key} className={`score-profile-list-item ${selected ? "is-selected" : ""}`} role="option" aria-selected={selected}>
+                      <button type="button" className="score-profile-list-select" disabled={disabled || working} onClick={() => selectCustom(profile)}>
+                        <span>{profile.name}</span>
+                        <em>{key === activeKey ? "활성" : `r${profile.revision}`}</em>
+                      </button>
+                      <button
+                        type="button"
+                        className="score-profile-list-delete"
+                        disabled={disabled || working}
+                        aria-label={`${profile.name} 삭제`}
+                        title={`${profile.name} 삭제`}
+                        onClick={() => remove(profile)}
+                      ><Trash2 size={13} aria-hidden="true" /></button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           <div className="score-profile-editor">
             <ScoreWeightMixer
-              profile={draft}
+              profile={mixerProfile}
               disabled={editorDisabled}
-              onChange={(next) => updateEditableDraft(() => next)}
+              onChange={updateMixerProfile}
             />
           </div>
 
-          {validationError && draft.type === "custom" && <p className="investment-profile-error">{validationError}</p>}
+          {validationError && draft?.type === "custom" && <p className="investment-profile-error">{validationError}</p>}
         </>
       )}
       {message && <p className="investment-profile-message">{message}</p>}
@@ -594,6 +626,17 @@ function editableDraftFromProfile(profile: ScoreProfile, profiles: readonly Scor
     : cloneProfile(profile);
 }
 
+function copyProfileWeights(target: ScoreProfile, source: ScoreProfile): ScoreProfile {
+  const clonedSource = cloneProfile(source);
+  return {
+    ...target,
+    blockWeights: clonedSource.blockWeights,
+    factorWeights: clonedSource.factorWeights,
+    portfolioWeight: source.portfolioWeight,
+    portfolioFactorWeights: clonedSource.portfolioFactorWeights
+  };
+}
+
 function toCustomDraft(profile: ScoreProfile, name: string): ScoreProfile {
   return {
     ...cloneProfile(profile),
@@ -643,20 +686,17 @@ function suggestionDraft(suggestion: ScoreProfileSuggestion, profiles: readonly 
   return draft;
 }
 
-function topSuggestedBlocks(profile: ScoreProfile): string[] {
-  return Object.entries(profile.blockWeights)
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 3)
-    .map(([block, weight]) => `${recommendationBlockLabels[block] ?? block} ${weight}%`);
-}
-
 export function suggestionRationaleSummary(suggestion: ScoreProfileSuggestion): string {
   const focus = suggestion.intent.documents
     .slice(0, 2)
     .map((document) => document.title.replace(/ 확인$/, ""));
   const focusLabel = focus.length > 0
     ? focus.join("·")
-    : topSuggestedBlocks(suggestion.profile).slice(0, 2).join("·");
+    : Object.entries(suggestion.profile.blockWeights)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 2)
+      .map(([block, weight]) => `${recommendationBlockLabels[block] ?? block} ${weight}%`)
+      .join("·");
   return `${focusLabel}에 비중을 둔 로직입니다. 체결 여건과 기업 품질까지 함께 반영해 신호의 안정성을 높였습니다.`;
 }
 

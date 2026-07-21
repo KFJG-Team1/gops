@@ -5,6 +5,9 @@ let failNextSave = false;
 let profileSaved = false;
 let savedProfile: Record<string, unknown> | null = null;
 let latestSessionModes: string[] = [];
+let activeScorePresetStyle = "stable";
+let activeCustomScoreProfile = false;
+let customScoreProfilesEnabled = true;
 let recommendationResponseMode: "profile_required" | "empty" | "market_closed" | "error" | "session_specific" | "v3_direct" = "profile_required";
 
 test.beforeEach(async ({ page }) => {
@@ -12,6 +15,9 @@ test.beforeEach(async ({ page }) => {
   profileSaved = false;
   savedProfile = null;
   latestSessionModes = [];
+  activeScorePresetStyle = "stable";
+  activeCustomScoreProfile = false;
+  customScoreProfilesEnabled = true;
   recommendationResponseMode = "profile_required";
   await page.routeWebSocket("**/ws/**", () => undefined);
   await page.route("**/api/**", async (route) => fulfillApi(route));
@@ -27,13 +33,17 @@ test("recommendation formula editor keeps every draft editable in the requested 
   const stablePreset = panel.getByRole("button", { name: "안정 기본 수식 사용" });
   await expect(stablePreset).toHaveAttribute("aria-pressed", "true");
   await expect(stablePreset).toHaveClass(/is-selected/);
-
-  const currentName = panel.getByRole("textbox", { name: "현재 선택한 로직 이름" });
-  await expect(currentName).toHaveValue("안정 조정");
+  await expect(panel.getByRole("textbox", { name: "현재 선택한 로직 이름" })).toHaveCount(0);
   await expect(panel.getByRole("slider").first()).toBeEnabled();
 
   await panel.getByRole("button", { name: "균형 기본 수식 사용" }).click();
+  await panel.getByRole("button", { name: "추천 수식 설정" }).click();
+  await expect(panel.getByRole("button", { name: "균형 기본 수식 사용" })).toHaveAttribute("aria-pressed", "true");
+  await expect(panel.getByRole("textbox", { name: "현재 선택한 로직 이름" })).toHaveCount(0);
+  await panel.getByRole("slider").first().fill("25");
+  const currentName = panel.getByRole("textbox", { name: "현재 선택한 로직 이름" });
   await expect(currentName).toHaveValue("균형 조정");
+  await expect(panel.locator(".score-profile-preset-shelf button[aria-pressed='true']")).toHaveCount(0);
   await currentName.fill("수정 중인 균형 로직");
   const reset = panel.getByRole("button", { name: "변경사항 되돌리기" });
   await expect(reset).toBeEnabled();
@@ -43,19 +53,43 @@ test("recommendation formula editor keeps every draft editable in the requested 
   await panel.getByRole("button", { name: "실적 뉴스와 성장성이 좋은 종목" }).click();
   await panel.getByRole("button", { name: "AI 제안" }).click();
   await expect(currentName).toHaveValue("성장 촉매 로직");
-  await expect(panel.getByText("편집 중", { exact: true })).toBeVisible();
+  await expect(panel.getByText("편집 중", { exact: true })).toHaveCount(0);
+  await expect(panel.locator(".score-profile-ai-suggestion")).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "AI 제안 근거" })).toBeVisible();
+  await panel.getByRole("button", { name: "AI 제안 근거" }).hover();
+  await expect(panel.getByRole("tooltip")).toContainText("성장 촉매");
   await expect(panel.getByRole("button", { name: "초안에 적용" })).toHaveCount(0);
 
   const savedLogic = panel.locator(".score-profile-list-select").filter({ hasText: "내 균형" });
   await expect(savedLogic).toBeVisible();
   await savedLogic.click();
   await expect(currentName).toHaveValue("내 균형");
+  await expect(panel.locator(".score-profile-preset-shelf button[aria-pressed='true']")).toHaveCount(0);
   await expect(panel.locator(".score-profile-list-item.is-selected")).toContainText("내 균형");
   const sectionOrder = await panel.locator(".score-profile-current-editor, .score-profile-saved-library, .score-profile-editor").evaluateAll((elements) => (
     elements.map((element) => element.className)
   ));
   expect(sectionOrder).toEqual(["score-profile-current-editor", "score-profile-saved-library", "score-profile-editor"]);
   await panel.screenshot({ path: testInfo.outputPath("recommendation-formula-editor.png") });
+});
+
+test("recommendation formula editor keeps preset and custom selection mutually exclusive", async ({ page }) => {
+  activeCustomScoreProfile = true;
+  await openRecommendationsLayout(page, recommendationSyncLayout());
+
+  const panel = page.locator(".stock-discovery-panel").first();
+  await panel.getByRole("button", { name: "추천 수식 설정" }).click();
+  await expect(panel.getByRole("textbox", { name: "현재 선택한 로직 이름" })).toHaveValue("내 균형");
+  await expect(panel.locator(".score-profile-preset-shelf button[aria-pressed='true']")).toHaveCount(0);
+
+  customScoreProfilesEnabled = false;
+  activeCustomScoreProfile = false;
+  await page.reload();
+  const reloadedPanel = page.locator(".stock-discovery-panel").first();
+  await reloadedPanel.getByRole("button", { name: "추천 수식 설정" }).click();
+  await expect(reloadedPanel.getByRole("button", { name: "안정 기본 수식 사용" })).toHaveAttribute("aria-pressed", "true");
+  await expect(reloadedPanel.getByRole("textbox", { name: "현재 선택한 로직 이름" })).toHaveCount(0);
+  await expect(reloadedPanel.getByRole("region", { name: "저장된 추천 로직" })).toHaveCount(0);
 });
 
 test("empty recommendation responses stay empty in live mode", async ({ page }) => {
@@ -419,6 +453,23 @@ async function fulfillApi(route: Route): Promise<void> {
     }
   } else if (url.pathname === "/api/recommendations/score-profiles" && request.method() === "GET") {
     payload = scoreProfileCatalog();
+  } else if (url.pathname === "/api/recommendations/score-profiles/active" && request.method() === "PUT") {
+    const requested = request.postDataJSON() as { type?: string; presetStyle?: string };
+    if (requested.type === "preset" && requested.presetStyle) {
+      activeScorePresetStyle = requested.presetStyle;
+      activeCustomScoreProfile = false;
+    } else if (requested.type === "custom") {
+      activeCustomScoreProfile = true;
+    }
+    const catalog = scoreProfileCatalog();
+    payload = {
+      status: "ready",
+      profile: {
+        ...investmentProfile(),
+        recommendationStyle: activeScorePresetStyle,
+        activeScoreProfile: catalog.active
+      }
+    };
   } else if (url.pathname === "/api/recommendations/score-profiles/suggestions" && request.method() === "POST") {
     payload = { status: "ready", suggestion: scoreProfileSuggestion() };
   } else if (url.pathname === "/api/notification-preferences") {
@@ -442,12 +493,15 @@ function scoreProfileCatalog(): Record<string, unknown> {
   const momentum = scoreProfileFixture("preset", "모멘텀", null, "momentum", 1);
   const balanced = scoreProfileFixture("preset", "균형", null, "balanced", 1);
   const stable = scoreProfileFixture("preset", "안정", null, "stable", 1);
+  const custom = scoreProfileFixture("custom", "내 균형", 7, null, 2);
   return {
     schemaVersion: "recommendation-score-profile.v1",
     maxCustomProfiles: 20,
     presets: [momentum, balanced, stable],
-    customProfiles: [scoreProfileFixture("custom", "내 균형", 7, null, 2)],
-    active: stable
+    customProfiles: customScoreProfilesEnabled ? [custom] : [],
+    active: activeCustomScoreProfile && customScoreProfilesEnabled
+      ? custom
+      : activeScorePresetStyle === "momentum" ? momentum : activeScorePresetStyle === "balanced" ? balanced : stable
   };
 }
 
