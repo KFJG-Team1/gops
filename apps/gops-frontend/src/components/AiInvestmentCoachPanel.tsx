@@ -9,7 +9,7 @@ import type { CoachAlertCandidate, ImprovementPlan, PlaybookExperiment, TradingG
 import styles from "./ai-coach/AiCoachShell.module.css";
 import { useAiCoachRuntime } from "./ai-coach/AiCoachRuntimeProvider";
 
-const PAGES = ["당일 거래 회고", "장기 습관", "효과·보완 조건", "실행·알람 관리"] as const;
+const PAGES = ["당일 거래 회고", "효과·보완 조건", "장기 습관", "실행·알람 관리"] as const;
 export function AiInvestmentCoachPanel({ runtimeId }: { runtimeId: string }) {
   const {
     report: resolved,
@@ -74,8 +74,8 @@ export function AiInvestmentCoachPanel({ runtimeId }: { runtimeId: string }) {
     if (!resolved && archiveState === "loading") return <Unavailable title="AI 투자 코치" message="최근 거래와 투자 습관을 정리하고 있습니다." />;
     if (!resolved && archiveState === "unavailable") return <Unavailable title="AI 투자 코치" message="아직 정리할 거래가 없습니다. 거래가 체결되면 회고를 시작합니다." />;
     if (page === 0) return <CurrentPositionCoachPage key={resolved?.analysisId ?? "empty"} report={resolved} onOpenAlertCenter={openAlertCenter} />;
-    if (page === 1) return resolved?.page2 ? <HabitCoachPage key={resolved.analysisId} viewModel={resolved.page2} /> : <Unavailable title={PAGES[1]} />;
-    if (page === 2) return plan ? <ImprovementCoachPage key={resolved?.analysisId ?? "empty"} plan={plan} onExperimentStatusChange={updateExperiment} onGuardrailEnabledChange={updateGuardrail} /> : <Unavailable title={PAGES[2]} />;
+    if (page === 1) return plan ? <ImprovementCoachPage key={resolved?.analysisId ?? "empty"} plan={plan} onExperimentStatusChange={updateExperiment} onGuardrailEnabledChange={updateGuardrail} /> : <Unavailable title={PAGES[1]} />;
+    if (page === 2) return resolved?.page2 ? <HabitCoachPage key={resolved.analysisId} viewModel={resolved.page2} /> : <Unavailable title={PAGES[2]} />;
     const center = resolved?.page4;
     return center ? <CoachActionCenterPage key={resolved?.analysisId ?? "empty"} center={center} focusedCandidateId={focusedAlertCandidateId} activeExperiments={plan?.experiments.filter((item) => item.status === "active")} enabledGuardrails={plan?.guardrails.filter((item) => item.enabled)} onCreateAlert={submitCandidateAlert} onWatchingAlertStatusChange={updateServerAlert} /> : <Unavailable title={PAGES[3]} />;
   })();
