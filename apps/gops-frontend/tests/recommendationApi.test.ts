@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
-import { fetchScoreProfiles, fetchStockRecommendations, suggestScoreProfile } from "../src/recommendations/recommendationApi";
 import {
+  fetchScoreProfiles,
+  fetchStockRecommendations,
+  refreshStockRecommendations,
+  suggestScoreProfile
+} from "../src/recommendations/recommendationApi";
+import {
+  isSimulationDemoScoreProfile,
   shouldAutoApplySimulationDemoSuggestion,
   suggestionRationaleSummary
 } from "../src/recommendations/ScoreProfileManager";
@@ -77,10 +83,16 @@ const item = {
 };
 
 let responsePayload: unknown = { status: "ready", items: [item] };
-globalThis.fetch = async () => new Response(JSON.stringify(responsePayload), {
+let lastRequestUrl = "";
+let lastRequestInit: RequestInit | undefined;
+globalThis.fetch = async (input, init) => {
+  lastRequestUrl = String(input);
+  lastRequestInit = init;
+  return new Response(JSON.stringify(responsePayload), {
   status: 200,
   headers: { "Content-Type": "application/json" }
-});
+  });
+};
 
 const normalized = await fetchStockRecommendations();
 assert.deepEqual(normalized.items[0].keyEvidence[0].metrics, [
@@ -91,6 +103,19 @@ assert.deepEqual(normalized.items[0].cautions, [
 ]);
 assert.equal(normalized.items[0].explanation?.primary.listSummary, item.explanation.primary.listSummary);
 assert.deepEqual(normalized.items[0].explanation?.provenance.usedCompanyRefs, ["tenK.businessModel"]);
+
+await fetchStockRecommendations(undefined, "baseline");
+assert.equal(
+  lastRequestUrl,
+  "/api/recommendations/stocks/latest?simulationDemoStage=baseline",
+  "the simulator run stage is sent to the server that owns recommendation ranking"
+);
+await refreshStockRecommendations("NVDA", undefined, "volume_trend");
+assert.deepEqual(
+  JSON.parse(String(lastRequestInit?.body)),
+  { activeSymbol: "NVDA", simulationDemoStage: "volume_trend" },
+  "the applied volume-and-trend stage is included in the server recomputation request"
+);
 
 responsePayload = { status: "ready", items: [{ ...item, cautions: undefined }] };
 const compatible = await fetchStockRecommendations();
@@ -168,6 +193,26 @@ assert.equal(shouldAutoApplySimulationDemoSuggestion({
     promptVersion: "simulation-demo-score-profile.v1"
   }
 }), true);
+assert.equal(isSimulationDemoScoreProfile(suggested.profile), false);
+assert.equal(isSimulationDemoScoreProfile({
+  ...suggested.profile,
+  name: "거래대금·추세 집중 로직 2",
+  blockWeights: {
+    trendStrength: 15,
+    participationConfirmation: 10,
+    priceStructure: 15,
+    catalystQuality: 0,
+    executionQuality: 60,
+    qualityStability: 0
+  },
+  factorWeights: {
+    ...suggested.profile.factorWeights,
+    trendStrength: { oneDayRelativeStrength: 100 },
+    priceStructure: { vwapHoldQuality: 100 },
+    executionQuality: { medianDollarVolume: 70, quotedSpreadBps: 30, freshnessScore: 0 }
+  },
+  portfolioWeight: 0
+}), true, "saved duplicate names still identify the simulator volume-and-trend profile by its weights");
 assert.equal(
   suggestionRationaleSummary({
     ...suggested,

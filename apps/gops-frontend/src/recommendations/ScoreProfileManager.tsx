@@ -66,6 +66,24 @@ export function shouldAutoApplySimulationDemoSuggestion(suggestion: ScoreProfile
     && suggestion.query.trim().replace(/\s+/g, " ") === simulationDemoScoreProfileQuery;
 }
 
+export function isSimulationDemoScoreProfile(profile: ScoreProfile | null | undefined): boolean {
+  if (!profile || profile.type !== "custom" || profile.portfolioWeight !== 0) return false;
+  const blocks = profile.blockWeights;
+  const trend = profile.factorWeights.trendStrength ?? {};
+  const price = profile.factorWeights.priceStructure ?? {};
+  const execution = profile.factorWeights.executionQuality ?? {};
+  return blocks.trendStrength === 15
+    && blocks.participationConfirmation === 10
+    && blocks.priceStructure === 15
+    && blocks.catalystQuality === 0
+    && blocks.executionQuality === 60
+    && blocks.qualityStability === 0
+    && trend.oneDayRelativeStrength === 100
+    && price.vwapHoldQuality === 100
+    && execution.medianDollarVolume === 70
+    && execution.quotedSpreadBps === 30;
+}
+
 export function ScoreProfileManager({
   disabled,
   onActivated
