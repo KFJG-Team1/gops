@@ -51,12 +51,20 @@ const factorLabels: Record<string, string> = {
   liquidityCashCompatibility: "유동성/현금 적합도"
 };
 
+export const simulationDemoScoreProfileQuery = "거래대금이 강하고 추세가 이어지는 종목";
+export const simulationDemoScoreProfilePromptVersion = "simulation-demo-score-profile.v1";
+
 const recommendationQueryExamples = [
-  "거래대금이 강하고 추세가 이어지는 종목",
+  simulationDemoScoreProfileQuery,
   "돌파 후 VWAP을 지키는 종목",
   "실적 뉴스와 성장성이 좋은 종목",
   "저변동·하방 방어 중심 종목"
 ];
+
+export function shouldAutoApplySimulationDemoSuggestion(suggestion: ScoreProfileSuggestion): boolean {
+  return suggestion.provenance.promptVersion === simulationDemoScoreProfilePromptVersion
+    && suggestion.query.trim().replace(/\s+/g, " ") === simulationDemoScoreProfileQuery;
+}
 
 export function ScoreProfileManager({
   disabled,
@@ -216,6 +224,25 @@ export function ScoreProfileManager({
     setError(null);
   };
 
+  const applySuggestionDraft = (nextSuggestion: ScoreProfileSuggestion): boolean => {
+    if (customCount >= maxCustomProfiles) {
+      setError(`사용자 프로필은 최대 ${maxCustomProfiles}개까지 만들 수 있습니다.`);
+      return false;
+    }
+    const suggestedDraft = cloneProfile(nextSuggestion.profile);
+    suggestedDraft.type = "custom";
+    suggestedDraft.id = null;
+    suggestedDraft.name = availableSuggestedName(nextSuggestion.name, profiles);
+    suggestedDraft.revision = 0;
+    suggestedDraft.digest = undefined;
+    setSelectedKey("");
+    setCloneName(suggestedDraft.name);
+    setDraft(suggestedDraft);
+    setMessage("AI 제안을 편집 가능한 초안으로 적용했습니다.");
+    setError(null);
+    return true;
+  };
+
   const requestSuggestion = async () => {
     const query = promptQuery.trim();
     if (query.length < 2 || suggesting || disabled) return;
@@ -223,7 +250,12 @@ export function ScoreProfileManager({
     setMessage(null);
     setError(null);
     try {
-      setSuggestion(await suggestScoreProfile(query));
+      const nextSuggestion = await suggestScoreProfile(query);
+      if (shouldAutoApplySimulationDemoSuggestion(nextSuggestion) && applySuggestionDraft(nextSuggestion)) {
+        setSuggestion(null);
+      } else {
+        setSuggestion(nextSuggestion);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "추천 로직 AI 제안을 만들지 못했습니다.");
     } finally {
@@ -233,21 +265,7 @@ export function ScoreProfileManager({
 
   const applySuggestion = () => {
     if (!suggestion) return;
-    if (customCount >= maxCustomProfiles) {
-      setError(`사용자 프로필은 최대 ${maxCustomProfiles}개까지 만들 수 있습니다.`);
-      return;
-    }
-    const suggestedDraft = cloneProfile(suggestion.profile);
-    suggestedDraft.type = "custom";
-    suggestedDraft.id = null;
-    suggestedDraft.name = availableSuggestedName(suggestion.name, profiles);
-    suggestedDraft.revision = 0;
-    suggestedDraft.digest = undefined;
-    setSelectedKey("");
-    setCloneName(suggestedDraft.name);
-    setDraft(suggestedDraft);
-    setMessage("AI 제안을 편집 가능한 초안으로 적용했습니다.");
-    setError(null);
+    applySuggestionDraft(suggestion);
   };
 
   return (
