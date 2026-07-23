@@ -62,38 +62,9 @@ export type SimulatorQuote = {
 export const simulatorStatusEvent = "gops:simulator-status";
 export const simulatorActivePollIntervalMs = 1_000;
 export const simulatorIdlePollIntervalMs = 30_000;
-export const nvdaSimulationDailyPreloadFrom = "2026-01-21T05:00:00.000Z";
-export const nvdaSimulationDailyPreloadLimit = 300;
-const nvdaSimulationDailyPreloadDatasetId = "sp500-full-20260715-kst-v3";
 const portfolioRefreshListeners = new Set<() => void>();
 let latestPublishedSimulatorStatus: SimulatorStatus | null = null;
 let latestPublishedSimulatorStatusAtMs: number | null = null;
-
-export function nvdaSimulationDailyPreloadQuery(
-  status: SimulatorStatus | null,
-  symbol: string,
-  interval: string
-): { from: string; to: string; limit: number } | null {
-  if (
-    !status?.available
-    || status.mode !== "simulation"
-    || status.datasetId !== nvdaSimulationDailyPreloadDatasetId
-    || symbol.trim().toUpperCase() !== "NVDA"
-    || interval !== "1D"
-  ) {
-    return null;
-  }
-  const fromMs = Date.parse(nvdaSimulationDailyPreloadFrom);
-  const toMs = Date.parse(status.virtualTime);
-  if (!Number.isFinite(toMs) || toMs < fromMs) {
-    return null;
-  }
-  return {
-    from: nvdaSimulationDailyPreloadFrom,
-    to: status.virtualTime,
-    limit: nvdaSimulationDailyPreloadLimit
-  };
-}
 
 export function simulatorStatusPollIntervalMs(status: Pick<SimulatorStatus, "available" | "mode" | "state">): number {
   return status.available && status.mode === "simulation" && status.state === "running"

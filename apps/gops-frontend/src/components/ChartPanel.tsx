@@ -218,7 +218,6 @@ import {
 import type { CandleDto, CandleEventDto, CandleFillTraceDto, CandleQueryResponseDto, ChartComparisonCandleScope, ChartComparisonStatus, ChartInterval, ChartLayerKey, ChartLineExtension, ChartState, ChartSymbolDto, ChartToolMode, ChartType, DrawingEntity, IndicatorSeries } from "../chart/types";
 import {
   latestSimulatorStatus,
-  nvdaSimulationDailyPreloadQuery,
   simulationAwareNowMs,
   simulatorStatusEvent,
   type SimulatorStatus
@@ -1689,18 +1688,12 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
       }
     };
     const loadCandles = (attempt: number) => {
-      const simulationPreload = nvdaSimulationDailyPreloadQuery(
-        latestSimulatorStatus(),
-        requestedSymbol,
-        requestedInterval
-      );
       fetchCandles({
         symbol: requestedSymbol,
         interval: requestedSourceInterval,
-        limit: simulationPreload?.limit ?? defaultVisibleBarsForInterval(requestedInterval),
+        limit: defaultVisibleBarsForInterval(requestedInterval),
         ma: candleMovingAverageWindows,
-        includePreviousClose: true,
-        ...(simulationPreload ? { from: simulationPreload.from, to: simulationPreload.to } : {})
+        includePreviousClose: true
       }, controller.signal)
         .then((response) => {
           applyResponse(response);
@@ -1744,7 +1737,7 @@ export const ChartPanel = forwardRef<ChartPanelHandle, ChartPanelProps>(function
         window.clearTimeout(retryTimer);
       }
     };
-  }, [analysisAssetContextKey, chart.interval, chart.symbol, dispatchDocumentCommand, onChartRuntimeAction]);
+  }, [chart.interval, chart.symbol, dispatchDocumentCommand, onChartRuntimeAction]);
 
   useEffect(() => {
     const activeSymbol = chart.symbol.trim().toUpperCase();
