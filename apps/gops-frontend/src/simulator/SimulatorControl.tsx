@@ -20,6 +20,7 @@ import {
 
 const initialStatus: SimulatorStatus = {
   available: false,
+  canControl: false,
   mode: "live",
   state: "idle",
   datasetId: "sp500-full-20260715-kst-v3",
@@ -120,12 +121,15 @@ export function SimulatorControl() {
       : "시뮬레이션 일시정지";
   const progress = Math.max(0, Math.min(100, status.progress * 100));
   return (
-    <div className={`simulator-mode-control ${simulation ? "is-simulation" : ""}`} title={error || status.detail}>
+    <div
+      className={`simulator-mode-control ${simulation ? "is-simulation" : ""}`}
+      title={error || status.detail || (!status.canControl ? "시뮬레이터 제어 권한이 없습니다." : undefined)}
+    >
       <button
         type="button"
         className="simulator-mode-toggle"
         aria-label={simulation ? "LIVE 모드로 전환" : "LIVE 모드"}
-        disabled={!status.available || busy || !simulation}
+        disabled={!status.available || !status.canControl || busy || !simulation}
         onClick={() => {
           if (simulation) void execute(() => setSimulatorMode("live"), "모드 전환 실패");
         }}
@@ -134,7 +138,7 @@ export function SimulatorControl() {
         <span>{simulation ? "SIM" : status.available ? "LIVE" : "SIM OFFLINE"}</span>
         <i aria-hidden="true" />
       </button>
-      {status.available && (
+      {status.available && status.canControl && (
         <div className="simulator-run-controls">
           {simulation && (
             <>
