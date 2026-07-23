@@ -11721,9 +11721,8 @@ h2 {
   }
 
   .order-ticket-v3 .order-risk-box:has(.order-risk-rules) {
-    max-height: 72px;
-    overflow: hidden auto;
-    scrollbar-gutter: stable;
+    max-height: none;
+    overflow: visible;
   }
 
   .order-ticket-v3 .order-risk-rules,
@@ -22503,11 +22502,11 @@ textarea:focus,
 }
 
 .order-risk-box.order-risk-resize {
-  border-left-color: var(--coinbase-yellow60, #b58a00);
+  border-left-color: var(--gops-caution);
 }
 
 .order-risk-box.order-risk-warn {
-  border-left-color: var(--coinbase-yellow60, #b58a00);
+  border-left-color: var(--gops-caution);
 }
 
 .order-risk-box.order-risk-block {
@@ -22552,7 +22551,11 @@ textarea:focus,
 
 .order-risk-rule-copy > strong {
   color: var(--color-text);
-  font: var(--type-label-md);
+  text-transform: var(--type-title-sm-text-transform);
+  letter-spacing: var(--type-title-sm-letter-spacing);
+  font: var(--type-title-sm);
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
 .order-risk-rules li[data-risk-action="block"] .order-risk-rule-copy > strong {
@@ -22560,18 +22563,22 @@ textarea:focus,
 }
 
 .order-risk-rules li[data-risk-action="warn"] .order-risk-rule-copy > strong {
-  color: var(--coinbase-yellow60, #8a6900);
+  color: var(--gops-caution);
 }
 
 .order-risk-rule-copy p {
   margin: 0;
   color: var(--color-text);
   line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
 .order-risk-rule-copy small {
   color: var(--color-muted);
   line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
 .order-risk-rule-action {
