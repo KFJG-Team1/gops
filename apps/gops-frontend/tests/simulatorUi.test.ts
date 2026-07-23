@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 import {
   formatSimulatorVirtualTime,
   normalizeSimulatorSpeed,
+  nvdaSimulationDailyPreloadFrom,
+  nvdaSimulationDailyPreloadLimit,
+  nvdaSimulationDailyPreloadQuery,
   requestPortfolioRefresh,
   simulationHeatmapItems,
   simulatorPrimaryAction,
@@ -104,6 +107,22 @@ const replayStatus: SimulatorStatus = {
   lagMs: 0,
   symbols: []
 };
+assert.deepEqual(
+  nvdaSimulationDailyPreloadQuery(replayStatus, "nvda", "1D"),
+  {
+    from: nvdaSimulationDailyPreloadFrom,
+    to: replayStatus.virtualTime,
+    limit: nvdaSimulationDailyPreloadLimit
+  },
+  "the fixed NVDA daily demo must include the 2026-01-21 anchor before analysis drawings resolve"
+);
+assert.equal(nvdaSimulationDailyPreloadFrom, "2026-01-21T05:00:00.000Z");
+assert.equal(nvdaSimulationDailyPreloadQuery(replayStatus, "AAPL", "1D"), null);
+assert.equal(nvdaSimulationDailyPreloadQuery(replayStatus, "NVDA", "1m"), null);
+assert.equal(
+  nvdaSimulationDailyPreloadQuery({ ...replayStatus, mode: "live" }, "NVDA", "1D"),
+  null
+);
 const observedAtMs = Date.parse("2026-07-16T14:00:00.000Z");
 assert.equal(companyJournalRequestKey(replayStatus), "simulation:run-clock:2026-07-15");
 assert.equal(
