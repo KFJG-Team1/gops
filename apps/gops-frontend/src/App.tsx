@@ -180,7 +180,7 @@ function hasExplicitLayoutSyntax(value: string): boolean {
   return ["패널", "레이아웃", "화면", "배치", "크게", "작게", "열어", "닫아", "layout", "panel"].some((keyword) => text.includes(keyword));
 }
 const agentDebugStorageKey = "gops:agent-debug";
-const appUiScale = 0.8;
+const appUiScale = 0.96;
 const chartWorkspaceLayoutMetrics: WorkspaceLayoutMetrics = {
   topInset: workspaceTopInset,
   uiScale: appUiScale

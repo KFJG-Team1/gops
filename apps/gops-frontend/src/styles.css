@@ -207,7 +207,7 @@
   --color-point-orange: var(--gops-point-orange);
   --color-point-purple: var(--gops-point-purple);
   --layout-gutter: 24px;
-  --app-ui-scale: 1.2;
+  --app-ui-scale: 0.96;
   --app-logical-width: 100vw;
   --app-logical-height: 100vh;
   --top-nav-height: 48px;
