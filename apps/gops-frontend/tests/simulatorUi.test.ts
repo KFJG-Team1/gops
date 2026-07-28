@@ -245,6 +245,8 @@ assert.match(controlSource, /setSimulatorSpeed/);
 assert.match(controlSource, /시뮬레이션 재생/);
 assert.match(controlSource, /시뮬레이션 시작 및 재생/);
 assert.match(controlSource, /simulatorPrimaryAction\(status\)/);
+assert.match(controlSource, /status\.available && status\.canControl/);
+assert.match(controlSource, /시뮬레이터 제어 권한이 없습니다/);
 assert.doesNotMatch(controlSource, /setSimulatorMode\(simulation \? "live" : "simulation"\)/);
 assert.match(chartPanelSource, /simulationAwareNowMs\(Date\.now\(\)\)/);
 assert.match(apiSource, /\/api\/simulator\/speed/);

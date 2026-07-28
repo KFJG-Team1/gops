@@ -12,7 +12,7 @@ const panelWorkspaceSource = readFileSync(
   "utf-8"
 );
 
-assert.match(appSource, /const appUiScale = 0\.8;/);
+assert.match(appSource, /const appUiScale = 0\.96;/);
 assert.match(appSource, /width \/ appUiScale/);
 assert.match(appSource, /height \/ appUiScale/);
 assert.match(appSource, /onExitLayoutEdit=\{exitLayoutEditMode\}/);

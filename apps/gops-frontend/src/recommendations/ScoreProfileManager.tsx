@@ -1,4 +1,4 @@
-import { GitBranch, LoaderCircle, Plus, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
+import { Info, LoaderCircle, Plus, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   activateScoreProfile,
@@ -51,12 +51,38 @@ const factorLabels: Record<string, string> = {
   liquidityCashCompatibility: "유동성/현금 적합도"
 };
 
+export const simulationDemoScoreProfileQuery = "거래대금이 강하고 추세가 이어지는 종목";
+export const simulationDemoScoreProfilePromptVersion = "simulation-demo-score-profile.v1";
+
 const recommendationQueryExamples = [
-  "거래대금이 강하고 추세가 이어지는 종목",
+  simulationDemoScoreProfileQuery,
   "돌파 후 VWAP을 지키는 종목",
   "실적 뉴스와 성장성이 좋은 종목",
   "저변동·하방 방어 중심 종목"
 ];
+
+export function shouldAutoApplySimulationDemoSuggestion(suggestion: ScoreProfileSuggestion): boolean {
+  return suggestion.provenance.promptVersion === simulationDemoScoreProfilePromptVersion
+    && suggestion.query.trim().replace(/\s+/g, " ") === simulationDemoScoreProfileQuery;
+}
+
+export function isSimulationDemoScoreProfile(profile: ScoreProfile | null | undefined): boolean {
+  if (!profile || profile.type !== "custom" || profile.portfolioWeight !== 0) return false;
+  const blocks = profile.blockWeights;
+  const trend = profile.factorWeights.trendStrength ?? {};
+  const price = profile.factorWeights.priceStructure ?? {};
+  const execution = profile.factorWeights.executionQuality ?? {};
+  return blocks.trendStrength === 15
+    && blocks.participationConfirmation === 10
+    && blocks.priceStructure === 15
+    && blocks.catalystQuality === 0
+    && blocks.executionQuality === 60
+    && blocks.qualityStability === 0
+    && trend.oneDayRelativeStrength === 100
+    && price.vwapHoldQuality === 100
+    && execution.medianDollarVolume === 70
+    && execution.quotedSpreadBps === 30;
+}
 
 export function ScoreProfileManager({
   disabled,
@@ -67,9 +93,10 @@ export function ScoreProfileManager({
 }) {
   const [profiles, setProfiles] = useState<ScoreProfile[]>([]);
   const [activeKey, setActiveKey] = useState("");
-  const [selectedKey, setSelectedKey] = useState("");
+  const [selectedPresetKey, setSelectedPresetKey] = useState("");
+  const [selectedCustomKey, setSelectedCustomKey] = useState("");
   const [draft, setDraft] = useState<ScoreProfile | null>(null);
-  const [cloneName, setCloneName] = useState("");
+  const [draftBaseline, setDraftBaseline] = useState<ScoreProfile | null>(null);
   const [maxCustomProfiles, setMaxCustomProfiles] = useState(20);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
@@ -85,16 +112,27 @@ export function ScoreProfileManager({
       const payload = await fetchScoreProfiles(signal);
       const nextProfiles = [...payload.presets, ...payload.customProfiles];
       const nextActiveKey = profileKey(payload.active);
-      const nextSelectedKey = preferredKey && nextProfiles.some((item) => profileKey(item) === preferredKey)
-        ? preferredKey
-        : nextProfiles.some((item) => profileKey(item) === selectedKey)
-          ? selectedKey
-          : nextActiveKey;
+      const preferredProfile = preferredKey
+        ? nextProfiles.find((item) => profileKey(item) === preferredKey)
+        : undefined;
+      const preservedCustom = nextProfiles.find((item) => profileKey(item) === selectedCustomKey && item.type === "custom");
+      const preservedPreset = nextProfiles.find((item) => profileKey(item) === selectedPresetKey && item.type === "preset");
+      const selectedProfile = preferredProfile ?? preservedCustom ?? preservedPreset ?? payload.active;
       setProfiles(nextProfiles);
       setMaxCustomProfiles(payload.maxCustomProfiles);
       setActiveKey(nextActiveKey);
-      setSelectedKey(nextSelectedKey);
-      setDraft(cloneProfile(nextProfiles.find((item) => profileKey(item) === nextSelectedKey) ?? payload.active));
+      if (selectedProfile.type === "custom") {
+        const nextDraft = cloneProfile(selectedProfile);
+        setSelectedPresetKey("");
+        setSelectedCustomKey(profileKey(selectedProfile));
+        setDraft(nextDraft);
+        setDraftBaseline(cloneProfile(nextDraft));
+      } else {
+        setSelectedPresetKey(profileKey(selectedProfile));
+        setSelectedCustomKey("");
+        setDraft(null);
+        setDraftBaseline(null);
+      }
       setError(null);
     } catch (caught) {
       if (!(caught instanceof DOMException && caught.name === "AbortError")) {
@@ -103,7 +141,7 @@ export function ScoreProfileManager({
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [selectedKey]);
+  }, [selectedCustomKey, selectedPresetKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -113,58 +151,50 @@ export function ScoreProfileManager({
 
   const presetProfiles = profiles.filter((item) => item.type === "preset");
   const customProfiles = profiles.filter((item) => item.type === "custom");
+  const selectedPreset = presetProfiles.find((item) => profileKey(item) === selectedPresetKey) ?? null;
+  const mixerProfile = draft ?? selectedPreset;
   const customCount = customProfiles.length;
-  const validationError = useMemo(() => validateDraft(draft), [draft]);
-  const selectedProfile = profiles.find((item) => profileKey(item) === selectedKey) ?? null;
-  const dirty = useMemo(() => profileSignature(draft) !== profileSignature(selectedProfile), [draft, selectedProfile]);
-  const editorDisabled = Boolean(disabled || working || draft?.type === "preset");
+  const validationError = useMemo(() => draft ? validateDraft(draft) : null, [draft]);
+  const dirty = useMemo(() => profileSignature(draft) !== profileSignature(draftBaseline), [draft, draftBaseline]);
+  const needsCustomSlot = Boolean(draft?.type === "custom" && !draft.id);
+  const customSlotUnavailable = needsCustomSlot && customCount >= maxCustomProfiles;
+  const editorDisabled = Boolean(disabled || working);
 
-  const select = (profile: ScoreProfile) => {
-    setSelectedKey(profileKey(profile));
-    setDraft(cloneProfile(profile));
-    setCloneName(availableCustomName(profile.name, profiles));
+  const selectCustom = (profile: ScoreProfile) => {
+    if (profile.type !== "custom") return;
+    const nextDraft = cloneProfile(profile);
+    setSelectedPresetKey("");
+    setSelectedCustomKey(profileKey(profile));
+    setDraft(nextDraft);
+    setDraftBaseline(cloneProfile(nextDraft));
+    setSuggestion(null);
     setMessage(null);
-    setError(null);
-  };
-
-  const beginCustomDraft = () => {
-    if (!draft || draft.type === "custom") return;
-    if (customCount >= maxCustomProfiles) {
-      setError(`사용자 프로필은 최대 ${maxCustomProfiles}개까지 만들 수 있습니다.`);
-      return;
-    }
-    setDraft(toCustomDraft(draft, cloneName || availableCustomName(draft.name, profiles)));
-    setMessage("프리셋을 바탕으로 새 추천 로직을 편집하고 있습니다.");
-    setError(null);
-  };
-
-  const startFromPreset = (profile: ScoreProfile) => {
-    if (profile.type !== "preset") return;
-    if (customCount >= maxCustomProfiles) {
-      setError(`사용자 프로필은 최대 ${maxCustomProfiles}개까지 만들 수 있습니다.`);
-      return;
-    }
-    const nextName = availableCustomName(profile.name, profiles);
-    setSelectedKey(profileKey(profile));
-    setCloneName(nextName);
-    setDraft(toCustomDraft(profile, nextName));
-    setMessage(`${profile.name} 프리셋을 새 로직에 불러왔습니다.`);
     setError(null);
   };
 
   const updateEditableDraft = (update: (profile: ScoreProfile) => ScoreProfile) => {
     if (!draft) return;
-    if (draft.type === "preset" && customCount >= maxCustomProfiles) {
-      setError(`사용자 프로필은 최대 ${maxCustomProfiles}개까지 만들 수 있습니다.`);
-      return;
-    }
     setDraft((current) => {
       if (!current) return current;
-      const editable = current.type === "preset"
-        ? toCustomDraft(current, cloneName || availableCustomName(current.name, profiles))
-        : cloneProfile(current);
-      return update(editable);
+      return update(cloneProfile(current));
     });
+    setMessage(null);
+    setError(null);
+  };
+
+  const updateMixerProfile = (next: ScoreProfile) => {
+    if (draft) {
+      updateEditableDraft(() => next);
+      return;
+    }
+    if (!selectedPreset) return;
+    const baseline = editableDraftFromProfile(selectedPreset, profiles);
+    const nextDraft = copyProfileWeights(baseline, next);
+    setSelectedPresetKey("");
+    setSelectedCustomKey("");
+    setDraft(nextDraft);
+    setDraftBaseline(cloneProfile(baseline));
+    setSuggestion(null);
     setMessage(null);
     setError(null);
   };
@@ -186,32 +216,48 @@ export function ScoreProfileManager({
   const save = () => run(async () => {
     if (!draft || draft.type !== "custom") return;
     if (validationError) throw new Error(validationError);
+    if (!draft.id && customCount >= maxCustomProfiles) {
+      throw new Error(`사용자 프로필은 최대 ${maxCustomProfiles}개까지 만들 수 있습니다.`);
+    }
     const saved = await persistCustomProfile(draft);
+    setSuggestion(null);
     setMessage("추천 로직을 저장했습니다. 적용하면 새 추천 순위를 계산합니다.");
     await load(undefined, profileKey(saved));
+  });
+
+  const activatePreset = (profile: ScoreProfile) => run(async () => {
+    if (profile.type !== "preset") return;
+    const investmentProfile = await activateScoreProfile(profile);
+    setSuggestion(null);
+    setMessage(`${profile.name} 기본 수식을 적용했습니다.`);
+    await load(undefined, profileKey(profile));
+    onActivated?.(investmentProfile);
   });
 
   const activate = () => run(async () => {
     if (!draft) return;
     if (draft.type === "custom" && validationError) throw new Error(validationError);
+    if (draft.type === "custom" && !draft.id && customCount >= maxCustomProfiles) {
+      throw new Error(`사용자 프로필은 최대 ${maxCustomProfiles}개까지 만들 수 있습니다.`);
+    }
     const savedProfile = draft.type === "custom" ? await persistCustomProfile(draft) : draft;
     const investmentProfile = await activateScoreProfile(savedProfile);
+    setSuggestion(null);
     setMessage("추천 로직을 적용했습니다. 다음 요청부터 새 순위를 계산합니다.");
     await load(undefined, profileKey(savedProfile));
     onActivated?.(investmentProfile);
   });
 
-  const remove = () => run(async () => {
-    if (!draft?.id || draft.type !== "custom") return;
-    await deleteScoreProfile(draft.id);
+  const remove = (profile: ScoreProfile) => run(async () => {
+    if (!profile.id || profile.type !== "custom") return;
+    await deleteScoreProfile(profile.id);
     setMessage("추천 로직을 삭제했습니다.");
     await load();
   });
 
   const resetDraft = () => {
-    if (!selectedProfile) return;
-    setDraft(cloneProfile(selectedProfile));
-    setCloneName(availableCustomName(selectedProfile.name, profiles));
+    if (!draftBaseline) return;
+    setDraft(cloneProfile(draftBaseline));
     setMessage(null);
     setError(null);
   };
@@ -223,31 +269,21 @@ export function ScoreProfileManager({
     setMessage(null);
     setError(null);
     try {
-      setSuggestion(await suggestScoreProfile(query));
+      const nextSuggestion = await suggestScoreProfile(query);
+      const suggestedDraft = suggestionDraft(nextSuggestion, profiles);
+      setSuggestion(nextSuggestion);
+      setSelectedPresetKey("");
+      setSelectedCustomKey("");
+      setDraft(suggestedDraft);
+      setDraftBaseline(cloneProfile(suggestedDraft));
+      setMessage(customCount >= maxCustomProfiles
+        ? `AI 제안을 편집 대상으로 불러왔습니다. 저장하려면 기존 로직을 삭제해 최대 ${maxCustomProfiles}개 한도를 비워야 합니다.`
+        : "AI 제안을 편집 가능한 초안으로 불러왔습니다.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "추천 로직 AI 제안을 만들지 못했습니다.");
     } finally {
       setSuggesting(false);
     }
-  };
-
-  const applySuggestion = () => {
-    if (!suggestion) return;
-    if (customCount >= maxCustomProfiles) {
-      setError(`사용자 프로필은 최대 ${maxCustomProfiles}개까지 만들 수 있습니다.`);
-      return;
-    }
-    const suggestedDraft = cloneProfile(suggestion.profile);
-    suggestedDraft.type = "custom";
-    suggestedDraft.id = null;
-    suggestedDraft.name = availableSuggestedName(suggestion.name, profiles);
-    suggestedDraft.revision = 0;
-    suggestedDraft.digest = undefined;
-    setSelectedKey("");
-    setCloneName(suggestedDraft.name);
-    setDraft(suggestedDraft);
-    setMessage("AI 제안을 편집 가능한 초안으로 적용했습니다.");
-    setError(null);
   };
 
   return (
@@ -265,20 +301,19 @@ export function ScoreProfileManager({
               <button
                 key={key}
                 type="button"
-                className={key === selectedKey ? "is-selected" : ""}
-                aria-pressed={key === selectedKey}
-                disabled={disabled || working || customCount >= maxCustomProfiles}
+                className={key === selectedPresetKey ? "is-selected" : ""}
+                aria-pressed={key === selectedPresetKey}
+                disabled={disabled || working}
                 aria-label={`${profile.name} 기본 수식 사용`}
-                onClick={() => startFromPreset(profile)}
+                onClick={() => activatePreset(profile)}
               >
-                <Sparkles size={13} aria-hidden="true" />
                 <strong>{profile.name}</strong>
               </button>
             );
           })}
         </div>
       </section>
-      <section className="score-profile-custom-library" aria-label="내 추천 로직">
+      <section className="score-profile-ai-workbench" aria-label="내 로직 AI 제안">
         <header><strong>내 로직</strong></header>
         <form className="score-profile-ai-query" onSubmit={(event) => {
           event.preventDefault();
@@ -310,76 +345,99 @@ export function ScoreProfileManager({
             </button>
           ))}
         </div>
-        {suggestion && (
-          <article className="score-profile-ai-suggestion" tabIndex={0} aria-label={`${suggestion.name} 제안 근거 보기`}>
-            <div>
-              <Sparkles size={14} aria-hidden="true" />
-              <strong>{suggestion.name}</strong>
-              <span>{topSuggestedBlocks(suggestion.profile).join(" · ")}</span>
-            </div>
-            <button type="button" disabled={disabled || working || customCount >= maxCustomProfiles} onClick={applySuggestion}>초안에 적용</button>
-            <div className="score-profile-ai-rationale" role="tooltip">
-              <strong>제안 근거</strong>
-              <p>{suggestionRationaleSummary(suggestion)}</p>
-            </div>
-          </article>
-        )}
-        <div className="score-profile-list" role="listbox" aria-label="내 추천 로직 목록">
-        {customProfiles.map((profile) => {
-          const key = profileKey(profile);
-          return (
-            <button
-              key={key}
-              type="button"
-              className={key === selectedKey ? "is-selected" : ""}
-              aria-selected={key === selectedKey}
-              disabled={disabled || working}
-              onClick={() => select(profile)}
-            >
-              <span>{profile.name}</span>
-              <em>{key === activeKey ? "활성" : `r${profile.revision}`}</em>
-            </button>
-          );
-        })}
-        </div>
       </section>
 
-      {draft && !loading && (
+      {!loading && mixerProfile && (
         <>
-          <div className="score-profile-editor-head">
-            <strong>{draft.name}{draft.type === "preset" ? " 프리셋" : ""}</strong>
-            <div>
-              {draft.type === "preset" && (
-                <button type="button" disabled={disabled || working || customCount >= maxCustomProfiles} onClick={beginCustomDraft}><GitBranch size={13} /> 이 프리셋에서 시작</button>
-              )}
-              {dirty && selectedProfile && <button type="button" disabled={editorDisabled} onClick={resetDraft}><RotateCcw size={13} /> 되돌리기</button>}
-            </div>
-          </div>
+          {draft && (
+            <section className="score-profile-current-editor" aria-label="현재 선택한 로직">
+              <div className="score-profile-current-identity">
+                <label className="score-profile-current-name">
+                  <input
+                    value={draft.name}
+                    maxLength={40}
+                    disabled={editorDisabled}
+                    aria-label="현재 선택한 로직 이름"
+                    onChange={(event) => updateEditableDraft((current) => ({ ...current, name: event.target.value }))}
+                  />
+                </label>
+                {suggestion && (
+                  <span className="score-profile-current-rationale">
+                    <button type="button" aria-label="AI 제안 근거" title="AI 제안 근거">
+                      <Info size={14} aria-hidden="true" />
+                    </button>
+                    <span className="score-profile-ai-rationale" role="tooltip">
+                      <strong>제안 근거</strong>
+                      <p>{suggestionRationaleSummary(suggestion)}</p>
+                    </span>
+                  </span>
+                )}
+              </div>
+              <div className="score-profile-current-actions">
+                <button
+                  type="button"
+                  className="is-icon"
+                  disabled={editorDisabled || !dirty}
+                  aria-label="변경사항 되돌리기"
+                  title="변경사항 되돌리기"
+                  onClick={resetDraft}
+                ><RotateCcw size={14} aria-hidden="true" /></button>
+                <button
+                  type="button"
+                  className="is-icon"
+                  disabled={editorDisabled || Boolean(validationError) || customSlotUnavailable || Boolean(draft.id && !dirty)}
+                  aria-label="추천 로직 저장"
+                  title={customSlotUnavailable ? `사용자 프로필은 최대 ${maxCustomProfiles}개까지 저장할 수 있습니다.` : "추천 로직 저장"}
+                  onClick={save}
+                ><Save size={14} aria-hidden="true" /></button>
+                <button
+                  type="button"
+                  className="is-primary"
+                  disabled={editorDisabled || Boolean(validationError) || customSlotUnavailable}
+                  title={customSlotUnavailable ? `사용자 프로필은 최대 ${maxCustomProfiles}개까지 저장할 수 있습니다.` : undefined}
+                  onClick={activate}
+                >저장하고 추천 재계산</button>
+              </div>
+            </section>
+          )}
 
-          {draft.type === "custom" && <div className="score-profile-actions">
-            {draft.id && <button type="button" className="is-danger" disabled={editorDisabled} onClick={remove}><Trash2 size={13} aria-hidden="true" /></button>}
-            <button type="button" disabled={editorDisabled || Boolean(validationError) || !dirty} onClick={save}><Save size={13} /> 저장</button>
-            <button
-              type="button"
-              className="is-primary"
-              disabled={editorDisabled || Boolean(validationError)}
-              onClick={activate}
-            >저장하고 추천 재계산</button>
-          </div>}
+          {customProfiles.length > 0 && (
+            <section className="score-profile-saved-library" aria-label="저장된 추천 로직">
+              <header><strong>저장된 로직</strong></header>
+              <div className="score-profile-list" role="listbox" aria-label="내 추천 로직 목록">
+                {customProfiles.map((profile) => {
+                  const key = profileKey(profile);
+                  const selected = key === selectedCustomKey;
+                  return (
+                    <div key={key} className={`score-profile-list-item ${selected ? "is-selected" : ""}`} role="option" aria-selected={selected}>
+                      <button type="button" className="score-profile-list-select" disabled={disabled || working} onClick={() => selectCustom(profile)}>
+                        <span>{profile.name}</span>
+                        <em>{key === activeKey ? "활성" : `r${profile.revision}`}</em>
+                      </button>
+                      <button
+                        type="button"
+                        className="score-profile-list-delete"
+                        disabled={disabled || working}
+                        aria-label={`${profile.name} 삭제`}
+                        title={`${profile.name} 삭제`}
+                        onClick={() => remove(profile)}
+                      ><Trash2 size={13} aria-hidden="true" /></button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           <div className="score-profile-editor">
-            {draft.type === "custom" && (
-              <label className="score-profile-name"><span>로직 이름</span><input value={draft.name} maxLength={40} disabled={editorDisabled} onChange={(event) => updateEditableDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-            )}
             <ScoreWeightMixer
-              key={`${selectedKey}:${draft.type}`}
-              profile={draft}
+              profile={mixerProfile}
               disabled={editorDisabled}
-              onChange={(next) => updateEditableDraft(() => next)}
+              onChange={updateMixerProfile}
             />
           </div>
 
-          {validationError && draft.type === "custom" && <p className="investment-profile-error">{validationError}</p>}
+          {validationError && draft?.type === "custom" && <p className="investment-profile-error">{validationError}</p>}
         </>
       )}
       {message && <p className="investment-profile-message">{message}</p>}
@@ -562,6 +620,23 @@ function cloneProfile(profile: ScoreProfile): ScoreProfile {
   return JSON.parse(JSON.stringify(profile)) as ScoreProfile;
 }
 
+function editableDraftFromProfile(profile: ScoreProfile, profiles: readonly ScoreProfile[]): ScoreProfile {
+  return profile.type === "preset"
+    ? toCustomDraft(profile, availableCustomName(profile.name, profiles))
+    : cloneProfile(profile);
+}
+
+function copyProfileWeights(target: ScoreProfile, source: ScoreProfile): ScoreProfile {
+  const clonedSource = cloneProfile(source);
+  return {
+    ...target,
+    blockWeights: clonedSource.blockWeights,
+    factorWeights: clonedSource.factorWeights,
+    portfolioWeight: source.portfolioWeight,
+    portfolioFactorWeights: clonedSource.portfolioFactorWeights
+  };
+}
+
 function toCustomDraft(profile: ScoreProfile, name: string): ScoreProfile {
   return {
     ...cloneProfile(profile),
@@ -599,11 +674,16 @@ function availableSuggestedName(baseName: string, profiles: readonly ScoreProfil
   return `${clean.slice(0, 34)} 새 버전`;
 }
 
-function topSuggestedBlocks(profile: ScoreProfile): string[] {
-  return Object.entries(profile.blockWeights)
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 3)
-    .map(([block, weight]) => `${recommendationBlockLabels[block] ?? block} ${weight}%`);
+function suggestionDraft(suggestion: ScoreProfileSuggestion, profiles: readonly ScoreProfile[]): ScoreProfile {
+  const draft = cloneProfile(suggestion.profile);
+  draft.type = "custom";
+  draft.id = null;
+  draft.name = availableSuggestedName(suggestion.name, profiles);
+  draft.revision = 0;
+  draft.digest = undefined;
+  draft.createdAt = undefined;
+  draft.updatedAt = undefined;
+  return draft;
 }
 
 export function suggestionRationaleSummary(suggestion: ScoreProfileSuggestion): string {
@@ -612,7 +692,11 @@ export function suggestionRationaleSummary(suggestion: ScoreProfileSuggestion): 
     .map((document) => document.title.replace(/ 확인$/, ""));
   const focusLabel = focus.length > 0
     ? focus.join("·")
-    : topSuggestedBlocks(suggestion.profile).slice(0, 2).join("·");
+    : Object.entries(suggestion.profile.blockWeights)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 2)
+      .map(([block, weight]) => `${recommendationBlockLabels[block] ?? block} ${weight}%`)
+      .join("·");
   return `${focusLabel}에 비중을 둔 로직입니다. 체결 여건과 기업 품질까지 함께 반영해 신호의 안정성을 높였습니다.`;
 }
 

@@ -7,7 +7,9 @@ import {
   effectiveRecommendationScore,
   emptyMetricRanges,
   filterDiscoveryRows,
-  recommendationScoreBreakdown
+  recommendationScoreBreakdown,
+  resolveSimulationDemoRecommendationStage,
+  simulationDemoRecommendationStorageKey
 } from "../src/recommendations/StockDiscoveryPanel";
 import type { StockRecommendationItem } from "../src/recommendations/recommendationApi";
 import { rebalanceWeights } from "../src/recommendations/ScoreProfileManager";
@@ -33,6 +35,29 @@ assert.equal(rows[0].recommendation?.score, 78, "the highest-score duplicate rec
 assert.equal(rows[0].volumeRank, 4);
 assert.equal(rows[1].volumeRank, 1);
 assert.equal(effectiveRecommendationScore({ ...recommendations[0], customRankScore: 94.5 }), 94.5);
+assert.equal(
+  resolveSimulationDemoRecommendationStage({ mode: "simulation", runId: "run-new" }, () => null),
+  "baseline",
+  "a simulator run without a stored interaction starts at the baseline stage"
+);
+assert.equal(
+  resolveSimulationDemoRecommendationStage(
+    { mode: "simulation", runId: "run-current" },
+    (key) => key === simulationDemoRecommendationStorageKey("run-current") ? "volume_trend" : null
+  ),
+  "volume_trend",
+  "the applied stage is restored only for the same simulator run"
+);
+assert.equal(
+  resolveSimulationDemoRecommendationStage({ mode: "simulation", runId: "run-next" }, () => null),
+  "baseline",
+  "a different simulator run resets the recommendation demo"
+);
+assert.equal(
+  resolveSimulationDemoRecommendationStage({ mode: "live", runId: null }, () => "volume_trend"),
+  null,
+  "live recommendations are never hardcoded"
+);
 assert.deepEqual(recommendationScoreBreakdown({
   ...recommendations[0],
   metricsSnapshot: {

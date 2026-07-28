@@ -30,6 +30,7 @@ export type SimulatorHeatmapItem = {
 
 export type SimulatorStatus = {
   available: boolean;
+  canControl?: boolean;
   mode: SimulatorMode;
   state: SimulatorState;
   datasetId: string;
@@ -207,6 +208,7 @@ export function latestSimulatorStatus(): SimulatorStatus | null {
 function normalizeSimulatorStatus(status: SimulatorStatus): SimulatorStatus {
   return {
     ...status,
+    canControl: status.canControl === true,
     requestedSpeed: normalizeSimulatorSpeed(status.requestedSpeed)
   };
 }

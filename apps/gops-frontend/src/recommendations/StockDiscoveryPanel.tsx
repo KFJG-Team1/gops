@@ -5,13 +5,15 @@ import { LogoDevAttribution, StockLogo } from "../components/StockLogo";
 import { formatKoreanCompactUsd } from "../currencyFormat";
 import { canonicalSectorOptions, normalizeSector, sectorLabelKo } from "../market/sectors";
 import type { Sp500UniverseItem } from "../market/sp500Universe.seed";
+import { latestSimulatorStatus, simulatorStatusEvent, type SimulatorStatus } from "../simulator/simulatorApi";
 import {
   fetchStockRecommendations,
   refreshStockRecommendations,
+  type SimulationDemoRecommendationStage,
   type StockRecommendationItem,
   type StockRecommendationPayload
 } from "./recommendationApi";
-import { recommendationBlockLabels, ScoreProfileManager } from "./ScoreProfileManager";
+import { isSimulationDemoScoreProfile, recommendationBlockLabels, ScoreProfileManager } from "./ScoreProfileManager";
 import type { StockRecommendationSelection } from "./StockRecommendationsPanel";
 
 export const DISCOVERY_PAGE_SIZE = 50;
@@ -61,6 +63,21 @@ const modeLimitOptions: Record<DiscoveryListMode, number[]> = {
   all: []
 };
 
+export function simulationDemoRecommendationStorageKey(runId: string): string {
+  return `gops:simulation:${runId}:recommendation-demo-stage.v1`;
+}
+
+export function resolveSimulationDemoRecommendationStage(
+  status: Pick<SimulatorStatus, "mode" | "runId"> | null,
+  readStoredValue: (key: string) => string | null
+): SimulationDemoRecommendationStage | null {
+  const runId = status?.mode === "simulation" ? status.runId?.trim() : "";
+  if (!runId) return null;
+  return readStoredValue(simulationDemoRecommendationStorageKey(runId)) === "volume_trend"
+    ? "volume_trend"
+    : "baseline";
+}
+
 export function StockDiscoveryPanel({
   activeSymbol,
   sourcePanelId,
@@ -85,6 +102,10 @@ export function StockDiscoveryPanel({
   initialPopular?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<"list" | "logic">("list");
+  const [simulatorStatus, setSimulatorStatus] = useState<SimulatorStatus | null>(() => latestSimulatorStatus());
+  const [simulationDemoStage, setSimulationDemoStage] = useState<SimulationDemoRecommendationStage | null>(() => (
+    resolveSimulationDemoRecommendationStage(latestSimulatorStatus(), readSessionStorage)
+  ));
   const [payload, setPayload] = useState<StockRecommendationPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -102,7 +123,7 @@ export function StockDiscoveryPanel({
     setLoading(true);
     setError(null);
     try {
-      setPayload(await fetchStockRecommendations(signal));
+      setPayload(await fetchStockRecommendations(signal, simulationDemoStage));
     } catch (caught) {
       if (!(caught instanceof DOMException && caught.name === "AbortError")) {
         setError(caught instanceof Error ? caught.message : "추천을 불러오지 못했습니다.");
@@ -110,26 +131,37 @@ export function StockDiscoveryPanel({
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, []);
+  }, [simulationDemoStage]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (stageOverride?: SimulationDemoRecommendationStage | null) => {
     setRefreshing(true);
     setError(null);
     try {
-      setPayload(await refreshStockRecommendations(activeSymbol));
+      const effectiveStage = stageOverride === undefined ? simulationDemoStage : stageOverride;
+      setPayload(await refreshStockRecommendations(activeSymbol, undefined, effectiveStage));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "추천을 갱신하지 못했습니다.");
     } finally {
       setRefreshing(false);
       setLoading(false);
     }
-  }, [activeSymbol]);
+  }, [activeSymbol, simulationDemoStage]);
 
   useEffect(() => {
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  useEffect(() => {
+    const handleStatus = (event: Event) => {
+      const nextStatus = (event as CustomEvent<SimulatorStatus>).detail ?? null;
+      setSimulatorStatus(nextStatus);
+      setSimulationDemoStage(resolveSimulationDemoRecommendationStage(nextStatus, readSessionStorage));
+    };
+    window.addEventListener(simulatorStatusEvent, handleStatus);
+    return () => window.removeEventListener(simulatorStatusEvent, handleStatus);
+  }, []);
 
   const rows = useMemo(() => buildDiscoveryRows(marketItems, payload?.items ?? []), [marketItems, payload?.items]);
   const normalizedQuery = query.trim().toLocaleLowerCase("ko-KR");
@@ -184,7 +216,7 @@ export function StockDiscoveryPanel({
               <Search size={14} aria-hidden="true" />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="티커·기업·산업·섹터 검색" />
             </label>
-            <button type="button" className="panel-icon-button" title="추천 갱신" disabled={loading || refreshing} onClick={refresh}>
+            <button type="button" className="panel-icon-button" title="추천 갱신" disabled={loading || refreshing} onClick={() => void refresh()}>
               {refreshing ? <LoaderCircle size={14} className="spin" /> : <RefreshCcw size={14} />}
             </button>
           </header>
@@ -307,15 +339,24 @@ export function StockDiscoveryPanel({
         </>
       ) : (
         <section className="stock-discovery-logic-page" aria-label="추천 로직 세부 가중치">
-          <header><strong>추천 점수 설계</strong></header>
-            <div className="stock-discovery-logic-scroll">
-              <ScoreProfileManager
-                onActivated={() => {
-                  setActiveTab("list");
-                  void refresh();
-                }}
-              />
-            </div>
+          <div className="stock-discovery-logic-scroll">
+            <ScoreProfileManager
+              onActivated={(investmentProfile) => {
+                const runId = simulatorStatus?.mode === "simulation" ? simulatorStatus.runId?.trim() : "";
+                const nextStage = runId && isSimulationDemoScoreProfile(investmentProfile.activeScoreProfile)
+                  ? "volume_trend"
+                  : simulatorStatus?.mode === "simulation" ? "baseline" : null;
+                if (runId) {
+                  const key = simulationDemoRecommendationStorageKey(runId);
+                  if (nextStage === "volume_trend") window.sessionStorage.setItem(key, nextStage);
+                  else window.sessionStorage.removeItem(key);
+                }
+                setSimulationDemoStage(nextStage);
+                setActiveTab("list");
+                void refresh(nextStage);
+              }}
+            />
+          </div>
         </section>
       )}
     </section>
@@ -546,6 +587,15 @@ function recordValue(value: unknown): Record<string, unknown> {
 
 function finiteValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readSessionStorage(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
 
 function normalizePercentWeight(value: number | null): number | null {
